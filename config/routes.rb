@@ -9,6 +9,7 @@ Rails.application.routes.draw do
   # get "manifest" => "rails/pwa#manifest", as: :pwa_manifest
   # get "service-worker" => "rails/pwa#service_worker", as: :pwa_service_worker
 
-  # Defines the root path route ("/")
-  # root "posts#index"
+  # ── 표면 ① 랜딩 ───────────────────────────────
+  # 비로그인 공개(SURF-1) — 색인 허용(SURF-3), ①→② 진입은 소셜 로그인 CTA 단일(SURF-4)
+  root "landing#index"
 end

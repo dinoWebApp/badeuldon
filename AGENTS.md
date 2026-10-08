@@ -142,7 +142,8 @@ bin/jobs             # Solid Queue 잡 프로세스 (웹과 별도 실행)
 
 ## 구현 진행 상황 (로드맵)
 
-- **완료**: Rails 8.1 스켈레이션 생성, PRD v0.17, ARCHITECTURE_CONVENTION v1.0.0, 하네스 구축
+- **완료**: Rails 8.1 스켈레이션 생성, PRD v0.17.1, ARCHITECTURE_CONVENTION v1.0.0, 하네스 구축 + E2E 파이프라인 검증(승인 게이트·에이전트 3종 스폰·리뷰·테스트·실행검증 전 Phase 통과)
+- **구현됨**: 표면 ① 랜딩 루트 골격 — LP-1 히어로(Q6 확정 문구, CTA 비활성), SURF-1/3/4/6 준수, 통합 테스트 7건 (`2026-10-08`, `_workspace/` 참조). 후속: LP-2~13 섹션, F-AUTH 완료 시 CTA 연결, ② 구축 시 ① 전용 레이아웃 분리(리뷰 WARNING), Pretendard 도입
 - **진행 중**: 없음
-- **예정**: PRD §6 기능 명세 순차 구현 (권장 순서: F-AUTH → F-CLIENT → F-INV → F-SHARE → F-VIEW → F-REM → F-PROMISE → F-PAY → F-DASH → F-PLAN → F-ADMIN → F-LEGAL/REF/TAX → F-SURF/LP/BLOG)
+- **예정**: PRD §6 기능 명세 순차 구현 (권장 순서: F-AUTH → F-CLIENT → F-INV → F-SHARE → F-VIEW → F-REM → F-PROMISE → F-PAY → F-DASH → F-PLAN → F-ADMIN → F-LEGAL/REF/TAX → F-SURF/LP/BLOG 잔여)
 - **작업 재개 가이드**: `.omp/progress.json`의 `currentPhase` 확인 → `awaiting_approval`이면 플랜 재보고 후 승인 대기, 그 외에는 다음 Phase부터 재개. 산출물은 `_workspace/`.
