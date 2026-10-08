@@ -21,7 +21,8 @@ module Badeuldon
     # These settings can be overridden in specific environments using the files
     # in config/environments, which are processed later.
     #
-    # config.time_zone = "Central Time (US & Canada)"
+    # TIME-1: 모든 일정·발송 기준 시간대는 KST 고정 (PRD §6.17)
+    config.time_zone = "Seoul"
     # config.eager_load_paths << Rails.root.join("extras")
   end
 end
