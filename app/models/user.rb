@@ -2,6 +2,8 @@
 class User < ApplicationRecord
   has_secure_password
   has_many :sessions, dependent: :destroy
+  has_many :clients, dependent: :destroy  # CLIENT-1 — 탈퇴 시 거래처 데이터 삭제(AUTH-1.5)
+  has_many :items, dependent: :destroy    # CLIENT-2 — 탈퇴 시 품목 데이터 삭제(AUTH-1.5)
 
   # AUTH-1.3 사업자 유형 — 사업자(business)·프리랜서(freelancer, 3.3% 원천징수 해당).
   # 미선택 허용: 가입 시점엔 결정하지 않고, 프로필 설정(:profile 컨텍스트)에서 필수가 된다.

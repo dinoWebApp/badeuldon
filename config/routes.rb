@@ -8,6 +8,8 @@ Rails.application.routes.draw do
   namespace :app do
     root to: "dashboards#show"                  # DASH-1/2/4 — /app 진입 셸
     resource :profile, only: %i[ edit update ]  # AUTH-1.3 최초 프로필 설정(/app/profile)
+    resources :clients                          # CLIENT-1 — 거래처 CRUD
+    resources :items                            # CLIENT-2 — 품목 라이브러리 CRUD
   end
 
   # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html

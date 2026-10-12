@@ -1,0 +1,17 @@
+<%# 품목(CLIENT-2) fixtures — 품목 라이브러리는 플랜 한도가 없어 소유자별 소량만 유지한다.
+    beta 품목은 소유권 격리(타 사용자 접근 시 404) 검증용. 금액은 정수(원). %>
+
+gamma_design:
+  user: gamma
+  name: "웹 디자인 시안"
+  unit_price: 150000
+
+alpha_logo:
+  user: alpha
+  name: "로고 디자인"
+  unit_price: 50000
+
+beta_item:
+  user: beta
+  name: "베타 전용 품목"
+  unit_price: 7777

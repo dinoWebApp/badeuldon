@@ -1,0 +1,53 @@
+<% content_for :title, "거래처 — 받을돈" %>
+
+<%# 표면 ② 거래처(CLIENT-1) — 목록·등록·수정·삭제. Free 거래처 한도(PLAN-1)에 도달하면
+    등록 CTA를 비활성화하고 Plus 안내 배너로 대체한다(문구는 LP-12 준칙 — 확정 보장 금지). %>
+<div class="py-8">
+  <header class="flex flex-wrap items-start justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight text-emerald-900">거래처</h1>
+      <p class="mt-2 text-sm leading-relaxed text-stone-500">
+        청구서를 보낼 거래처와 담당자 정보를 관리합니다.
+      </p>
+    </div>
+    <% if @limit_reached %>
+      <span aria-disabled="true"
+            class="inline-flex min-h-11 cursor-not-allowed items-center rounded-xl bg-stone-200 px-5 text-sm font-bold text-stone-500">
+        새 거래처 등록
+      </span>
+    <% else %>
+      <%= link_to "새 거래처 등록", new_app_client_path,
+            class: "inline-flex min-h-11 items-center rounded-xl bg-emerald-800 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+    <% end %>
+  </header>
+
+  <% if @limit_reached %>
+    <%# PLAN-1 — Free 거래처 5개 한도 안내(PLAN-2 승격 유도). 승격 전환은 F-PLAN에서 열린다 %>
+    <div class="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5" role="status">
+      <p class="text-sm font-bold text-stone-800">
+        Free 플랜은 거래처 <%= Client::FREE_CLIENT_LIMIT %>개까지입니다.
+      </p>
+      <p class="mt-1.5 text-sm leading-relaxed text-stone-600">
+        Plus 플랜에서는 거래처를 무제한으로 등록할 수 있습니다.
+      </p>
+    </div>
+  <% end %>
+
+  <% if @clients.any? %>
+    <ul class="mt-6 grid gap-4 sm:grid-cols-2" aria-label="거래처 목록">
+      <%= render @clients %>
+    </ul>
+  <% else %>
+    <%# 빈 상태 — 첫 거래처 등록 유도(대시보드 빈 상태 패턴과 동일 문법) %>
+    <div class="mt-6 rounded-2xl border border-dashed border-stone-300 bg-white/60 p-10 text-center sm:p-14">
+      <p class="text-base font-bold text-stone-800">첫 거래처를 등록하세요</p>
+      <p class="mt-2 text-sm leading-relaxed text-stone-500">
+        거래처명·담당자·알림 수신 번호를 저장해 두면 청구서 발행 때 바로 선택할 수 있습니다.
+      </p>
+      <% unless @limit_reached %>
+        <%= link_to "거래처 등록하기", new_app_client_path,
+              class: "mt-6 inline-flex min-h-11 items-center rounded-xl bg-emerald-800 px-6 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+      <% end %>
+    </div>
+  <% end %>
+</div>

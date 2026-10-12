@@ -10,7 +10,29 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_12_000001) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_12_000003) do
+  create_table "clients", force: :cascade do |t|
+    t.integer "user_id", null: false
+    t.string "name", null: false
+    t.string "contact_name", null: false
+    t.string "phone", null: false
+    t.string "email"
+    t.string "business_number"
+    t.text "memo"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["user_id"], name: "index_clients_on_user_id"
+  end
+
+  create_table "items", force: :cascade do |t|
+    t.integer "user_id", null: false
+    t.string "name", null: false
+    t.integer "unit_price", default: 0, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["user_id"], name: "index_items_on_user_id"
+  end
+
   create_table "sessions", force: :cascade do |t|
     t.integer "user_id", null: false
     t.string "ip_address"
@@ -34,5 +56,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_12_000001) do
     t.index ["email"], name: "index_users_on_email", unique: true
   end
 
+  add_foreign_key "clients", "users"
+  add_foreign_key "items", "users"
   add_foreign_key "sessions", "users"
 end

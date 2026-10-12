@@ -1,0 +1,55 @@
+<%# 거래처(CLIENT-1) fixtures — alpha 5개는 PLAN-1 Free 한도 도달 상태(6번째 등록 차단 검증).
+    gamma는 CRUD 정상 경로(한도 미도달), beta는 소유권 격리(타 사용자 접근 404) 검증용.
+    alpha·beta는 프로필 미완료(AUTH-1.3 가드)라 컨트롤러 테스트에서 테스트 내 프로필 완료 후 사용한다. %>
+
+# ── alpha — PLAN-1 한도(5개) 도달 상태 ──
+alpha_client_1:
+  user: alpha
+  name: "알파컴퍼니"
+  contact_name: "김철수"
+  phone: "010-1111-2222"
+  email: "kim@alphaco.kr"
+  business_number: "111-11-11111"
+  memo: "지급 조건: 월말 결제"
+
+alpha_client_2:
+  user: alpha
+  name: "알파트레이딩"
+  contact_name: "이영희"
+  phone: "01022223333"
+
+alpha_client_3:
+  user: alpha
+  name: "알파디자인"
+  contact_name: "박민수"
+  phone: "010-3333-4444"
+  email: "park@alphadesign.kr"
+
+alpha_client_4:
+  user: alpha
+  name: "알파프린트"
+  contact_name: "최지우"
+  phone: "010-4444-5555"
+
+alpha_client_5:
+  user: alpha
+  name: "알파스튜디오"
+  contact_name: "정하늘"
+  phone: "010-5555-6666"
+  memo: "선입금 거래처"
+
+# ── gamma — CRUD 정상 경로(한도 미도달) ──
+gamma_main:
+  user: gamma
+  name: "감마파트너스"
+  contact_name: "감과장"
+  phone: "010-7777-8888"
+  email: "partner@gammapartners.co.kr"
+  business_number: "777-77-77777"
+
+# ── beta — 소유권 격리 검증(타 사용자 접근 시 404 대상) ──
+beta_secret:
+  user: beta
+  name: "베타비밀거래처"
+  contact_name: "베타대표"
+  phone: "010-9999-0000"

@@ -1,0 +1,13 @@
+<% content_for :title, "새 품목 등록 — 받을돈" %>
+
+<%# 품목 등록(CLIENT-2) — 품목명·단가만 입력받는다(PRD 명시 필드 외 추가 금지) %>
+<div class="mx-auto w-full max-w-xl py-12">
+  <header>
+    <h1 class="text-2xl font-bold tracking-tight text-emerald-900 sm:text-3xl">새 품목 등록</h1>
+    <p class="mt-2 text-sm leading-relaxed text-stone-500">
+      품목명과 단가를 저장하면 청구서 작성 때 바로 선택할 수 있습니다.
+    </p>
+  </header>
+
+  <%= render "form", item: @item %>
+</div>

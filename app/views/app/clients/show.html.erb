@@ -1,0 +1,47 @@
+<% content_for :title, "#{@client.name} — 받을돈" %>
+
+<%# 거래처 상세(CLIENT-1) — 등록 정보 전체 확인 + 편집·코드. 누적 청구액 등 거래처 카드(CLIENT-3)는 F-INV 후속 %>
+<div class="mx-auto w-full max-w-xl py-8">
+  <p class="text-sm">
+    <%= link_to "← 거래처 목록", app_clients_path, class: "font-semibold text-stone-500 transition hover:text-stone-800" %>
+  </p>
+
+  <header class="mt-4">
+    <h1 class="text-2xl font-bold tracking-tight text-emerald-900"><%= @client.name %></h1>
+    <p class="mt-2 text-sm leading-relaxed text-stone-500"><%= @client.contact_name %> 담당</p>
+  </header>
+
+  <section aria-labelledby="client-detail" class="mt-6 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+    <h2 id="client-detail" class="text-base font-bold text-stone-800">거래처 정보</h2>
+    <dl class="mt-5 divide-y divide-stone-100">
+      <div class="flex items-start justify-between gap-4 py-3">
+        <dt class="shrink-0 text-sm text-stone-400">담당자명</dt>
+        <dd class="text-right text-sm font-medium text-stone-700"><%= @client.contact_name %></dd>
+      </div>
+      <div class="flex items-start justify-between gap-4 py-3">
+        <dt class="shrink-0 text-sm text-stone-400">알림 수신 번호</dt>
+        <dd class="text-right text-sm font-medium text-stone-700"><%= @client.phone %></dd>
+      </div>
+      <div class="flex items-start justify-between gap-4 py-3">
+        <dt class="shrink-0 text-sm text-stone-400">이메일</dt>
+        <dd class="text-right text-sm font-medium text-stone-700"><%= @client.email.presence || "—" %></dd>
+      </div>
+      <div class="flex items-start justify-between gap-4 py-3">
+        <dt class="shrink-0 text-sm text-stone-400">사업자번호</dt>
+        <dd class="text-right text-sm font-medium tabular-nums text-stone-700"><%= @client.business_number.presence || "—" %></dd>
+      </div>
+      <div class="flex items-start justify-between gap-4 py-3">
+        <dt class="shrink-0 text-sm text-stone-400">메모</dt>
+        <dd class="whitespace-pre-line text-right text-sm font-medium text-stone-700"><%= @client.memo.presence || "—" %></dd>
+      </div>
+    </dl>
+  </section>
+
+  <div class="mt-6 flex items-center justify-between gap-3">
+    <%= link_to "정보 수정", edit_app_client_path(@client),
+          class: "inline-flex min-h-11 items-center rounded-xl bg-emerald-800 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+    <%= button_to "삭제", app_client_path(@client), method: :delete,
+          data: { turbo_confirm: "이 거래처를 삭제하시겠습니까?" },
+          class: "inline-flex min-h-11 cursor-pointer items-center rounded-xl border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-500 transition hover:border-red-300 hover:text-red-600" %>
+  </div>
+</div>

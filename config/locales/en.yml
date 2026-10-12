@@ -52,3 +52,25 @@ en:
               invalid: "연락처 형식이 올바르지 않습니다. 예) 010-1234-5678"
             account_number:
               invalid: "계좌번호 형식을 확인해 주세요. 숫자와 하이픈(-)으로 5자 이상 입력해 주세요."
+        client:
+          attributes:
+            name:
+              blank: "거래처명을 입력해 주세요."
+            contact_name:
+              blank: "담당자명을 입력해 주세요."
+            phone:
+              blank: "휴대폰 번호를 입력해 주세요."
+              invalid: "휴대폰 번호 형식이 올바르지 않습니다. 예) 010-1234-5678"
+            email:
+              invalid: "이메일 형식이 올바르지 않습니다. 예) name@example.com"
+        item:
+          attributes:
+            name:
+              blank: "품목명을 입력해 주세요."
+            unit_price:
+              blank: "단가를 입력해 주세요."
+              not_a_number: "단가는 0원 이상의 정수로 입력해 주세요."
+              not_an_integer: "단가는 0원 이상의 정수로 입력해 주세요."
+              greater_than_or_equal_to: "단가는 0원 이상의 정수로 입력해 주세요."
+              # 수치는 app/models/item.rb의 Item::MAX_UNIT_PRICE와 짝을 이룬다.
+              less_than_or_equal_to: "단가는 1,000,000,000원 이하로 입력해 주세요."

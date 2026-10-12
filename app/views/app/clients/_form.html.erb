@@ -1,0 +1,89 @@
+<%# 거래처 등록·수정 공용 폼(CLIENT-1) — 필수 3종 + 선택 3종. 실패 재렌더는 422(규약 §3.3),
+    성공은 303 리다이렉트로 목록에 반영한다. %>
+<%= form_with model: [:app, client], class: "mt-8 space-y-6" do |form| %>
+  <% if client.errors.any? %>
+    <div class="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600" role="alert">
+      <ul class="list-disc space-y-1 pl-5">
+        <% client.errors.full_messages.each do |message| %>
+          <li><%= message %></li>
+        <% end %>
+      </ul>
+    </div>
+  <% end %>
+
+  <section class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+    <h2 class="text-base font-bold text-stone-800">거래처 정보</h2>
+
+    <div class="mt-5">
+      <%= form.label :name, "거래처명", class: "block text-sm font-medium text-stone-700" %>
+      <%= form.text_field :name, required: true, autofocus: true, maxlength: 50,
+            placeholder: "예) 주식회사 디자인하우스",
+            class: form_input_classes(client, :name) %>
+      <% if form_error_message(client, :name) %>
+        <p class="mt-1.5 text-xs font-medium text-red-600"><%= form_error_message(client, :name) %></p>
+      <% end %>
+    </div>
+
+    <div class="mt-6 grid gap-6 sm:grid-cols-2">
+      <div>
+        <%= form.label :contact_name, "담당자명", class: "block text-sm font-medium text-stone-700" %>
+        <%= form.text_field :contact_name, required: true, maxlength: 30,
+              placeholder: "예) 박과장",
+              class: form_input_classes(client, :contact_name) %>
+        <% if form_error_message(client, :contact_name) %>
+          <p class="mt-1.5 text-xs font-medium text-red-600"><%= form_error_message(client, :contact_name) %></p>
+        <% end %>
+      </div>
+      <div>
+        <%= form.label :phone, "알림 수신 휴대폰 번호", class: "block text-sm font-medium text-stone-700" %>
+        <%= form.telephone_field :phone, required: true, inputmode: "tel", maxlength: 14,
+              placeholder: "예) 010-1234-5678",
+              class: form_input_classes(client, :phone) %>
+        <p class="mt-1.5 text-xs text-stone-500">리마인더 알림톡이 발송될 번호입니다.</p>
+        <% if form_error_message(client, :phone) %>
+          <p class="mt-1.5 text-xs font-medium text-red-600"><%= form_error_message(client, :phone) %></p>
+        <% end %>
+      </div>
+    </div>
+
+    <div class="mt-6 grid gap-6 sm:grid-cols-2">
+      <div>
+        <%= form.label :email, "이메일", class: "block text-sm font-medium text-stone-700" %>
+        <%= form.email_field :email, maxlength: 100,
+              placeholder: "예) park@designhouse.co.kr",
+              class: form_input_classes(client, :email) %>
+        <p class="mt-1.5 text-xs text-stone-500">선택 입력입니다.</p>
+        <% if form_error_message(client, :email) %>
+          <p class="mt-1.5 text-xs font-medium text-red-600"><%= form_error_message(client, :email) %></p>
+        <% end %>
+      </div>
+      <div>
+        <%= form.label :business_number, "사업자번호", class: "block text-sm font-medium text-stone-700" %>
+        <%= form.text_field :business_number, inputmode: "numeric", maxlength: 12,
+              placeholder: "예) 123-45-67890",
+              class: form_input_classes(client, :business_number) %>
+        <p class="mt-1.5 text-xs text-stone-500">선택 입력입니다.</p>
+      </div>
+    </div>
+
+    <div class="mt-6">
+      <%= form.label :memo, "메모", class: "block text-sm font-medium text-stone-700" %>
+      <%= form.text_area :memo, rows: 3, maxlength: 500,
+            placeholder: "예) 지급 마감은 매월 말일, 익월 10일 지급",
+            class: form_input_classes(client, :memo) %>
+      <p class="mt-1.5 text-xs text-stone-500">선택 입력입니다. 지급 조건·특이 사항을 기록합니다.</p>
+    </div>
+  </section>
+
+  <div class="border-t border-stone-200 pt-6">
+    <%# PLAN-1 — 한도 도달 시 등록을 막고 배너로 대체 안내한다(서버 검증이 최종 게이트) %>
+    <%= form.submit "저장",
+          disabled: limit_reached,
+          aria: { disabled: (true if limit_reached) },
+          class: limit_reached \
+            ? "w-full cursor-not-allowed rounded-xl bg-stone-200 px-6 py-3 text-base font-bold text-stone-400" \
+            : "w-full cursor-pointer rounded-xl bg-emerald-800 px-6 py-3 text-base font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+    <%= link_to "취소", app_clients_path,
+          class: "mt-3 block w-full rounded-xl border border-stone-300 bg-white px-6 py-3 text-center text-sm font-semibold text-stone-600 transition hover:border-stone-400 hover:text-stone-800" %>
+  </div>
+<% end %>

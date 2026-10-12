@@ -23,6 +23,23 @@ class Surf3IndexingTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "거래처·품목 화면(/app/clients·/app/items)도 noindex 메타를 출력한다 (SURF-3)" do
+    sign_in_as users(:gamma)
+    get app_clients_path
+    assert_response :success
+    assert_select "meta[name=robots]" do |metas|
+      assert_equal 1, metas.size
+      assert_match(/noindex/, metas.first["content"])
+    end
+
+    get app_items_path
+    assert_response :success
+    assert_select "meta[name=robots]" do |metas|
+      assert_equal 1, metas.size
+      assert_match(/noindex/, metas.first["content"])
+    end
+  end
+
   test "랜딩은 noindex 메타 없이 색인을 허용한다 (SURF-3 역방향)" do
     get root_url
     assert_select "meta[name=robots]", count: 0

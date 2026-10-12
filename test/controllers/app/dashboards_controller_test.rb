@@ -72,21 +72,40 @@ class App::DashboardsControllerTest < ActionDispatch::IntegrationTest
     assert_select "p", text: "발행된 청구서는 연체일이 긴 순서부터 표시됩니다.", count: 1
   end
 
-  test "사이드바는 대시보드 활성 표시·준비 중 메뉴·설정 실링크를 렌더한다" do
+  test "사이드바는 대시보드 활성 표시·거래처·품목 실링크·청구서 준비 중·설정을 렌더한다 (CLIENT-1·2 전환)" do
     sign_in_as users(:gamma)
     get app_root_path
     assert_response :success
 
-    # 활성 내비 — 대시보드만 aria-current="page"(경로 기반 판정), 설정은 비활성
+    # 활성 내비 — 대시보드만 aria-current="page"(경로 기반 판정), 거래처·품목·설정은 비활성
     assert_select "nav a[aria-current='page']", text: "대시보드", count: 1
+    assert_select "nav a[aria-current='page'][href=?]", app_clients_path, count: 0
+    assert_select "nav a[aria-current='page'][href=?]", app_items_path, count: 0
     assert_select "nav a[aria-current='page'][href=?]", edit_app_profile_path, count: 0
-    # 미구현 메뉴 — 링크 없이 aria-disabled + 준비 중 배지(플랜 결정 #2)
-    assert_select "nav span[aria-disabled='true']", count: 2
+    # 미구현 메뉴 — 청구서만 링크 없이 aria-disabled + 준비 중 배지(플랜 결정 #2)
+    assert_select "nav span[aria-disabled='true']", count: 1
     assert_select "nav span[aria-disabled='true']", text: /\A청구서/, count: 1
-    assert_select "nav span[aria-disabled='true']", text: /\A거래처/, count: 1
-    assert_select "nav span", text: "준비 중", count: 2
+    assert_select "nav span", text: "준비 중", count: 1
+    # 거래처·품목 — 준비 중 배지에서 실링크로 전환(CLIENT-1·2)
+    assert_select "nav a[href=?]", app_clients_path, text: "거래처", count: 1
+    assert_select "nav a[href=?]", app_items_path, text: "품목", count: 1
     # 설정 — AUTH-1.3 프로필 화면 실링크
     assert_select "nav a[href=?]", edit_app_profile_path, text: "설정", count: 1
+  end
+
+  test "사이드바 활성 표시는 거래처·품목 화면에 따라 분기된다 (aria-current)" do
+    sign_in_as users(:gamma)
+
+    get app_clients_path
+    assert_response :success
+    assert_select "nav a[aria-current='page'][href=?]", app_clients_path, text: "거래처", count: 1
+    assert_select "nav a[aria-current='page'][href=?]", app_root_path, count: 0
+    assert_select "nav a[aria-current='page'][href=?]", app_items_path, count: 0
+
+    get app_items_path
+    assert_response :success
+    assert_select "nav a[aria-current='page'][href=?]", app_items_path, text: "품목", count: 1
+    assert_select "nav a[aria-current='page'][href=?]", app_clients_path, count: 0
   end
 
   test "헤더 로그아웃은 DELETE /session button_to와 확인 대화상자를 렌더한다" do

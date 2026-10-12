@@ -1,98 +1,120 @@
-# 07_test_report.md — Phase 7 테스트: /app 대시보드 뼈대 + 레이아웃 분리 + welcome 소멸
+# 07_test_report.md — F-CLIENT 거래처·품목 관리 테스트 (Phase 7)
 
-- **일자**: 2026-10-12
-- **범위**: 기존 실패 16건 갱신(03 §4.2 방향) + /app 셸 신규 시나리오 + Phase 6 수정 3건 반영 확인
-- **기준**: PRD v0.18.2 §6.9(DASH-1/2/4)·§6.2(ONB-1)·§7(SURF-3/4/6)·§6.1(AUTH-1.3), 03 §4.1 리다이렉트 전후표, 05_review.md 「Tester 중점 §1~3」
+- **일자**: 2026-10-12 · **작성자**: ClientTester
+- **대상**: F-CLIENT 거래처(CLIENT-1)·품목(CLIENT-2)·PLAN-1 거래처 한도 + Phase 6 수정 4건 회귀
+- **기준**: PRD v0.18.3 §6.3·§6.10·LP-12, `_workspace/03_implementation.md`(Phase 6 수정 이력), `_workspace/05_review.md`(「Tester 중점」)
 
-## 1. 최종 실행 결과
+## 실행 결과 요약
 
-| 점검 | 결과 |
+| 항목 | 결과 |
 |:---|:---|
-| `bin/rails test` (전체 회귀) | **93 runs, 607 assertions, 0 failures, 0 errors, 0 skips — 전부 통과** |
-| `bin/rubocop` | **0 offenses** (54 files inspected — 신규 파일 포함) |
-| 테스트 소스 미사용 정의 | 0건 — welcome 관련 어설션은 의도적 404 회귀 1건만 잔존 |
-| 외부 API 실호출 | 0건 (대상 스코프에 외부 의존 없음 — stub 불요) |
+| 전체 회귀 `bin/rails test` | ✅ **156 runs, 935 assertions, 0 failures, 0 errors, 0 skips** |
+| 이전 기준(03 §4) 대비 | 93 runs/1 failure → 156 runs/0 failure — **신규 63건 추가, 기존 실패 1건(사이드바) 해소** |
+| `bin/rubocop` | ✅ 64 files inspected, **no offenses** (들여쓰기 2칸 포함) |
+| 코드 버그 | **0건** — 발견 실패 2건 모두 테스트 오류로 자체 수정 후 통과(§ 실패 원인 분류) |
+| 외부 API 실호출 | 0건 — F-CLIENT는 외부 API 미사용 기능(핵클·토스페이먼츠 호출 경로 자체가 없어 stub 불필요) |
 
-- **직전 대비**: 83 runs(2 failures + 14 errors) → 93 runs(0/0). 실패 16건 전부 해소, 신규 10건 추가(dashboards 9 + welcome 소멸 회귀 1), 기존 통과 67건 회귀 0건.
-- **테스트 오류 vs 코드 버그**: 갱신 과정에서 발생한 실패는 전부 테스트 오류(구 어설션이 소멸한 welcome 화면·구 목적지를 참조)로 분류되어 자체 수정으로 해소. **코드 버그 0건** — Developer 코드 수정 없음.
+## 변경 파일
 
-## 2. 기존 16건 갱신 내역 (03 §4.2와 1:1 대응)
-
-| # | 테스트(갱신 후) | 파일 | 갱신 내용 | 결과 |
-|:---|:---|:---|:---|:---|
-| 1 | 정상 가입은 303으로 세션을 시작하고 **프로필 설정으로** 안내한다 | registrations | `edit_app_profile_path` + follow h1 「프로필 설정」·notice 유지 | ✅ |
-| 2 | 가입으로 시작한 세션으로 **/app에** 접근할 수 있다 | registrations | /app 접근 → 미완료 가드 리다이렉트로 세션 유효성 검증(로그인 밀림 아님) | ✅ |
-| 3 | 인증 없이 **/app** 접근은 로그인 화면으로 리다이렉트된다 | registrations | `new_session_path` 목적 보존(05 리뷰 보완노트 반영) | ✅ |
-| 4 | 변형 이메일 가입은 정규화 이메일로 로그인된다 | registrations | 첫 어설션 → `edit_app_profile_path` | ✅ |
-| 5 | 6필드 저장은 303으로 **/app에** 안내하고 6컬럼 전부 반영 | app/profiles | `app_root_url` + follow h1 「대시보드」·notice | ✅ |
-| 6 | 필수 2필드 저장·선택 4필드 공백 | app/profiles | `welcome_url` → `app_root_url` | ✅ |
-| 7 | 소유자 스코프(권한 상향·탈취 불변) | app/profiles | `welcome_url` → `app_root_url` | ✅ |
-| 8 | welcome 미설정 분기 CTA | app/profiles | **삭제**(화면 소멸) → 신규 「프로필 완성 중」 플레이스홀더 테스트로 대체 | ✅ |
-| 9 | welcome 완료 분기 수정 링크 | app/profiles | **삭제**(화면 소멸) → 신규 완료 표시명 헤더 테스트로 대체 | ✅ |
-| 10 | 프로필 완료 후 재로그인하면 **/app으로** 진입한다 | app/profiles | 저장·재로그인 어설션 모두 `app_root_url` | ✅ |
-| 11 | 재설정 완료 시 기존 세션 전부 무효화 | passwords | 재진입 검증 경로 `edit_app_profile_path`(인증 표면 — 05 리뷰 보완노트) | ✅ |
-| 12 | 완료 사용자 로그인은 **/app으로** 진입한다 | sessions | 폴백 `app_root_url` + 테스트명 갱신 | ✅ |
-| 13 | 방문 예정 페이지 있어도 미설정이면 설정 우선 | sessions | return_to 세팅 경로 → `app_root_path` 후 **프로필 우선 재확인** | ✅ |
-| 14 | 로그아웃 시 이전 쿠키 재진입 불가 | sessions | 재진입 검증 경로 → `edit_app_profile_path` | ✅ |
-| 15 | **대시보드(/app)** noindex 메타 출력 | integration/surf3 | welcome 테스트 삭제 → /app 대시보드 신규(05 리뷰 권장 반영) | ✅ |
-| 16 | robots.txt 3경로 차단 | integration/surf3 | `Disallow: /welcome` 어설션 제거, 3행 유지 + 테스트명 갱신 | ✅ |
-
-## 3. 신규 시나리오 결과
-
-### 3.1 /app 셸 — `test/controllers/app/dashboards_controller_test.rb` (신규 9건)
-
-| 테스트 | 검증 Rule | 결과 |
+| 파일 | 구분 | 내용 |
 |:---|:---|:---|
-| 비인증 /app → 302 `new_session_path` | AUTH-1 | ✅ |
-| 미완료(alpha) /app 직접 접근 → `edit_app_profile_path` 가드 | AUTH-1.3 | ✅ |
-| 완료(gamma) /app 200 — h1 「대시보드」·헤더 표시명 「감마스튜디오」·robots 메타 1건 | DASH 셸·Phase 6 #2·SURF-3 | ✅ |
-| DASH-1 카드 3종 라벨(미수 총액·연체 건수·금액·7일 내 만기) + 빈 상태 문구 3회 + 대시 슬롯(aria-hidden) 3회 + **「0원」 부재** | DASH-1·거짓 수치 금지 | ✅ |
-| DASH-2 「오늘 할 일이 없습니다」 + 발행 시 카드 안내 문구 | DASH-2 | ✅ |
-| ONB-1 CTA `button[disabled][aria-disabled=true]` 「첫 청구서 발행하기」 + 배지 「준비 중 — …」 | ONB-1 | ✅ |
-| DASH-4 「연체일이 긴 순서부터 표시됩니다」 정렬 안내 | DASH-4 | ✅ |
-| 사이드바 — 대시보드만 `aria-current="page"`(설정 비활성 확인), 청구서·거래처 `span[aria-disabled=true]` 2건 + 「준비 중」 배지 2건, 설정 `href=edit_app_profile_path` 실링크 | DESIGN-6·플랜 결정 #2 | ✅ |
-| 로그아웃 `form.button_to[action=/session]` 내 `input[name=_method][value=delete]` + `button[data-turbo-confirm="로그아웃하시겠습니까?"]` | CSRF·DESIGN-6 | ✅ |
+| `test/fixtures/clients.yml` | 신규 | alpha 5개(PLAN-1 한도 도달 상태)·gamma 1개(CRUD 정상 경로)·beta 1개(소유권 404 대상) |
+| `test/fixtures/items.yml` | 신규 | gamma·alpha·beta 각 1개 — 소유권 격리·목록 렌더 검증용 |
+| `test/models/client_test.rb` | 신규 | 13건 — 필수·선택·연락처/이메일 형식·정규화·PLAN-1 한도·AUTH-1.5 |
+| `test/models/item_test.rb` | 신규 | 11건 — 단가 경계 3종·빈 단가 1건·정규화·AUTH-1.5 |
+| `test/controllers/app/clients_controller_test.rb` | 신규 | 23건 — CRUD 7종·소유권 404·PLAN-1 한도 UI·서버 게이트 |
+| `test/controllers/app/items_controller_test.rb` | 신규 | 14건 — CRUD·단가 경계 HTTP 경로·소유권 404 |
+| `test/controllers/app/dashboards_controller_test.rb` | 갱신 | 사이드바 테스트 갱신 + aria-current 분기 신규(§ 사이드바 갱신) |
+| `test/integration/surf3_indexing_test.rb` | 갱신 | /app/clients·/app/items noindex 1건 추가 |
 
-### 3.2 인증 화면·기타 신규
+**코드 수정 없음** — 규칙 준수(발견 이슈 전무).
 
-| 테스트 | 파일 | 결과 |
+## 시나리오별 결과
+
+### 거래처 CRUD (CLIENT-1)
+
+| 시나리오 | 결과 | 근거 |
 |:---|:---|:---|
-| 로그인/가입/재설정 폼에 워드마크 「받을돈」 존재 + `a` 요소 0건(링크 아님) — 3화면 각각 | sessions·registrations·passwords (기존 GET 테스트 확장, Phase 6 #1) | ✅ |
-| 프로필 화면 헤더 미완료 플레이스홀더 「프로필 완성 중」(alpha) / 완료 표시명 「감마스튜디오」(gamma) | app/profiles (Phase 6 #2 — #8·#9 대체) | ✅ |
-| `GET /welcome` → **404** 소멸 회귀 | registrations (신규 1건) | ✅ |
-| 랜딩 색인 허용 역방향·robots 3행 — 기존 테스트 그대로 통과 | integration/surf3 | ✅ |
+| 필수·선택 6필드 등록 → 303·notice·6컬럼 DB 반영 | ✅ | clients_controller `필수·선택 6필드 등록은 303…` |
+| 선택 3종 공백 등록 허용 → 303 | ✅ | `선택 3종 공백 등록은 303으로 성공한다` |
+| 필수 누락 → 422 + 한글 오류 3종(role=alert li) | ✅ | `필수 누락 등록은 422와 필드별 한글 오류…` |
+| phone 숫자만 허용·+82 거부(422 한글 오류) | ✅ | `연락처는 숫자만 입력도 허용하고…`(모델: 하이픈·지역번호·070 허용, 0505·자릿수 미달 거부) |
+| 이메일 형식 오류 → 422 한글 오류 | ✅ | 컨트롤러 + 모델 각 1건 |
+| 수정 303·DB 반영 / 수정 실패 422·기존값 보존 | ✅ | 각 1건 |
+| 삭제 303·레코드 제거 + 목록·상세 turbo_confirm button_to 구조(`이 거래처를 삭제하시겠습니까?`) | ✅ | `삭제는 303…`·`목록·상세의 삭제 버튼은…` |
+| 목록 카드·상세 전 필드 렌더 | ✅ | `목록은 거래처 카드에…`·`상세는 필수·선택 전 필드를…` |
+| 비인증 302 로그인 / 프로필 미완료 → 프로필 화면 가드 | ✅ | 각 1건 |
 
-### 3.3 리다이렉트 전수 대응표 (03 §4.1)
+### 소유권 격리
 
-| 시나리오 | 커버 테스트 | 결과 |
+| 시나리오 | 결과 |
+|:---|:---|
+| 타 사용자 거래처 show·edit → 404 | ✅ (gamma → beta_secret) |
+| 타 사용자 거래처 update·delete → 404 + 값 보존 | ✅ |
+| 타 사용자 품목 show·edit / update·delete → 404 + 값 보존 | ✅ (2건) |
+
+### PLAN-1 Free 거래처 한도
+
+| 시나리오 | 결과 | 근거 |
 |:---|:---|:---|
-| 가입 → 프로필 | registrations #1 | ✅ |
-| 프로필 저장 → /app | app/profiles #5·#6 | ✅ |
-| 로그인(완료) → /app | sessions #12·app/profiles #10 | ✅ |
-| 로그인(미완료) → 프로필 | sessions 기존 「올바른 자격 증명…」(변경 불요) | ✅ |
-| 비인증 /app → 로그인 | registrations #3 + dashboards #1 | ✅ |
-| /app 직접 접근(미완료) → 프로필 | dashboards #2 | ✅ |
-| return_to 있음 + 미완료 → 프로필 우선 | sessions #13(/app 치환 후 재확인) | ✅ |
-| `GET /welcome` → 소멸 | registrations 404 회귀 | ✅ |
+| 5번째까지 등록 성공, 6번째 422+「Free 플랜은 거래처 5개까지입니다」 | ✅ | `5번째까지는 등록되고 6번째부터 차단된다`(gamma 1→5 등장 경계) |
+| 6번째 모델 등록 무효(base 오류)·4개→5번째 유효 | ✅ | client_test 각 1건 |
+| 한도 도달 목록: 배너 + CTA 링크 소멸 + aria-disabled span | ✅ | `한도 도달 목록은 배너와 비활성 CTA로…`(li 5개 확인) |
+| 한도 도달 등록 화면(직접 접근): 배너 + 저장 disabled·aria-disabled | ✅ | `한도 도달 등록 화면은…` |
+| 한도 도달 POST → 422 + 한도 문구 li(서버 최종 게이트) | ✅ | `한도 도달 사용자의 6번째 등록 POST는…` |
+| **create 실패 재렌더 배너·저장 비활성 유지(Phase 6 #2)** | ✅ | `한도 도달 상태의 등록 실패 재렌더에도…` — alert li 4건(필수 3종 + 한도 base) |
+| 삭제 후 재등록 슬롯 회수(5개 유지) | ✅ | 컨트롤러 + 모델 각 1건 |
+| 한도 도달 상태 수정 허용(on: :create) | ✅ | 컨트롤러 + 모델 각 1건 |
+| 한도 문구 LP-12 준수(확정 보장·100% 표현 부재) | ✅ | `한도 오류 문구는 Plus 이용 가능성만 안내하고…` |
 
-## 4. 원인 분류 요약
+### 품목 · 단가 경계 (CLIENT-2 + Phase 6)
 
-- **갱신 과정 실패(모두 테스트 오류)**: ① `welcome_path`/`welcome_url` 헬퍼 소멸 NameError 13건 — 소멸 화면·구 목적지 참조, 신규 경로 치환으로 해소. ② `root_url` 폴백 변경 1건 — `app_root_url` 갱신. ③ robots `/welcome` 행 제거 1건 — 어설션 제거. ④ welcome noindex 화면 소멸 1건 — /app 대시보드 케이스로 대체.
-- **코드 버그**: 0건. 구현(Phase 3·6)은 리다이렉트 표(03 §4.1)·DASH 빈 상태·가드 동작이 테스트 기대와 전부 일치.
-- **시도 중 수정 사례**: welcome 소멸 회귀 테스트를 `assert_raises(ActionController::RoutingError)`로 작성했다가 Rails 8.1 통합 테스트는 미매칭 라우트를 404 응답으로 변환함을 실측(404 본문 확인)하여 `assert_response :not_found`로 정정 — 최종 통과.
+| 시나리오 | 결과 | 근거 |
+|:---|:---|:---|
+| CRUD: 등록 303·수정 303·삭제 303 + 목록·상세 렌더(tabular-nums 150,000원) + turbo_confirm | ✅ | items_controller 4건 |
+| **음수 단가** → 422「단가는 0원 이상의 정수로 입력해 주세요」 | ✅ | 컨트롤러 + 모델 |
+| **단가 0원 허용**(기본값 0·≥0) → 303 저장 0 | ✅ | 컨트롤러 + 모델 |
+| **20자리("9"×20)** → **500(RangeError) 아닌 422**「단가는 1,000,000,000원 이하로 입력해 주세요」 | ✅ | 컨트롤러 + 모델(`RangeError가 아닌 검증 실패` — Phase 6 #1 CRITICAL 회귀) |
+| 상한 경계: 1,000,000,000 허용 / +1 거부(MAX_UNIT_PRICE 상수 공유) | ✅ | 컨트롤러 + 모델 |
+| **빈 단가 오류 1건만**(blank 중복 제거, not_a_number 부재) | ✅ | 모델 `errors[:unit_price] == [blank]` 정확 일치 + 컨트롤러 alert li 1건(Phase 6 #4) |
+| 품목명 누락 422 / 소수("3.5")·비숫자("만원") 거부 / 품목명 strip | ✅ | 모델 4건 |
 
-## 5. Tester 자체 점검 체크리스트
+### 정규화 (Phase 6 #5)
 
-- [x] 외부 API 실호출 0건
-- [x] 테스트 소스 미사용 정의 0건 — `bin/rubocop` 0 offenses(54 files)
-- [x] 들여쓰기 2칸(space) 준수
-- [x] 기존 테스트 전체 회귀(`bin/rails test`) — 93 runs 0 failures
-- [x] 랜딩 67건(앵커 순수성·h1·LP-10 푸터 등) 회귀 0건 — 레이아웃 분리 후에도 기존 어설션 유지 통과
-- [x] 시스템 테스트: 이번 스코프(정적 셸·문구·가드)는 컨트롤러 통합 계층으로 충분 — 브라우저 여정은 F-INV 데이터 유입 시점에 신설 예정(05 리뷰 §3 스코프 노트 참조)
+| 시나리오 | 결과 |
+|:---|:---|
+| business_number `"  123-45-67890  "` → `"123-45-67890"` strip | ✅ |
+| name·contact_name·phone strip / email strip+소문자 | ✅ |
 
-## 6. 후속 인계 노트
+### 기존 테스트 갱신 — 사이드바 (dashboards_controller_test)
 
-1. **F-INV 실데이터 전환점**: `dash_summary_cards`가 수치를 채우면 DASH-1 빈 상태 어설션(문구 3회·대시 3회·「0원」 부재)을 조건 분기 테스트로 교체해야 한다 — `test/controllers/app/dashboards_controller_test.rb` 단일 파일.
-2. **ONB-1 CTA 활성화 시**: `button[disabled][aria-disabled=true]` 어설션을 실링크 어설션으로 교체(동일 지점).
-3. **사이드바 청구서·거래처 메뉴 활성화 시**: `span[aria-disabled=true]` 2건·「준비 중」 배지 2건 어설션을 링크 어설션으로 교체.
-4. 테스트는 `app_root_path`/`edit_app_profile_path` 등 라우트 헬퍼만 사용 — 하드코딩 경로는 welcome 404 회귀 테스트(`/welcome` 문자열)뿐(소멸 검증 목적).
+| 시나리오 | 결과 |
+|:---|:---|
+| 사이드바: `aria-disabled` span **2→1**(청구서만), 「준비 중」 **2→1**, 거래처·품목 실링크(href) 렌더, 대시보드만 aria-current | ✅ — 기존 실패 1건 해소(03 §4 갱신 대상) |
+| **aria-current 분기**: /app/clients에서 「거래처」·/app/items에서 「품목」 활성 표시 | ✅ — 신규 1건 |
+
+### 회귀·비기능
+
+| 시나리오 | 결과 |
+|:---|:---|
+| 대시보드·인증(세션/가입/비밀번호)·프로필·랜딩·메일러·health 기존 전체 통과 | ✅ 156 runs 0 failures |
+| noindex /app/clients·/app/items meta robots(SURF-3) | ✅ surf3_indexing_test 1건 추가 |
+| 사용자 삭제 시 거래처·품목 연쇄 삭제(AUTH-1.5) | ✅ 모델 2건 |
+
+## 실패 원인 분류 (자체 수정 이력)
+
+실행 과정에서 2건 실패 — **모두 테스트 오류**, 코드 버그 0건:
+
+1. `한도 도달 상태의 등록 실패 재렌더…`(alert li 3건 기대 → 4건 실측): 한도 도달 상태의 blank 제출은 필수 3종 오류 **+ 한도 base 오류**가 함께 노출되는 것이 올바른 동작(서버 게이트 유지 확인). 기대치 4건으로 수정 + 한도 문구 li 추가 어설션.
+2. `목록은 거래처 카드에 등록 정보를 렌더한다`(「감과장 담당」을 `dd`에서 탐색): 카드의 담당자 표기는 `<p>` 요소. 셀렉터 `dd`→`p` 수정.
+
+수정 후 해당 파일 재실행 23 runs 0 failures → 전체 재실행으로 확정.
+
+## 자체 점검 (Tester 체크리스트)
+
+- [x] Rule ID별 정상·경계·예외 시나리오 커버(CLIENT-1·2, PLAN-1, LP-12, AUTH-1.5, SURF-3)
+- [x] 외부 API 실호출 0건(대상 기능에 호출 경로 자체 없음)
+- [x] 테스트 소스 미사용 정의 0건 — `complete_profile_of` 6곳 사용, `new_valid_client` 사용 확인 / RuboCop 0 offenses
+- [x] 기존 테스트 전체 회귀 통과(156 runs, 0 failures — 이전 실패 1건 포함 해소)
+- [x] fixtures 표준 세트 유지: alpha 5거래처(한도용)·gamma·beta, 품목 3건, 금액 정수(원)
+- [x] 코드 수정 0건 — 검증 실패·UI 문제 전무(Phase 6 수정분 4건 모두 실측 통과)

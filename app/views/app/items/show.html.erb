@@ -1,0 +1,38 @@
+<% content_for :title, "#{@item.name} — 받을돈" %>
+
+<%# 품목 상세(CLIENT-2) — 등록 정보 확인 + 편집·삭제. 청구 사용 내역은 F-INV 데이터 확보 후 확장 %>
+<div class="mx-auto w-full max-w-xl py-8">
+  <p class="text-sm">
+    <%= link_to "← 품목 목록", app_items_path, class: "font-semibold text-stone-500 transition hover:text-stone-800" %>
+  </p>
+
+  <header class="mt-4">
+    <h1 class="text-2xl font-bold tracking-tight text-emerald-900"><%= @item.name %></h1>
+    <%# DESIGN-3 — 금액은 tabular numerals로 강조 %>
+    <p class="mt-2 text-3xl font-extrabold tracking-tight tabular-nums text-stone-800">
+      <%= number_with_delimiter(@item.unit_price) %>원
+    </p>
+  </header>
+
+  <section aria-labelledby="item-detail" class="mt-6 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+    <h2 id="item-detail" class="text-base font-bold text-stone-800">품목 정보</h2>
+    <dl class="mt-5 divide-y divide-stone-100">
+      <div class="flex items-start justify-between gap-4 py-3">
+        <dt class="shrink-0 text-sm text-stone-400">품목명</dt>
+        <dd class="text-right text-sm font-medium text-stone-700"><%= @item.name %></dd>
+      </div>
+      <div class="flex items-start justify-between gap-4 py-3">
+        <dt class="shrink-0 text-sm text-stone-400">단가</dt>
+        <dd class="text-right text-sm font-medium tabular-nums text-stone-700"><%= number_with_delimiter(@item.unit_price) %>원</dd>
+      </div>
+    </dl>
+  </section>
+
+  <div class="mt-6 flex items-center justify-between gap-3">
+    <%= link_to "정보 수정", edit_app_item_path(@item),
+          class: "inline-flex min-h-11 items-center rounded-xl bg-emerald-800 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+    <%= button_to "삭제", app_item_path(@item), method: :delete,
+          data: { turbo_confirm: "이 품목을 삭제하시겠습니까?" },
+          class: "inline-flex min-h-11 cursor-pointer items-center rounded-xl border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-500 transition hover:border-red-300 hover:text-red-600" %>
+  </div>
+</div>

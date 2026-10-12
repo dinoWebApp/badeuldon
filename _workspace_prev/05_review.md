@@ -1,137 +1,94 @@
-# 05_review.md — Phase 5 리뷰: 디자인 시스템 + 랜딩 전체(LP-1~8·10) + AUTH-1.3
+# 05_review.md — Phase 5 리뷰: /app 대시보드 뼈대 + 레이아웃 3분리 + welcome 소멸
 
 - **일자**: 2026-10-12
-- **리뷰어**: Reviewer (DesignReviewer)
-- **대상**: `git status` 변경분 전부(신규 14 + 수정 16 — 03_implementation.md §1 목록과 대조 일치, 플랜 외 코드 파일 변경 없음 확인)
-- **기준**: PRD v0.18.1 §6.1·§6.10·§7.1·§7.3, AGENTS.md 「UI 품질 기준」(신설 이후 첫 적용), REM-2·Q2·P1/P2/P5, LP-12, 결정 #1~#5
-- **검증 방법**: 대상 파일 전수 열람 + 실측 grep(랜딩 앵커 순수성·h1 카운트·금지어 `100%`/`보장` 부재·Tailwind 빌드 유틸리티 존재·`raw`/`html_safe` 부재·`tabular-nums` 미사용)
+- **리뷰 대상**: git 변경분(신규 9 · 수정 9 · 삭제 1 + 산출물 문서) — `_workspace/03_implementation.md` 기준
+- **검증 방식**: 전 파일 원문 열독 + git diff 대조 + PRD v0.18.2 원문 인용 + 빌드 산물(css) 실측. Phase 4 실측(53파일 RuboCop 0에러·zeitwerk·라우트) 전제
+- **이전 이슈 추적**: `_workspace_prev/05_review.md`(랜딩·프로필 회차) 이슈 잔존 없음 — 이번 변경분과 교집합 없음
 
 ## Status: CHANGES_REQUESTED
 
-**BLOCKER 0건 · CRITICAL 1건 · WARNING 7건.** CRITICAL 1건(계좌정보 로그 필터링 누락)은 1행 수정이므로 Developer 신규 스폰으로 수정 후 재리뷰 없이 반영 확인으로 마무리 가능. 나머지 WARNING은 문구·클래스 수준의 국소 수정. 신규 창작 문구는 **LP-5 D+14 1건을 제외하고 전부 통과** — 톤·금지 표현 위반 없음.
+**BLOCKER 0 · CRITICAL 0 · WARNING 3** — Rule 정합성(DASH·ONB·SURF·AUTH-1.3)·보안 가드·아키텍처는 전부 통과. WARNING 3건은 UI 품질 기준 회귀 2건(사용자 노출 화면) + 기록 정확성 1건으로 **Phase 6 수정 권장**이나, Phase 7 Tester의 16건 갱신 작업을 막는 사항은 아님(병행 가능). 수정 후 전체 재리뷰 불필요 — 변경 파일 국소 재확인으로 족함.
 
----
-
-## 1. 이슈 목록
+## 이슈 목록
 
 | # | Severity | Rule ID | File:Line | 설명 | 수정 제안 |
 |---|----------|---------|-----------|------|-----------|
-| 1 | **CRITICAL** | 체크리스트 §1(민감 정보 로그)¹ | `config/initializers/filter_parameter_logging.rb:7` | 프로필 저장 시 전송되는 `account_number`·`account_holder`·`phone`이 `filter_parameters`에 없어, ActionController 파라미터 로그(info 레벨 — 프로덕션 포함)에 **계좌번호 평문이 기록**된다. 리뷰 검증 기준 ④「계좌정보 로그 평문 출력 금지」 위반. | 배열에 `:account_number, :account_holder, :phone` 추가 (1행) |
-| 2 | WARNING | REM-2·PROMISE-3 (P1) | `app/views/landing/_message_samples.html.erb:18` | D+14 문구 「이번 안내가 해당 청구서의 **마지막 알림**입니다」 — 같은 문구가 입금 예정일 등록을 안내하고 있으나, 약속 등록 시 약속일 D-1 리마인드 1회 + 도과 시 D+1 재요청 1회가 추가 발송된다(PROMISE-3). '마지막 알림'이 사실과 어긋날 수 있고, LP-5는 "실제 문구를 그대로 게시"하는 표면이라 향후 실발송 문구(F-REM)와의 정합성 기준이 된다. ※강경(예의 유지) 톤 자체는 적절, 법적 조치 언급 없음(Q2 준수) — **확인 요청** | 「이번 안내로 정기 리마인더를 마칩니다」 또는 「이번이 자동 안내의 마지막입니다」 등 *시퀀스(자동 안내)의 종결*을 정확히 지칭하는 문구로 교체 |
-| 3 | WARNING | DESIGN-3 | `app/views/landing/_pricing.html.erb:11,22,36` | 요금 카드 금액(0원/9,900원/4,000원)에 `tabular-nums` 미적용. 03 보고 §2 DESIGN-3 행은 tabular-nums 적용을 기술하고 있어 **보고서 기술과 실제 불일치**(앱 전체에서 클래스 미사용 실측). | 3개 가격 `<p>`에 `tabular-nums` 클래스 추가 — 빌드된 `tailwind.css`에 유틸리티가 이미 존재하므로 클래스 지정만으로 즉시 적용 |
-| 4 | WARNING | DESIGN-6(접근성) | `app/views/app/profiles/edit.html.erb:33,41,76,86,107,117` · `app/views/landing/_closing.html.erb:30` | 힌트 텍스트·푸터 © 가 `text-stone-400` — 흰 배경 대비 약 **2.5:1**로 WCAG AA(4.5:1) 미달. 폼 힌트는 오류 안내 이해에 필수적 콘텐츠. | 해당 7곳 `text-stone-400` → `text-stone-500`(백색 대비 약 4.7:1). `placeholder:text-stone-400`은 유지 가능 |
-| 5 | WARNING | AUTH-1.3 | `app/views/registrations/welcome.html.erb:22-28` | 프로필 **완료 후 수정 진입 경로 부재** — 규칙은 "모두 이후 수정 가능"이나, 완료 분기(welcome)·재로그인 후(root) 어디에도 `/app/profile/edit` 진입 링크가 없다(URL 직접 입력 외 불가). 계좌 오기 입력 시 수정 불가 관측. | welcome 완료 분기에 「프로필 수정」 보조 링크(`edit_app_profile_path`) 1행 추가 — /app 대시보드 구축 시 대체 |
-| 6 | WARNING (Low) | DESIGN-6 | `app/views/layouts/application.html.erb:34-35` | 헤더 「로그인」 링크 터치 타깃 약 36px(py-2 + text-sm 20px) — 모바일 최소 권장 44px 미달. | `py-2` → `py-2.5`(40px) 이상, 또는 `min-h-11` 부여 |
-| 7 | WARNING (Low) | AUTH-1.3(오류 문구) | `config/locales/en.yml:53-54` | 계좌번호 invalid 문구 「숫자와 하이픈(-)만 입력할 수 있습니다」는 문자셋만 안내. 실제 검증(`\A\d[\d-]{4,19}\z`)은 5자 이상 요구 — "12" 입력 시 사용자가 원인을 알 수 없음. | 「계좌번호 형식을 확인해 주세요. 숫자와 하이픈(-)으로 5자 이상 입력해 주세요.」 |
-| 8 | WARNING (Low) | AUTH-1.3(폼 UX) | `app/views/app/profiles/edit.html.erb:104` | 계좌번호 placeholder 「예) 123-45-678901」(3-2-6 은행식)과 Stimulus 자동 하이픈(4자리 그룹 → `1234-5678-9012`) 형식 불일치 — 예시대로 입력해도 자동변환 결과가 달라 보임. | placeholder를 「예) 1234-5678-9012」로 변경(또는 포맷터를 은행별 그룹으로 — 후자는 과투자, 전자 권장) |
+| 1 | WARNING | UI 품질 기준(AGENTS.md §116) | `app/views/layouts/application.html.erb:7-15` | **인증 화면 브랜드 크롬 소실**. 구현 보고는 전역 헤더 제거를 "크롬은 표면별 레이아웃으로 이관"으로 기술했으나, 인증 화면(로그인·가입·재설정)은 전용 레이아웃 없이 크롬 없는 공통 기반에 남아 페이지 최상단이 곧 h1 폼이 됨(이전: 워드마크 헤더 상시 존재). 브랜드 부재는 로그인 화면 신뢰도·피싱 유사 우려를 키우며 "뼈대만 노출하는 구현 금지" 기준에 배치될 여지. 기존 테스트가 헤더를 어설션하지 않아 회귀로 검출되지 않음. | 인증 화면용 최소 크롬 추가 — ① application 레이아웃에 `content_for` 기반 선택적 워드마크 파셜, 또는 ② sessions/registrations/passwords 공유 미니 헤더(`span` 워드마크, 링크 없음 — SURF-4 앵커 순수성 유지. 기존 랜딩 상단 바와 동일 마크업) |
+| 2 | WARNING | UI 품질 기준·AUTH-1.3 | `app/views/layouts/app.html.erb:56` | **프로필 미완료 사용자의 헤더 표시명 슬롯 공백 렌더링**. `App::ProfilesController`는 `require_complete_profile`을 skip하므로(필요한 예외 — 타당) 표시명 공백 사용자가 /app/profile 화면에서 헤더 우측이 빈 `span`으로 렌더됨. 가입 직후 가장 많이 거치는 화면이라 헤더 표시명 UX 검증 항목(과제 검증 기준 ②)에 걸림. | `Current.user.display_name.presence \|\| "게스트"` 등 플레이스홀더 표기, 또는 미설정 시 슬롯 미출력 조건 분기 |
+| 3 | WARNING | SURF-6(기록 정확성) | `app/views/layouts/_head.html.erb:23`·`app/javascript/controllers/index.js:3` | **03 보고의 SURF-6 서술 과대**. "랜딩은 정적 마크업+공통 head만, 앱 자원 의존 제거"는 마크업 수준에서만 참. 공통 `_head`가 `javascript_importmap_tags`를 내보내고 `index.js`가 `eagerLoadControllersFrom`으로 컨트롤러 전체를 즉시 로드하므로 `sidebar_controller.js`는 표면 ①에서도 여전히 다운로드되며, CSS도 단일 tailwind 빌드를 공유(신규 유틸리티 포함 — 빌드 파일 실측 확인됨: `lg:pl-64`·`bg-orange-500`·`min-h-11` 등 존재, mtime 10-12 11:08). 현재 규모(컨트롤러 3개·CSS 34KB)로는 SURF-6 예산 영향 없어 **위반 아님** — 다만 "의존 제거" 서술은 예산 분리가 완료되지 않은 상태로 읽힘. | 03 §3 SURF-6 행을 "마크업·의존 참조 수준 분리(JS·CSS 번들은 공유)"로 정정하고, F-INV 본체 구현 시점의 번들 분리(표면별 엔트리 또는 lazy loading)를 AGENTS.md 기술 부채 목록에 등록 |
 
-¹ PRD Rule ID로는 미할당 항목(개인정보 로그 위생). 체크리스트 §1 전수 점검 항목 위반으로 분류. 참고로 기존 `:email`·`:token` 필터는 password reset 토큰·이메일 보호에 유효하게 작동 중.
+### 기각 후보(위양성 방지 기록)
 
-### BLOCKER 없음 판정 근거(보안·무결성 전수 점검)
+- `require_complete_profile`의 `Current.user.display_name` NilClass 가능성 → 없음. `require_authentication`(ApplicationController, 부모 필터 선행)이 리다이렉트 시 필터 체인이 중단되어 도달 불가.
+- `noindex?`의 `"/app"` prefix가 `/apple` 유사 경로도 매칭 → 해당 라우트 부재 + 기존 패턴 계승. 실질 영향 없음.
+- 비활성 내비 `text-stone-400` 저대비 → WCAG 1.4.3 비활성 컴포넌트 예외 항목. disabled 상태 의도적 강조 해제. 배지는 stone-500(이전 리뷰 #4 기준 준수).
+- `redirect_to edit_app_profile_path`(가드)에 status 미명시(302) → GET 내비게이션 리다이렉트로 302는 규약상 문제 없음. 폼 제출 303 규약 대상 아님.
 
-- **소유권 격리**: `App::ProfilesController`는 `Current.user` 단일 자원(외부 ID 파라미터 없음), 미인증은 기본 가드(`require_authentication`) 302 — 위협 경로 없음. `profile_params` 화이트리스트가 email/password 제외 → 권한 상향 불가.
-- **SURF-3**: `noindex?`(/app·/b/·/admin·/welcome 메타) + robots.txt 쌍 적용, 랜딩은 색인 허용 ✓. **SURF-4**: 랜딩 전체 `a` 실측 2개(히어로·최종 CTA) 모두 `new_registration_path` — 앵커 순수성 유지, 헤더 로그인 링크는 랜딩에서 숨김 ✓.
-- **이스케이프**: `raw`/`html_safe` 전역 부재 실측 ✓. **LP-12**: `100%`·`보장` 페이지 전체 부재 실측 ✓.
-- **마이그레이션**: 6컬럼 전부 null 허용은 "가입 시점 미설정 = 프로필 미완료 판정" 설계와 정합(기존 행 파괴 없음) — `null: false` 컨벤션 예외의 정당한 사례, 보고됨.
+## Rule ID 준수 매핑
 
----
+| Rule ID | 판정 | 근거(파일:행) |
+|:---|:---|:---|
+| **DASH-1** | ✅ 준수 | `show.html.erb:14-29`·`base_helper.rb:27-33` — 카드 3종(미수 총액·연체 건수·금액·7일 내 만기) 골격 + 빈 상태 「청구서를 발행하면 여기에 표시됩니다」. 수치 슬롯은 대시(—) `aria-hidden` 처리로 **거짓 0원 부재 확인**(02_prd_update 결정 이행). PRD 원문 3요소 라벨 정합 |
+| **DASH-2** | ✅ 준수 | `show.html.erb:31-40` — 「오늘 할 일이 없습니다」 + 발송 예정·약속일 도래 카드 안내. 카드형 골격(DESIGN-5) |
+| **DASH-4** | ✅ 준수 | `show.html.erb:59-77` — 목록 영역 + 「연체일이 긴 순서부터 표시됩니다」(=연체일 내림차순). 정렬 구현은 플랜대로 F-INV 인계 |
+| **ONB-1** | ✅ 준수 | `show.html.erb:42-57` — 「3분이면 첫 청구서를 발행합니다」 + 원문 3요소(표시명·계좌 자동 채움 / 품목 예시 / 만기일 기본 30일 — INV-3 정합). CTA disabled + 「준비 중」 배지(플랜 결정 #3) |
+| **SURF-3** | ✅ 준수 | `application_helper.rb:4`(prefix `/app`·`/b/`·`/admin`) + `_head.html.erb:9`(noindex, nofollow 메타 — app 레이아웃도 `_head` 공유) + `robots.txt:5-7` 3행. `/welcome` 제거는 경로 소멸에 따른 정당 청소 |
+| **SURF-4** | ✅ 준수 | 랜딩 레이아웃 상단 바는 `span` 워드마크로 앵커 0(`landing.html.erb:12`) — 기존 「①의 a 요소는 가입 진입이 유일하다」 테스트 통과 유지(67건 통과 목록). 앱(②)→① 링크 부재 확인(워드마크 `span`, 로그아웃 → 세션 파괴 → 로그인 화면) |
+| **SURF-6** | ✅(마크업 수준) | 레이아웃 3분리로 ①에 사이드바·내비 헬퍼·Stimulus 마크업 유입 없음. 잔여: JS/CSS 번들 공유 — 이슈 #3 |
+| **DESIGN-2** | ✅ 준수 | 범례 3색 = PRD 원문대로 연체 주황(`bg-orange-500`)·대기·약속 중립(`bg-stone-400`)·수금 완료 녹색(`bg-green-600`). 카드 브랜딩 점(연체 카드만 주황). 크림 배경+딥 그린 액센트 계승 |
+| **DESIGN-3** | ✅ 준수 | 금액 슬롯 `text-4xl tabular-nums`(빈 상태 대시 포함) |
+| **DESIGN-4** | ✅ 준수 | 표면 ② 정보 밀도 중심 — h2 섹션 위계·카드·텍스트 중심, 장식은 ONB-1 밴드 1곳 |
+| **DESIGN-5** | ✅ 준수 | 요약 큰 숫자 카드·액션 카드형·사이드바+카드 골격(shadcn dashboard-01 벤치마킹 포인트만 취함 — DESIGN-7 준수) |
+| **DESIGN-6** | ✅ 준수 | 터치 타깃 전 구간 `min-h-11`/`h-11 w-11`(44px). `aria-current="page"`(활성 내비)·`aria-controls`+`aria-expanded` 동기화(해시버거)·`sr-only` 라벨·배경 버튼 `aria-hidden`+`tabindex="-1"` |
+| **AUTH-1.3** | ✅ 준수 | `base_controller.rb:13-15` 신규 가드(표시명 공백 → 프로필 리다이렉트) — 로그인 직후(기존)·/app 직접 접근(신규) 모두 커버. `profiles_controller.rb:4` skip은 해당 화면이 완료 화면이므로 타당(redirect 루프 없음) |
+| **AUTH-1** | ✅ 준수 | 표면 ② 공개 예외 없음 — namespace 내 `allow_unauthenticated_access` 부재, ApplicationController 가드 상속 |
+| **LP-10** | ✅ 준수 | 푸터 마크업·문구(문의 채널·© 2026) 불변 이관(`landing.html.erb:24-34`) — 기존 LP-10 테스트 통과 유지 |
+| **LP-12** | ✅ 준수 | §3.1 신규 문구 전수 점검 — 확정 보장·압박·법적 조치·추심 오인 표현 없음. 「~카드로 표시됩니다」류 미래형 안내는 사실 범위 내 |
+| **SEC(CSRF)** | ✅ 준수 | 로그아웃 `button_to`(authenticity token 동반) + `turbo_confirm`. `raw`/`html_safe` 미사용. 민감정보 로깅 없음 |
 
-## 2. 신규 창작 문구 검증 결과표 (이번 리뷰 핵심)
+## 리다이렉트 흐름 검증표 (코드 실측 대조 — 03 §4.1 전 행 확인)
 
-### 2.1 LP-5 발신 문구 4종 — `_message_samples.html.erb` (기준: REM-2 단계별 톤·Q2·P1·P2·REM-1)
+| 시점 | 구현 위치 | 코드 | 판정 |
+|:---|:---|:---|:---|
+| 가입 직후 | `registrations_controller.rb:16` | `redirect_to edit_app_profile_path, status: :see_other` | ✅ 플랜 A-3 — 프로필 직행 |
+| 프로필 저장 완료 | `profiles_controller.rb:15` | `redirect_to app_root_path, status: :see_other` | ✅ /app 진입 |
+| 로그인 — 프로필 미완료 | `authentication.rb:44` | `return edit_app_profile_url if Current.user&.display_name.blank?` | ✅ 불변(프로필 우선) |
+| 로그인 — 프로필 완료 | `authentication.rb:46` | `return_to \|\| app_root_url` | ✅ root_url → app_root_url 변경. return_to 우선 불변 |
+| /app 직접 접근 — 비인증 | `authentication.rb:23-24`(상속) | `require_authentication` → 302 `new_session_path` | ✅ 가드 상속 확인 |
+| /app 직접 접근 — 프로필 미완료 | `base_controller.rb:14` | `redirect_to edit_app_profile_path`(302) | ✅ 신규 가드 정상 |
+| 가드 예외 화면 | `profiles_controller.rb:4` | `skip_before_action :require_complete_profile` | ✅ 루프 없음(edit/update 모두 예외 — 의도) |
+| `GET /welcome` | `config/routes.rb` | 라우트 부재 | ✅ 404 — 소멸 확인 |
+| 사이드바 설정 링크 | `base_helper.rb:11` | `edit_app_profile_path` 실링크 + `/app/profile` prefix 활성 판정 | ✅ |
 
-| 단계 | 기준 톤/골 | 판정 | 근거 |
-|------|-----------|------|------|
-| D-1 예고 | 부드러움 / 인지 확인 | **통과** | "미리 안내드리며, 확인 부탁드립니다" — 예고 성격, 압박 0. 「내일 [만기일]」 D-1 정합 |
-| D+1 확인 | 정중 / 열람·응답 유도 | **통과** | "이미 입금하셨다면 링크에서 알려주시면 … 전달드리겠습니다" — PROMISE-7 정합(마감 아님, U1 전달만 약속). 사정 여지 확인 포함 |
-| D+7 재요청 | 사실적 / 입금 또는 약속 | **통과** | "결제가 일주일 지연되고 있습니다" — 사실 규정(인격 비난 없음), 입금 예정일 제안 유도 |
-| D+14 최종 안내 | 강경(예의 유지) / 회수 착수 예고 | **수정 검토 (#2)** | 법적 조치·내용증명 언급 없음 ✓(Q2), 합니다체·예의 유지 ✓. 그러나 「마지막 알림」이 PROMISE-3 약속일 리마인드와 충돌 가능 — 이슈 #2 |
+- 실패 16건 전수 대조: grep 실측 기준 `welcome_path`/`welcome_url` 참조 테스트 13건 + `root_url` 폴백 변경 1건(sessions:25) + robots 행 1건 + noindex welcome 화면 1건 = 16건, 03 §4.2 목록과 **전수 일치**. app/·config/·public/에 잔여 `welcome`·`show_login_link?` 참조 없음(주석의 이력 언급만 존재 — 무해).
+- 통과 유지 67건 주장 중 회귀 민감 항목 실측: SURF-4 앵커 순수성 테스트(`landing_controller_test.rb:37-44`)는 신규 레이아웃 헤더가 `span`이라 통과 논리 확인. LP-10 `assert_select "footer"`는 응답 전체 대상 — 이관 후에도 통과.
 
-공통: 발신자 「받을돈」 서비스 명의(REM-1·P2) ✓, 발행인 개인 번호·이름 노출 없음(표시명만) ✓, `[ ]` 자리표시 안내 문구 명시 ✓.
+## 아키텍처·보안 점검 요약
 
-### 2.2 LP-8 FAQ 8종 — `_faq.html.erb` (기준: LP-12·P5)
+- **액션 규약**: `Dashboards#show` 1줄·프로필/가입 액션 10줄 이내, `params.expect` 화이트리스트 유지 ✅
+- **뷰 무쿼리**: 대시보드 뷰는 헬퍼(`dash_summary_cards`·`app_nav_items` — 프레젠테이션 데이터만) 참조. `Current.user.display_name`(레이아웃)은 속성 접근이며 가드로 non-nil 보장 ✅
+- **Stimulus**: `sidebar_controller.js` 순수 UI 토글(aria 동기화 포함), 비즈니스 로직 없음. `connect()`의 `close()`가 데스크톱(`lg:flex`)에 영향 없음 — Tailwind 반응형 우선순위로 안전 ✅
+- **App::BaseController 추상화**: layout+가드 중복 제거, 향후 F-INV·F-CLIENT 컨트롤러가 직접 수혜 — 과잉 추상화 아님(수용처 2+예정) ✅
+- **noindex 중복·누락**: `_head` 단일 지점이라 중복 렌더 불가, `/app` prefix가 `/app/*` 전경로 커버 ✅
+- **범위 준수**: 코드 변경은 리뷰 대상 19파일에 한정(그 외는 산출물 문서·progress.json). 마이그레이션 없음. 후속 제외(실데이터·청구서 화면 본체) 미구현 확인 — 셸+빈 상태만 ✅
 
-| 항목 | 판정 | 근거 |
-|------|------|------|
-| ① 추심·법무 대행? | **통과** | "채권 추심 업무를 수행하지 않으며" — P5 경계 명시, VIEW-5와 정합 |
-| ② 거래처 불쾌? | **통과** | "설계되어 있습니다" — 불쾌하지 않음을 *보장*하지 않는 정직한 서술(LP-12) |
-| ③ 개인 번호·이름 노출? | **통과** | REM-1 정합 |
-| ④ 상대방 가입·설치? | **통과** | P3(무가입) 정합 |
-| ⑤ 발송 비용? | **통과** | 서비스 부담 + 건당 5통 제한(PLAN-3) — "과도한 발송 방지" 프레임이 LP-12 압박 조장과 무관 |
-| ⑥ 정보 안전? | **통과** | 고유 링크(SHARE-1)·로그인 보호 — 과잉 안전 공언("완벽히 안전" 등) 회피 |
-| ⑦ 유료 해지? | **통과** | "결제한 기간이 끝나는 날까지" — PLAN-5 원문 정합 |
-| ⑧ 프리랜서? | **통과** | 3.3% 원천징수 표기 안내 — 프로필 기능과 정합 |
+## Tester에게 제안하는 중점 테스트 영역 (Phase 7)
 
-### 2.3 섹션 헤딩·메타 (기준: LP-12·P1·P5)
+1. **16건 갱신(03 §4.2 방향 승인)** — 보완 노트:
+   - #2·#3·#11·#13·#14처럼 `/welcome`을 「인증 필요 경로」 용도로 쓰던 테스트는 `/app` 치환 시 `assert_redirected_to new_session_path`(비인증 302)로 목적 보존.
+   - #10·#12는 어설션 `app_root_url` + 테스트명 「…/app로 진입한다」 갱신 — return_to 우선 분기(#13)는 경로 치환 후에도 프로필 우선 로직이 이기는지 재확인.
+   - #15는 삭제 대신 「/app 대시보드 noindex」 신규 테스트로 대체 권장(기존 /app/profile noindex 케이스와 별개 경로).
+2. **신규 권장(03 §6.1 승인 + 세부화)**:
+   - /app 비인증 302 → new_session_path (AUTH-1)
+   - /app 프로필 미완료 직접 접근 → edit_app_profile_path 리다이렉트 (AUTH-1.3 신규 가드 — 라우트·컨트롤러 회귀의 핵심)
+   - 프로필 완료 사용자 /app 200: h1 「대시보드」·DASH-1/2/4 빈 상태 문구·ONB-1 CTA `button[disabled][aria-disabled]` 존재, **「0원」 등 수치 문자열 부재** 어설션 (DASH-1 거짓 수치 금지)
+   - 사이드바: 활성 링크 `a[aria-current="page"]`(대시보드) 1건, `span[aria-disabled]` 2건(청구서·거래처), 설정 실링크 href (구조 안내)
+   - 로그아웃: `form[action=session]` 내 `input[name=_method][value=delete]` 존재(button_to CSRF 구조) + turbo_confirm 속성
+   - 랜딩 회귀: a 순수성(기존) + 푸터가 레이아웃 이동 후에도 렌더(LP-10)
+3. **시스템 테스트 스코프 노트**: 모바일 드로어는 backdrop 탭 닫기·내비 링크 클릭 닫기·`aria-expanded` 토글까지만 검증 범위로(Esc·포커스 트랩은 미구현 — 03 §6.5 후속 과제).
 
-| 문구 | 판정 |
-|------|------|
-| LP-2 「발행만으로는, 돈이 받아지지 않습니다」 | **통과** |
-| LP-3 「청구 링크 한 번으로, 수금 루프가 굴러갑니다」 | **통과** |
-| LP-4 「독촉이 아니라, 확인과 약속으로 수금합니다」 | **통과** |
-| LP-5 「거래처가 받을 메시지, 미리 보여드립니다」 | **통과** |
-| LP-7 「쓰는 만큼만, 투명한 요금」 | **통과** |
-| LP-6 「받을돈은 추심 서비스가 아닙니다」 | **통과** |
-| 메타 description(index.html.erb:5) | **통과** — 확정 보장·압박·추심 오인 없음 |
-| 프로필 화면 안내 문구 전부(edit.html.erb) | **통과** — 원천징수 3.3%·부가세 표기 설명 사실 정확 |
+## 남기는 판단 (Phase 6 Developer 전달용)
 
-### 2.4 PRD 지정 원문 인용 검증
-
-| 항목 | 기준 | 판정 |
-|------|------|------|
-| LP-1 헤드라인 「말하기 어려운 '돈 다오', 받을돈이 대신합니다」 | Q6 원문 | **일치** |
-| LP-1 주 CTA 「무료로 시작하기」+ 「무료 · 카드등록 없음 · 3분」+ 링크 불변 | LP-1·SURF-4 | **일치** (기존 회귀 유지) |
-| LP-2 인용 3종 | PRD §7.1 원문 | **일치** (3종 모두) |
-| LP-4 이점 문장 3종 | PRD §7.1 원문 | **일치** (인용부호 유형 차이만 — 표현 범위) |
-| LP-6 VIEW-5 고지문 「본 청구서는 발행인이 직접 발행했습니다. 본 서비스는 채권 추심 업무를 수행하지 않습니다.」 | VIEW-5 원문 | **일치** |
-| LP-7 수치: 3건/5거래처·9,900원·14일·무제한·건당 5통(대체 SMS 포함)·10건 4,000원·90일 + 「부가세 포함」명시 | PLAN-1/2/3/4·결정 #4 | **일치** — 과금 수치 오류 없음, 수금 패스 "자동 시퀀스·응답 수집" 원문 정합 |
-
----
-
-## 3. Rule ID 준수 매핑
-
-| Rule ID | 판정 | 비고 |
-|---------|------|------|
-| AUTH-1.3 | **준수**(WARNING #5·#7·#8 보완) | 6필드·컨텍스트 검증·라디오카드(3.3% 안내)·하이픈 Stimulus UI보조·로그인 직후 리다이렉트·welcome 안내 |
-| LP-1 | **준수** | 문구·링크 불변, 디자인 고도화만 |
-| LP-2·LP-4 | **준수** | 원문 인용 확인 |
-| LP-3 | **준수**(후속 추적 A) | 5단계 루프·한 줄 설명 ✓ — 「실제 화면 이미지」는 플랜 승인 범위(아이콘 대체) |
-| LP-5 | **조건부 준수** | 이슈 #2(D+14 표현) 외 통과 |
-| LP-6 | **준수** | 4요소 + VIEW-5 원문 |
-| LP-7 | **준수** | 수치 원문·부가세·5통 각주·가격 CTA 없음 |
-| LP-8 | **준수** | 8항목 아코디언(JS 0) |
-| LP-9 | **준수** | 섹션 자체 미표기(빈·가짜 후기 없음) |
-| LP-10 | **준수**(후속 추적 B) | CTA 1회 동일 링크, 푸터는 결정 #5 범위 |
-| LP-12·P1·P2·P5 | **준수** | 금지 표현 전역 부재 실측 |
-| REM-1·REM-2·Q2 | **준수**(#2 표현 확인) | 서비스 명의·단계별 톤·법적 조치 언급 없음 |
-| PLAN-1/2/3/4 | **준수** | §2.4 표 |
-| SURF-3 | **준수** | 메타 noindex + robots.txt 쌍 |
-| SURF-4 | **준수** | 앵커 순수성 실측 통과 |
-| SURF-5·SURF-6 | **준수** | 필수 구성 전부, 정적 마크업·쿼리 0 |
-| DESIGN-1/2/4/7 | **준수** | 크림+딥그린 일관, 표면별 강도, 레퍼런스 포인트만 차용 |
-| DESIGN-3 | **부분 준수** | Pretendard 전역 ✓ — tabular-nums 미적용(#3) |
-| DESIGN-6 | **부분 준수** | CTA·폼 포커스링·라벨 연결 ✓ — 터치 타깃/대비 이슈(#4·#6) |
-| 아키텍처(§3.5·§4) | **준수** | 액션 ≤10줄·params.expect·303/422·네임스페이스 규약·뷰 쿼리 0 |
-
-**범위 준수**: 플랜 외 파일 변경 없음(03 §1 대조 일치). 후속 제외 항목(LP-11·블로그·/app 대시보드·약관 페이지·후기 시스템) 미구현 확인 ✓. 3건 테스트 실패는 03 §4.1의 플랜 명세 이행에 따른 것 — 리뷰 이슈 아님(§5 Tester 참조).
-
----
-
-## 4. 후속 추적 항목 (이슈 아님 — 플랜 승인·문서화된 결정)
-
-- **A. LP-3 실제 화면 이미지**: /app 대시보드 구축 후 아이콘 스텝을 실제 스크린샷으로 교체(Stripe 벤치마킹 포인트 근거).
-- **B. LP-10 푸터**: 약관·개인정보 링크(결정 #5 — 법무 검토 후)·사업자 정보(데이터 확보 후) 추가.
-- **C. Pretendard CDN 셀프호스팅 전환 여부**: 프로덕션 도입 시점 결정(03 §6 노트 #3).
-- **D. 보조 CTA 「작동 방식 보기」 비활성 버튼**: 기존 SURF-4 엄격 해석 유지(회귀 테스트 보호). 인페이지 앵커 허용 해석 전환 여부는 별도 결정 사항으로 기록만 남김.
-- **E. 03 보고 §2 DESIGN-3 행 문구**: tabular-nums 적용 기술과 실제 불일치(#3) — 수정 후 보고서 행도 함께 정정 권장.
-
----
-
-## 5. Tester에게 제안하는 중점 테스트 영역
-
-1. **랜딩 회귀(갱신 1 + 유지 4)**: ① `LandingControllerTest#test_주_CTA는_가입_화면_실링크다` count 1→**2**(히어로+LP-10, 동일 링크·문구) 갱신. 유지 확인: SURF-4 앵커 순수성(전체 `a` == 가입 링크)·`h1` 1개·LP-12 금지어(`100%`/`보장`) 부재·Q6 헤드라인 정규식·title 전달.
-2. **AUTH-1.3 통합 신규**: 비인증 `/app/profile/edit` → 302 로그인 / 로그인(display_name 미설정) → 303 `/app/profile/edit` / 빈 저장 → 422 + 필드별 한글 오류(display_name·business_type blank, phone·account_number invalid) / 6필드 저장 → 303 `/welcome` + DB 반영 / 재로그인(완료) → 303 `/` / 비밀번호 재설정→재로그인 시에도 프로필 우선 분기.
-3. **기존 2건 갱신(03 §4.1)**: Sessions·Registrations 로그인 리다이렉트 어설션 — fixture에 `display_name` 추가 또는 기대값 `/app/profile/edit`로 갱신.
-4. **이슈 #1 수정 후(권장)**: 프로필 업데이트 요청 로그에 `account_number`가 `[FILTERED]`로 기록되는지 설정 테스트.
-5. **빌드 의존**: 이슈 #3·#4·#6의 클래스 변경은 `bin/dev` watch·재빌드 대상 — 시스템 테스트 앞 빌드 재생성 확인.
-6. **noindex/robots 회귀**: `/app`·`/welcome` noindex 메타 + `public/robots.txt` 라인 존재.
+- 이슈 #1·#2는 각각 미니 크롬 파셜 추가·표시명 플레이스홀더 조건 분기 수준의 국소 수정 — 라우트·가드·리다이렉트 불변.
+- 이슈 #3은 문서 정정 + 기술 부채 등록(AGENTS.md 로드맵 갱신은 Phase 9에서 일괄 가능).
+- 수정 반영 후 본 파일 이슈 표의 해결 여부만 갱신해 재리뷰 대기 상태로 관리 권장.

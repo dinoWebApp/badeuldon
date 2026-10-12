@@ -1,0 +1,13 @@
+<% content_for :title, "거래처 수정 — 받을돈" %>
+
+<%# 거래처 수정(CLIENT-1) — 수정은 Free 한도(PLAN-1) 검사 대상이 아니다(on: :create) %>
+<div class="mx-auto w-full max-w-xl py-12">
+  <header>
+    <h1 class="text-2xl font-bold tracking-tight text-emerald-900 sm:text-3xl">거래처 수정</h1>
+    <p class="mt-2 text-sm leading-relaxed text-stone-500">
+      <%= @client.name %>의 정보를 수정합니다.
+    </p>
+  </header>
+
+  <%= render "form", client: @client, limit_reached: false %>
+</div>

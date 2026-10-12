@@ -1,0 +1,32 @@
+<% content_for :title, "품목 — 받을돈" %>
+
+<%# 표면 ② 품목 라이브러리(CLIENT-2) — 품목명·단가 목록과 CRUD. 청구서 작성 시 선택 연동은 F-INV.
+    플랜 한도가 없어 등록 CTA는 항상 활성이다. %>
+<div class="py-8">
+  <header class="flex flex-wrap items-start justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight text-emerald-900">품목</h1>
+      <p class="mt-2 text-sm leading-relaxed text-stone-500">
+        자주 쓰는 품목명과 단가를 저장해 두면 청구서 작성 때 바로 불러올 수 있습니다.
+      </p>
+    </div>
+    <%= link_to "새 품목 등록", new_app_item_path,
+          class: "inline-flex min-h-11 items-center rounded-xl bg-emerald-800 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+  </header>
+
+  <% if @items.any? %>
+    <ul class="mt-6 grid gap-4 sm:grid-cols-2" aria-label="품목 목록">
+      <%= render @items %>
+    </ul>
+  <% else %>
+    <%# 빈 상태 — 첫 품목 등록 유도(대시보드 빈 상태 패턴과 동일 문법) %>
+    <div class="mt-6 rounded-2xl border border-dashed border-stone-300 bg-white/60 p-10 text-center sm:p-14">
+      <p class="text-base font-bold text-stone-800">첫 품목을 등록하세요</p>
+      <p class="mt-2 text-sm leading-relaxed text-stone-500">
+        디자인 시안 1식, 월 이용료 같은 자주 쓰는 품목을 저장해 두면 발행이 빨라집니다.
+      </p>
+      <%= link_to "품목 등록하기", new_app_item_path,
+            class: "mt-6 inline-flex min-h-11 items-center rounded-xl bg-emerald-800 px-6 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+    </div>
+  <% end %>
+</div>
