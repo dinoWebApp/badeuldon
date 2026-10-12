@@ -25,7 +25,17 @@
 
   <body>
     <main class="container mx-auto mt-28 px-5 flex">
-      <%= yield %>
+      <div class="w-full">
+        <%# 플래시 메시지 — 규약 §3.6.6(레이아웃 단일 표시) %>
+        <% if notice = flash[:notice] %>
+          <p class="mb-5 inline-block rounded-lg bg-green-50 px-3 py-2 font-medium text-green-700" id="notice"><%= notice %></p>
+        <% end %>
+        <% if alert = flash[:alert] %>
+          <p class="mb-5 inline-block rounded-lg bg-red-50 px-3 py-2 font-medium text-red-600" id="alert"><%= alert %></p>
+        <% end %>
+
+        <%= yield %>
+      </div>
     </main>
   </body>
 </html>

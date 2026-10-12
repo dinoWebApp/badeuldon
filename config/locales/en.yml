@@ -29,3 +29,18 @@
 
 en:
   hello: "Hello world"
+
+  # 회원가입 폼에서 노출되는 User 검증 오류 문구만 한글 처리(AUTH-1 — 기본 로캘 :en 유지)
+  activerecord:
+    errors:
+      models:
+        user:
+          attributes:
+            email:
+              blank: "이메일을 입력해 주세요."
+              taken: "이미 등록된 이메일입니다"
+            password:
+              blank: "비밀번호를 입력해 주세요."
+              password_too_long: "비밀번호가 너무 깁니다. 72자 이내로 입력해 주세요."
+            password_confirmation:
+              confirmation: "비밀번호 확인이 일치하지 않습니다."

@@ -1,66 +1,115 @@
-# 03_implementation.md — 랜딩 페이지 루트 화면 (표면 ① 최소 골격)
+# 03_implementation.md — Phase 3 구현 보고: 인증 정책 반전 + 랜딩 CTA
 
-- **일자**: 2026-10-08
-- **범위**: LP-1 히어로만 (LP-2~13 후속). 마이그레이션/모델/잡/서비스 없음 — 정적 페이지
-- **빌드 환경 비고**: Tailwind v4 (`tailwindcss-rails 4.6.0`, `app/assets/tailwind/application.css` — 템플릿 자동 스캔, arbitrary value 지원 확인)
+- **일자**: 2026-10-12
+- **범위**: `_workspace/01_plan.md` B절 구현 범위 (인증 골격 + 랜딩 반영)
+- **기반**: `bin/rails generate authentication`(Rails 8.1 표준) 산출물을 프로젝트 규약(ARCHITECTURE_CONVENTION §3.3·§3.6·§3.7)에 맞게 정리·확장
 
-## 변경 파일 목록
+## 1. 변경 파일 목록
 
-| 파일 | 구분 | 요약 |
-|:---|:---|:---|
-| `app/controllers/landing_controller.rb` | **신규** | `LandingController < ApplicationController`, `index` 빈 액션 1개(뷰 렌더용). 표면 ①은 비로그인 공개이므로 인증 before_action 없음(§3.3 규칙 7 준수 — 인증이 없는 것이 아니라 불필요). 클래스 주석에 SURF-1·SURF-6 근거 기록 |
-| `app/views/landing/index.html.erb` | **신규** | LP-1 히어로 정적 마크업. `content_for :title` 지정. DB 쿼리·모델 호출·Stimulus 없음 |
-| `config/routes.rb` | **수정** | 스캐폴드 주석 예시(`# root "posts#index"`)를 `root "landing#index"`로 활성화 + 「── 표면 ① 랜딩 ──」 도메인 주석 블록 추가(§3.7 규칙 4) |
-| `app/views/layouts/application.html.erb` | **수정 없음** | title 태그가 이미 `content_for(:title) \|\| "Badeuldon"` 형태로 content_for를 지원 → 수정 불요. 지시서 조건부 수정 허용은 발동하지 않음 |
+### 신규 생성 (generator 산출 + 프로젝트 정리 완료)
 
-## 파일별 구현 상세
+| 파일 | 요약 |
+|:---|:---|
+| `db/migrate/20261011232612_create_users.rb` | `users` — `email`(null: false)·`password_digest`(null: false) + `email` 고유 인덱스 (AUTH-1.4) |
+| `db/migrate/20261011232613_create_sessions.rb` | `sessions` — `user` FK(null: false, 인덱스) + `ip_address`·`user_agent` |
+| `app/models/user.rb` | `has_secure_password`(bcrypt), `has_many :sessions, dependent: :destroy`, `normalizes :email`(strip+downcase) (AUTH-1·AUTH-1.4). `password_reset_token`은 has_secure_password 내장(15분 만료·재설정 시 무효화) |
+| `app/models/session.rb` | `belongs_to :user` |
+| `app/models/current.rb` | `Current.session` attribute, `user` delegate |
+| `app/controllers/concerns/authentication.rb` | `before_action :require_authentication` 기본 가드 + `allow_unauthenticated_access` 선언형 예외 API. **세션 쿠키 30일**(AUTH-1.6 — generator 기본 permanent→`SESSION_COOKIE_MAX_AGE = 30.days`) |
+| `app/controllers/sessions_controller.rb` | 로그인/로그아웃. rate_limit(10회/3분), 실패 422 render, 성공 303 |
+| `app/controllers/passwords_controller.rb` | 비밀번호 재설정(AUTH-8) — 요청 시 **사용자 열거 방지 응답**, update 성공 시 타 세션 전체 무효화 |
+| `app/controllers/registrations_controller.rb` | **회원가입 신규 작성** — 이메일·비밀번호·확인 폼, 가입 즉시 세션 시작(이메일 인증 링크 없음), `welcome` 임시 안내 화면 |
+| `app/controllers/landing_controller.rb` | *(수정 — 하단 참조)* |
+| `app/channels/application_cable/connection.rb` | Action Cable 인증 식별(generator 산출 그대로) |
+| `app/views/sessions/new.html.erb` | 로그인 폼(한글, 딥 그린 액센트) |
+| `app/views/registrations/new.html.erb` | 회원가입 폼 |
+| `app/views/registrations/welcome.html.erb` | 가입 완료 임시 안내(/app 후속 전까지) + 로그아웃 |
+| `app/views/passwords/new.html.erb` | 재설정 요청(이메일 입력) |
+| `app/views/passwords/edit.html.erb` | 새 비밀번호 설정(토큰 진입) |
+| `app/mailers/passwords_mailer.rb` | 재설정 안내 메일 — 제목 「[받을돈] 비밀번호 재설정 안내」 |
+| `app/views/passwords_mailer/reset{,.text}.html.erb` | 한글 본문 + 1회성 링크·만료 안내 |
+| `test/fixtures/users.yml`, `test/models/user_test.rb` | generator 산출 — `email` 컬럼명에 맞게 기계 정리 |
 
-### 1. `app/controllers/landing_controller.rb`
-- 액션 본문 비어 있음(주석만) — §3.3 "before_action의 @객체 사용 — 본문 불필요" 패턴과 동일한 빈 액션 관용구.
-- `ApplicationController` 상속 유지(allow_browser 등 공통 동작 재사용).
+### 수정
 
-### 2. `app/views/landing/index.html.erb`
-- **title**: `<% content_for :title, "받을돈 — 말하기 어려운 '돈 다오', 받을돈이 대신합니다" %>`
-- **LP-1 헤드라인(h1)**: 「말하기 어려운 '돈 다오', 받을돈이 대신합니다」 — Q6 확정 문구 그대로(개행은 `<br>`).
-- **서브카피**: 수금 루프 한 문장 — 「청구 링크 → 열람 추적 → 자동 리마인더 → 입금 약속 수집까지, 수금 루프 전체를 받을돈이 대신합니다.」 (LP-1 명시 4단계 어휘 + 헤드라인의 "대신합니다"만 재사용, 신규 카피 문구 없음)
-- **주 CTA**: 「카카오로 시작하기」 — `<button type="button" disabled aria-disabled="true">` (F-AUTH 미구현 → href 없음, 연결은 F-AUTH 시점). 버튼 아래 보조 문구 「무료 · 카드등록 없음 · 3분」 + 안내 문구 「로그인은 곧 오픈됩니다」(지시서 지정 문구) 작게 표기.
-- **보조 CTA**: 「작동 방식 보기」 — 대상 섹션(LP-3) 미구현 → href 없는 비활성 버튼(딥 그린 아웃라인 스타일).
-- **뷰 규칙 준수**: 정적 마크업만, `raw`/`html_safe` 없음, 표현 로직 3줄 미만(헬퍼 불필요), ERB 주석에 Rule ID 근거 인라인 기록.
+| 파일 | 변경 |
+|:---|:---|
+| `Gemfile` | bcrypt 주석 해제 + `bundle install` |
+| `config/routes.rb` | 인증 블록 정리: `resource :session only:[new,create,destroy]`, `resource :registration only:[new,create]`, `get "welcome"`, `resources :passwords param::token only:[new,create,edit,update]`. URL 전부 명사형 리소스(동사 없음, §3.7) |
+| `app/controllers/application_controller.rb` | `include Authentication` 삽입(generator) — 모든 컨트롤러 기본 인증 요구 |
+| `app/controllers/landing_controller.rb` | `allow_unauthenticated_access` 추가 — 표면 ① 공개 유지(SURF-1) |
+| `app/views/landing/index.html.erb` | 주 CTA 전환(§3 아래 상세) |
+| `app/views/layouts/application.html.erb` | flash 표시를 레이아웃으로 단일화(규약 §3.6.6) — generator 뷰별 flash 블록 제거 |
+| `db/schema.rb` | `db:migrate`로 갱신(users·sessions 테이블) |
 
-### 3. `config/routes.rb`
-```ruby
-# ── 표면 ① 랜딩 ───────────────────────────────
-# 비로그인 공개(SURF-1) — 색인 허용(SURF-3), ①→② 진입은 소셜 로그인 CTA 단일(SURF-4)
-root "landing#index"
-```
-- 경로 하드코딩 없음(컨트롤러 문자열 표기는 Rails DSL 표준).
+## 2. Rule ID 구현 매핑
 
-## Rule ID별 구현 매핑
+| Rule ID | 구현 |
+|:---|:---|
+| **AUTH-1** | 이메일/비밀번호 회원가입·로그인만 제공(Registrations·Sessions 컨트롤러, `has_secure_password` + bcrypt). OAuth 관련 코드 전무. 로그인 실패는 이메일/비밀번호 불일치 단일 안내문 |
+| **AUTH-1.4** | `users.email` null: false + 고유 인덱스, `normalizes :email`(strip·downcase) — 이메일이 곧 로그인 아이디 |
+| **AUTH-1.6** | `Authentication` concern — 세션 쿠키 `expires: 30.days`(AUTH-1.6 기본 30일), 재인증은 비밀번호 재로그인 |
+| **AUTH-8** | `passwords` 리소스 + `PasswordsMailer`. 토큰은 has_secure_password 내장 generator token(15분 만료·비밀번호 변경 시 무효화 = 1회성). 재설정 성공 시 `@user.sessions.destroy_all`로 타 세션 강제 로그아웃. 요청 응답은 가입 여부 무관 동일(열거 방지) |
+| **SURF-4** | 랜딩 ①의 가입 CTA가 `new_registration_path`로 실제 링크되는 ①→② 유일 진입점. 로그인 링크는 랜딩에 두지 않음(로그인 화면↔가입 화면 상호 링크만) |
+| **LP-1** | 주 CTA 문구 「무료로 시작하기」 + 보조 문구 「무료 · 카드등록 없음 · 3분」 유지 |
 
-| Rule ID | 요구사항 | 구현 | 위치 |
+보안·계약 준수: 컨트롤러 액션 10줄 이내, `params.expect` private 메서드(§3.3.3), 성공 303/실패 422, rate_limit(로그인·가입·재설정), `filter_parameter_logging` 기본값(`:passw`·`:email`·`:token`)으로 자격증명 로그 미출력.
+
+## 3. 랜딩 CTA 변경 내역
+
+| 이전 | 이후 |
+|:---|:---|
+| `<button disabled aria-disabled>` 「카카오로 시작하기」 | `<%= link_to new_registration_path %>` 「무료로 시작하기」(hover emerald-900) |
+| 보조 문구 「무료 · 카드등록 없음 · 3분」 | 유지 |
+| 안내문 「로그인은 곧 오픈됩니다」 | **삭제** |
+| 보조 CTA 「작동 방식 보기」 비활성 | 유지(LP-3 미구현, 변경 없음) |
+
+스타일(DESIGN-1/2/3 딥 그린·크림) 유지. `test/controllers/landing_controller_test.rb`는 미수정(삭제 금지 지시) — CTA 비활성 검증은 Tester가 Phase 7에서 갱신.
+
+## 4. 자체 점검 결과
+
+| 점검 | 결과 |
+|:---|:---|
+| `bin/rubocop` | **0 offenses** (43 files) |
+| `bin/rails zeitwerk:check` | **통과** ("all is good") |
+| `bin/rails db:migrate` | **성공** — CreateUsers·CreateSessions 마이그레이션, `db/schema.rb` 갱신 확인(`email` null:false + unique index) |
+| `bin/rails routes` | 세션·가입·재설정·welcome·root 헬퍼 전부 확인(뷰/컨트롤러가 사용한 헬퍼와 일치) |
+
+서버 기동·테스트 실행은 하지 않음(Phase 4·7·8 인계).
+
+## 5. 후속 인계 노트 (Reviewer/Tester)
+
+1. **generator 산출 컨트롤러 테스트 2개**(`test/controllers/sessions_controller_test.rb`, `passwords_controller_test.rb`)는 Rails 표준 계약(영문 메시지·최상위 `email_address` 파라미터·실패 redirect 가정) 기준이라 현 구현(한글 메시지, `email` 파라미터, 실패 422 render)과 불일치 — Phase 7에서 Rule 변경에 맞게 갱신 필요. fixtures·user_test는 `email`으로 정리 완료.
+2. **재설정 메일 실발송 미연결**(계획서 D-2) — Action Mailer 기본 발송. 개발 환경에서는 `raise_delivery_errors = false`로 실패 무시되며, 메일 내용 확인은 `http://localhost:3000/rails/mailers/passwords_mailer` 프리뷰 사용.
+3. **AUTH-1.3 최초 프로필 설정·/app 대시보드·AUTH-7 관리자** — 후속 작업(미구현 확정). `welcome` 화면이 임시 착지점.
+4. `LandingController`에 `allow_unauthenticated_access` 1행 추가 — ApplicationController가 기본 인증 요구로 바뀌어 공개 표면 선언이 필요하게 됨(동작 변화 없음).
+
+## 수정 이력 (Phase 6)
+
+- **일자**: 2026-10-12
+- **범위**: Phase 5 리뷰(`_workspace/05_review.md`, CHANGES_REQUESTED) 이슈 중 수정 대상 4건 최소 수정 — 관련 없는 코드 변경 없음
+
+### 이슈별 수정 내역 (05_review.md 이슈 번호 ↔ 파일·변경 1:1)
+
+| 이슈 | Severity·Rule ID | 수정 파일 | 변경 내용 |
 |:---|:---|:---|:---|
-| SURF-1 | 표면 ① = 메인 도메인 `/` | `root "landing#index"` — 단일 도메인 루트 | `config/routes.rb` |
-| SURF-3 | 표면 ①은 색인 허용(noindex 금지) | 뷰·레이아웃에 noindex 메타 미삽입(레이아웃도 noindex 무소유) — Tester가 "noindex 없음" 검증 대상 | `app/views/landing/index.html.erb` |
-| SURF-4 | ①→② 진입은 소셜 로그인 CTA 단일 | 「카카오로 시작하기」 CTA 1회 렌더(유일한 진입 CTA) — F-AUTH 전이라 href 미연결 비활성 버튼 | 뷰 주 CTA 블록 |
-| SURF-6 | 표면 ① 경량 렌더링 | 정적 ERB만 — 앱 JS/Stimulus/DB 쿼리 의존 0 | 컨트롤러·뷰 전체 |
-| LP-1 | 히어로: 헤드라인(Q6 확정)·서브카피(수금 루프 1문장)·주 CTA 「카카오로 시작하기 — 무료 · 카드등록 없음 · 3분」·보조 CTA 「작동 방식 보기」 | 4요소 전부 반영. 주 CTA는 버튼 텍스트+보조 문구 2줄로 분해 표기(지시서 분해안 따름) | 뷰 |
-| LP-12 | 확정 보장·압박 표현 금지, PRD 확정 문구 외 창작 금지 | 문구는 Q6 헤드라인·LP-1 4단계 루프 어휘·지시서 지정 안내문만 사용 — 보장/압박 표현 0 | 뷰 |
-| DESIGN-1 | 온기×격식 | 장식·일러스트 없는 타이포 중심 히어로 | 뷰 |
-| DESIGN-2 | 크림·아이보리 배경 + 딥 그린 액센트 | 배경 `bg-[#faf9f5]`, 액센트 `text-emerald-800/900`·`bg-emerald-800`·`border-emerald-800` | 뷰 |
-| DESIGN-3 | 국문 우선 타이포 | 시스템 폰트 스택 `'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif`(인라인 style — Pretendard CDN은 별도 작업 시점 도입, 임시 스택임을 주석 명시) | 뷰 루트 section |
+| #1 | BLOCKER · AUTH-1.4 | `app/models/user.rb` | `validates :email, presence: true, uniqueness: true` 추가 — 중복 이메일 `save`가 DB 고유 인덱스 위반(`RecordNotUnique` → 500)에 도달하기 전 422 검증 실패로 전환. `normalizes :email`(strip·downcase)이 검증 전 적용되어 대소문자·공백 변형도 고유 인덱스와 정합 |
+| #2 | CRITICAL · AUTH-1·AUTH-8 | `app/controllers/sessions_controller.rb:16`, `app/controllers/passwords_controller.rb:28` | `render :new/:edit, status: :unprocessable_entity, alert: "..."` → `flash.now[:alert] = "..."` 선할당 후 `render`로 변경. `:alert` 옵션은 `redirect_to`에서만 flash 처리되어 render에선 무시되던 결함 수정 — 로그인 실패 안내문(「이메일 또는 비밀번호가 올바르지 않습니다.」)·재설정 실패 안내문(「비밀번호를 확인해 주세요.」)이 레이아웃 `flash[:alert]` 블록(§3.6.6 단일 표시)에 실제 렌더됨 |
+| #3 | CRITICAL · AUTH-1·규약 §3.3 | `app/views/registrations/new.html.erb`, `config/locales/en.yml` | 뷰 상단에 `@user.errors` 표시 블록 추가(`role="alert"`, 레이아웃 alert 팔레트와 동일한 red-50/red-600) — 422 재렌더 시 실패 원인이 사용자에게 노출됨. 기본 로캘 `:en` 유지, 이 폼에서 노출되는 User 오류 키 5종만 en.yml에 한글 문구 정의(`email.blank` 「이메일을 입력해 주세요.」·`email.taken` 「이미 등록된 이메일입니다」(구체 문구 유지 — 제품 결정)·`password.blank`·`password.password_too_long`·`password_confirmation.confirmation`). 전역 `errors.format`·모델 errors 전체 한글화는 하지 않음 |
+| #5 | WARNING · AUTH-8 | `app/views/passwords_mailer/reset.html.erb:11`, `app/views/passwords_mailer/reset.text.erb:6` | `distance_of_time_in_words(0, ...)` 영어 출력(「15 minutes」) 삭제 → 「이 링크는 15분 후 만료되며,」 고정 한글 문구. 리뷰 #5의 File:Line이 HTML·텍스트 양쪽 본문을 가리켜 함께 수정(동일 이슈 범위) |
 
-## 자체 점검 결과
+### 미수정 확정 (리뷰 판정 그대로)
 
-| 점검 | 명령 | 결과 |
-|:---|:---|:---|
-| RuboCop | `bin/rubocop` | `25 files inspected, no offenses detected` (exit 0) |
-| Zeitwerk | `bin/rails zeitwerk:check` | `All is good!` (exit 0) |
+- **이슈 #4**(WARNING, 재설정 토큰 접근 로그 평문) — 코드 수정 불필요 판정. 운영 단계 로그 접근통제·보존기간 관리로 대응, 위험 상승 시 lograge 등 경로 마스킹 검토.
+- **이슈 #6**(WARNING 확인요청, 가입 중복 문구 일반화) — 「이미 등록된 이메일입니다」 구체 문구 유지로 제품 결정 확정. 수정 없음.
 
-- 마이그레이션 없음 → `db:migrate`·`db/schema.rb` 해당 없음.
-- 서버 기동·테스트 작성은 수행하지 않음(Phase 4·7·8 — 오케스트레이터/Tester 담당).
+### 자체 점검 결과 (2026-10-12 실측)
 
-## 후속 작업 참고 (Reviewer/Tester용 관찰 사항)
+| 점검 | 결과 |
+|:---|:---|
+| `bin/rubocop` | **0 offenses** (43 files) |
+| `bin/rails zeitwerk:check` | **통과** ("all is good") |
+| 검증 경로 (`bin/rails runner`) | 중복 이메일(정규화 변형 `  DUP-CHECK@X.Y  ` 포함, 트랜잭션 롤백으로 무흔적 실측) → `valid? = false` + 「이미 등록된 이메일입니다」 — 500(`RecordNotUnique`) 소멸 확인. 신규 이메일+비밀번호 조합은 `valid? = true`(가입 303 경로 회귀 없음) |
+| 한글 오류 문구 렌더 | `email.blank` 「이메일을 입력해 주세요.」·`password_confirmation.confirmation` 「비밀번호 확인이 일치하지 않습니다.」·`password.password_too_long` 「비밀번호가 너무 깁니다. 72자 이내로 입력해 주세요.」 출력 확인 |
 
-1. **application 레이아웃 재사용에 따른 렌더링 특성**: 레이아웃의 `<main class="container mx-auto mt-28 px-5 flex">` 안에 히어로가 렌더된다. 히어로 section에 `w-full`을 두어 flex 폭 수축을 방지했으나, 상단 `mt-28` 여백과 컨테이너 폭 제한은 레이아웃 소유다. 랜딩 풀블리드·여백 조정은 LP-2~13 후속 작업에서 레이아웃 정비와 함께 검토 필요.
-2. **CTA 비활성 상태는 의도된 범위 한계**: F-AUTH 완료 시 주 CTA를 `new_session_path` 등 소셜 로그인 진입 경로로 연결해야 한다(SURF-4 단일 진입점 유지).
-3. **폰트**: DESIGN-3의 Pretendard 도입은 별도 작업 — 현재는 임시 시스템 폰트 스택(지시서 명시).
+테스트 작성·서버 기동 없음(Phase 5b 재리뷰 → Phase 7 Tester 순서 준수).

@@ -1,34 +1,40 @@
 # 08_run_report.md — Phase 8 실행 검증
 
-- **일자**: 2026-10-08
-- **대상**: 랜딩 루트 화면(표면 ① 골격) — `_workspace/03_implementation.md` 구현분
+- **일자**: 2026-10-12
+- **대상**: 이메일/비밀번호 인증(OAuth 폐기 반전) + 랜딩 CTA 반영 — `_workspace/03_implementation.md` (Phase 6 수정 포함)
 
 ## 부트 검증
 
 | 항목 | 결과 |
 |:---|:---|
-| 서버 기동 | ✅ `bin/dev` — Puma 8.0.2, Rails 8.1.4 development, Ruby 4.0.7 (mise), 127.0.0.1:3000 |
-| 부트 로그 에러 | ✅ 없음 (Puma start 정상 출력) |
+| 서버 기동 | ✅ `bin/dev` — Puma 8.0.2, Rails 8.1.4, Ruby 4.0.7 (mise PATH 명시 — 전회 학습 반영), 127.0.0.1:3000 |
+| 부트 로그 에러 | ✅ 없음 |
 
-## 라이브 응답 검증 (curl 실측)
+## 라이브 플로우 검증 (curl 실측, 올바른 파라미터 계약: 가입=`user[email]…`, 로그인=평형 `email/password`)
 
 | 검증 | 결과 |
 |:---|:---|
-| `GET /` | ✅ HTTP 200, 3714B, **0.14s** |
-| `<title>` | ✅ 「받을돈 — 말하기 어려운 '돈 다오', 받을돈이 대신합니다」 (content_for 반영) |
-| h1 헤드라인 (LP-1/Q6) | ✅ 「말하기 어려운 '돈 다오', 받을돈이 대신합니다」 |
-| 주 CTA | ✅ 「카카오로 시작하기」 + 「무료 · 카드등록 없음 · 3분」 + aria-disabled |
-| 보조 CTA | ✅ 「작동 방식 보기」 |
-| SURF-3 색인 허용 | ✅ 응답에 noindex 없음 |
-| `GET /up` 헬스체크 | ✅ HTTP 200 |
+| 랜딩 `GET /` | ✅ 200 (0.16s) — 「무료로 시작하기」 + `href="/registration/new"` 실링크, 「카카오로 시작하기」 소멸 |
+| 회원가입 폼 `GET /registration/new` | ✅ 200 |
+| **가입 POST(고유)** | ✅ **303 → /welcome** (가입 즉시 세션·활성화 — AUTH-1) |
+| **중복 가입(대문자 변형)** | ✅ **422 + 「이미 등록된 이메일입니다」 렌더** — BLOCKER #1 해소·정규화 정합 실증 |
+| **로그인 실패(오류 비밀번호)** | ✅ **422 + 「이메일 또는 비밀번호가 올바르지 않습니다」 본문 렌더** — CRITICAL #2 해소 실증 |
+| 로그인 성공 POST | ✅ 303 → / |
+| 세션 쿠키 만료 | ✅ `session_id` → 2026-11-11 (+30일, AUTH-1.6 실증) |
+| `GET /welcome` | ✅ 200 (가입 직후 안내 화면) |
+| `GET /up` | ✅ 200 |
 
 ## WARN 분류
 
 | 분류 | 항목 | 조치 |
 |:---|:---|:---|
-| **[수정 필요 → 해결]** | 서비스 셸 환경에서 `bin/dev` 자식 프로세스가 mise PATH를 못 물려 macOS 시스템 Ruby 2.6으로 실행 → Gemfile 파싱 실패(1차 부팅 실패) | `PATH=~/.local/share/mise/...:$PATH` 명시 후 재기동으로 해결. **환경 문제이며 코드 결함 아님** — 개선 후보: `bin/dev` 무관, 추후 `.mise.toml`/셸 프로파일 PATH 정리 (별도 환경 작업) |
-| [허용] | foreman 설치 안내(시스템 gem 권한 에러) — mise 루비에 foreman 이미 존재하여 무해 | 기록만 |
-| [주의] | Tailwind CSS watch(css.1)는 부팅됨 — `app/assets/builds` 산출물은 본 검증 범위 외(HTML 응답 검증) | 시각 검증은 LP-2~13 후속 작업 시 수행 |
+| [허용] | `ActionController::RoutingError [GET] /registration` 1건 | 검증 프로브의 경로 오타(정확 경로 `/registration/new`) — 앱 결함 아님 |
+| [허용] | 프로브 400 2건·422 1건 (파라미터 형식 `email_address` 오류) | 프로브 계약 오류 — 컨트롤러 소스 확인 후 정상 계약으로 재검증하여 전부 통과 |
+| [주의] | 재설정 토큰 접근 로그 평문 | 리뷰 #4 판정 유지 — 운영 단계 로그 접근통제 |
+
+## 정리
+
+- 검증용 임시 계정(`%@badeuldon.test`) dev DB에서 삭제 완료 (User.count = 0)
 
 ## 결론
 

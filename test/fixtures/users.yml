@@ -1,0 +1,10 @@
+<%# 비밀번호 다이제스트 — 두 사용자 모두 평문 "password" (Rails 표준 ERB 산출) %>
+<% password_digest = BCrypt::Password.create("password") %>
+
+alpha:
+  email: alpha@example.com
+  password_digest: <%= password_digest %>
+
+beta:
+  email: beta@example.com
+  password_digest: <%= password_digest %>

@@ -16,13 +16,13 @@
     </p>
 
     <div class="mt-10 flex flex-col items-center gap-3">
-      <%# SURF-4 ①→② 단일 진입 CTA — F-AUTH 미구현으로 href 미연결(비활성 버튼 렌더, F-AUTH 시점에 링크 연결) %>
-      <button type="button" aria-disabled="true" disabled
-              class="cursor-not-allowed rounded-xl bg-emerald-800 px-8 py-4 text-lg font-bold text-white opacity-60">
-        카카오로 시작하기
-      </button>
+      <%# SURF-4 ①→② 단일 진입 CTA — 이메일/비밀번호 회원가입 화면으로 연결(AUTH-1) %>
+      <%# LP-1 주 CTA 확정 문구: 「무료로 시작하기」 %>
+      <%= link_to new_registration_path,
+                  class: "rounded-xl bg-emerald-800 px-8 py-4 text-lg font-bold text-white hover:bg-emerald-900" do %>
+        무료로 시작하기
+      <% end %>
       <p class="text-sm font-medium text-emerald-800">무료 · 카드등록 없음 · 3분</p>
-      <p class="text-xs text-stone-400">로그인은 곧 오픈됩니다</p>
     </div>
 
     <%# LP-1 보조 CTA — 대상 섹션(LP-3 작동 방식) 미구현으로 href 없는 비활성 스타일 %>

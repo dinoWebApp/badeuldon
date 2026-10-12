@@ -1,0 +1,14 @@
+<%# 가입 직후 임시 안내 화면 — /app 대시보드(표면 ②) 후속 작업 전까지 표시 %>
+<div class="mx-auto w-full max-w-md text-center">
+  <h1 class="text-3xl font-bold tracking-tight text-emerald-900">가입이 완료되었습니다</h1>
+  <p class="mt-4 text-base leading-relaxed text-stone-600">
+    받을돈에 오신 것을 환영합니다!<br>
+    청구서·거래처 관리 대시보드를 준비 중입니다.<br>
+    준비되는 대로 이 화면에서 바로 시작할 수 있습니다.
+  </p>
+
+  <div class="mt-8">
+    <%= button_to "로그아웃", session_path, method: :delete,
+          class: "cursor-pointer rounded-xl border border-emerald-800 px-6 py-2.5 text-base font-semibold text-emerald-800 hover:bg-emerald-800 hover:text-white" %>
+  </div>
+</div>

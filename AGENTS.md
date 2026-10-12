@@ -18,7 +18,7 @@
   가입 전환                U1 수금 루프               U2 열람·응답(비로그인)          운영자 전용(2FA)
       └────────────── 단일 도메인, 라우트 수준 분리(SURF-1) ──────────────┘
                           Rails 8.1 모놀리스 (ERB + Hotwire)
-                  알림톡/SMS: 핵클 메시지 API · 결제: 토스페이먼츠 · 소셜 로그인: 카카오/네이버/구글
+                  알림톡/SMS: 핵클 메시지 API · 결제: 토스페이먼츠 · 인증: 이메일/비밀번호(Rails 표준, AUTH-1)
 ```
 
 ## 기술 스택
@@ -30,7 +30,7 @@
 - **테스트**: minitest(Rails 기본) + fixtures(YAML) + capybara/selenium(시스템 테스트)
 - **정적 분석**: RuboCop(rubocop-rails-omakase) · Brakeman · bundler-audit — `bin/ci`로 통합
 - **배포**: Kamal + Docker + Thruster (`config/deploy.yml`)
-- **외부 서비스**: 핵클 메시지 API(알림톡/SMS, REM-10), 토스페이먼츠(결제, PLAN-5), 카카오·네이버·구글 소셜 로그인(AUTH-1)
+- **외부 서비스**: 핵클 메시지 API(알림톡/SMS, REM-10), 토스페이먼츠(결제, PLAN-5). 인증은 이메일/비밀번호(Rails 표준 — OAuth 소셜 로그인 2026-10-12 폐기, AUTH-1·Q8)
 
 ## 빌드 및 실행 명령어
 
@@ -75,7 +75,7 @@ bin/jobs             # Solid Queue 잡 프로세스 (웹과 별도 실행)
 
 | 접두어 | 도메인 | 핵심 하이라이트 |
 |:---|:---|:---|
-| AUTH | 계정·인증 | 소셜 로그인만(U1), 관리자는 전용 계정+2FA(AUTH-7) |
+| AUTH | 계정·인증 | 이메일/비밀번호만(OAuth 폐기, AUTH-1), 비밀번호 재설정(AUTH-8), 관리자는 전용 계정+2FA(AUTH-7) |
 | ONB | 온보딩 | 가입→첫 발행 3분 플로우 |
 | CLIENT | 거래처·품목 | 거래처 CRUD, 지급 성적표 |
 | INV | 청구서 | 상태 전이, 만기 기본 +30일(INV-3), 발행 후 수정 불가(INV-5) |
@@ -142,8 +142,8 @@ bin/jobs             # Solid Queue 잡 프로세스 (웹과 별도 실행)
 
 ## 구현 진행 상황 (로드맵)
 
-- **완료**: Rails 8.1 스켈레이션 생성, PRD v0.17.1, ARCHITECTURE_CONVENTION v1.0.0, 하네스 구축 + E2E 파이프라인 검증(승인 게이트·에이전트 3종 스폰·리뷰·테스트·실행검증 전 Phase 통과)
-- **구현됨**: 표면 ① 랜딩 루트 골격 — LP-1 히어로(Q6 확정 문구, CTA 비활성), SURF-1/3/4/6 준수, 통합 테스트 7건 (`2026-10-08`, `_workspace/` 참조). 후속: LP-2~13 섹션, F-AUTH 완료 시 CTA 연결, ② 구축 시 ① 전용 레이아웃 분리(리뷰 WARNING), Pretendard 도입
+- **완료**: Rails 8.1 스켈레이션 생성, ARCHITECTURE_CONVENTION v1.0.0, 하네스 구축 + E2E 파이프라인 검증, 표면 ① 랜딩 루트 골격, **F-AUTH 이메일/비밀번호 인증**(`2026-10-12`, PRD v0.18·Q8 — OAuth 폐기 반전: User·Session 모델, 회원가입·로그인·로그아웃·비밀번호 재설정(AUTH-8), 세션 30일, 랜딩 CTA 「무료로 시작하기」 실링크, 테스트 50건. 리뷰 BLOCKER 1·CRITICAL 2 수정·재리뷰 APPROVED)
+- **구현됨 상세**: `_workspace_prev/`(랜딩)·`_workspace/`(인증) 산출물 참조
 - **진행 중**: 없음
-- **예정**: PRD §6 기능 명세 순차 구현 (권장 순서: F-AUTH → F-CLIENT → F-INV → F-SHARE → F-VIEW → F-REM → F-PROMISE → F-PAY → F-DASH → F-PLAN → F-ADMIN → F-LEGAL/REF/TAX → F-SURF/LP/BLOG 잔여)
+- **예정**: AUTH-1.3 최초 프로필 설정 화면 → /app 대시보드 뼈대(표면 ②) → F-CLIENT → F-INV → F-SHARE → F-VIEW → F-REM(핵클 계약 선행) → F-PROMISE → F-PAY(MVP) → F-DASH → F-PLAN(토스 계약 선행) → F-ADMIN → F-LEGAL/REF/TAX → LP-2~13·블로그. 기술 부채: ② 구축 시 ① 전용 레이아웃 분리, Pretendard 도입, 이메일 발송 서비스 선정(재설정 실발송), 관리자 계정(AUTH-7 — F-ADMIN 시점)
 - **작업 재개 가이드**: `.omp/progress.json`의 `currentPhase` 확인 → `awaiting_approval`이면 플랜 재보고 후 승인 대기, 그 외에는 다음 Phase부터 재개. 산출물은 `_workspace/`.
