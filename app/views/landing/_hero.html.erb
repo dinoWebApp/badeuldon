@@ -1,0 +1,37 @@
+<%# LP-1 히어로 — Q6 확정 문구·CTA 링크 불변, 디자인 고도화(타이포 위계·배지·CTA 디테일·크림→화이트 그라데이션). %>
+<section class="relative overflow-hidden">
+  <div class="pointer-events-none absolute inset-0 bg-gradient-to-b from-cream via-[#f4f2ea] to-white" aria-hidden="true"></div>
+
+  <div class="relative mx-auto flex max-w-3xl flex-col items-center px-4 py-20 text-center sm:px-6 sm:py-28">
+    <p class="inline-flex items-center rounded-full border border-emerald-800/15 bg-white/80 px-3.5 py-1.5 text-xs font-bold text-emerald-800 shadow-sm">
+      프리랜서 수금 자동화
+    </p>
+
+    <%# LP-1 헤드라인 — PRD 확정 문구(Q6) 그대로 %>
+    <h1 class="mt-6 text-4xl leading-tight font-extrabold tracking-tight text-emerald-900 sm:text-5xl sm:leading-tight">
+      말하기 어려운 '돈 다오',<br>
+      받을돈이 대신합니다
+    </h1>
+
+    <%# LP-1 서브카피 — 수금 루프 한 문장 요약 %>
+    <p class="mt-6 text-base leading-relaxed text-stone-600 sm:text-lg">
+      청구 링크 → 열람 추적 → 자동 리마인더 → 입금 약속 수집까지, 수금 루프 전체를 받을돈이 대신합니다.
+    </p>
+
+    <div class="mt-10 flex flex-col items-center gap-3">
+      <%# SURF-4 ①→② 단일 진입 CTA — 이메일/비밀번호 회원가입 화면으로 연결(AUTH-1) %>
+      <%# LP-1 주 CTA 확정 문구: 「무료로 시작하기」 %>
+      <%= link_to new_registration_path,
+            class: "rounded-xl bg-emerald-800 px-8 py-4 text-lg font-bold text-white shadow-lg shadow-emerald-900/15 transition hover:-translate-y-0.5 hover:bg-emerald-900 hover:shadow-xl hover:shadow-emerald-900/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 active:translate-y-0" do %>
+        무료로 시작하기
+      <% end %>
+      <p class="text-sm font-medium text-emerald-800">무료 · 카드등록 없음 · 3분</p>
+    </div>
+
+    <%# LP-1 보조 CTA — 작동 방식 섹션으로의 인페이지 이동은 SURF-4 앵커 규칙과 충돌해 비활성 유지 %>
+    <button type="button" aria-disabled="true" disabled
+          class="mt-8 cursor-not-allowed rounded-xl border border-emerald-800 px-6 py-3 text-base font-semibold text-emerald-800 opacity-60">
+      작동 방식 보기
+    </button>
+  </div>
+</section>

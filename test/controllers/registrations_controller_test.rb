@@ -61,7 +61,8 @@ class RegistrationsControllerTest < ActionDispatch::IntegrationTest
 
     attempt_login(email: "mixed.case@example.com", password: "secret-123")
     assert_response :see_other
-    assert_redirected_to root_url
+    # AUTH-1.3 — 신규 가입 계정은 프로필 미설정이므로 로그인 직후 프로필 설정 화면으로 안내된다
+    assert_redirected_to edit_app_profile_url
   end
 
   test "빈 이메일 가입은 422와 한글 안내문으로 거부된다 (AUTH-1.4)" do

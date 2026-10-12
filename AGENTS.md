@@ -112,6 +112,14 @@ bin/jobs             # Solid Queue 잡 프로세스 (웹과 별도 실행)
 - 사용자 입력 출력은 `<%= %>` 기본 이스케이프 — `raw`/`html_safe` 금지(상수·신뢰 HTML만)
 - 마이그레이션: `null: false`·`default`·인덱스 명시, `dependent:` 필수 명시
 
+
+## UI 품질 기준 (모든 표면 구현에 강제)
+
+- **F-DESIGN 철저 반영**: 모든 UI는 PRD §7.3(DESIGN-1~7)과 레퍼런스 벤치마킹 포인트(Stripe 절제·타이포 위계 / 토닥 온기 / 볼타 B2B 여백·정보 위계 / 토스 송금 모바일 UX)를 구현에 반영한다. "최소 골격"이어도 완성도 기준은 동일하다 — 뼈대만 노출하는 구현 금지.
+- **표준 스택**: Pretendard 국문 폰트(CDN), 크림·아이보리 배경 + 딥 그린 액센트(DESIGN-2), 상태색 3종(연체 주황/대기 중립/완료 녹색), 타이포 사이즈 위계·여백 리듬·인터랙션 디테일(hover/focus 링/섀도/트랜지션) 필수.
+- **문구 원칙**: 마케팅 문구는 LP-12(P1~P5·금지 표현) 준수, 발신 문구는 REM-2 단계별 톤 준수 — 신규 창작 문구는 Reviewer가 집중 검증한다.
+- **리뷰 의무**: Phase 5 리뷰는 기능 정합성과 함께 디자인 기준 준수(레이아웃 위계·간격 일관성·접근성 터치 타깃·DESIGN-6)를 검증 항목에 포함한다. 미달 시 WARNING 이상으로 지적한다.
+
 ## 테스트 전략
 
 - 프레임워크: minitest + fixtures. 계층: 모델(검증·상태 전이·Rule ID 시나리오) → 서비스/쿼리(비즈니스 로직) → 컨트롤러(통합) → 시스템(브라우저 E2E, 뷰어 인앱 브라우저 동작 포함)
@@ -142,8 +150,8 @@ bin/jobs             # Solid Queue 잡 프로세스 (웹과 별도 실행)
 
 ## 구현 진행 상황 (로드맵)
 
-- **완료**: Rails 8.1 스켈레이션 생성, ARCHITECTURE_CONVENTION v1.0.0, 하네스 구축 + E2E 파이프라인 검증, 표면 ① 랜딩 루트 골격, **F-AUTH 이메일/비밀번호 인증**(`2026-10-12`, PRD v0.18·Q8 — OAuth 폐기 반전: User·Session 모델, 회원가입·로그인·로그아웃·비밀번호 재설정(AUTH-8), 세션 30일, 랜딩 CTA 「무료로 시작하기」 실링크, 테스트 50건. 리뷰 BLOCKER 1·CRITICAL 2 수정·재리뷰 APPROVED)
-- **구현됨 상세**: `_workspace_prev/`(랜딩)·`_workspace/`(인증) 산출물 참조
+- **완료**: Rails 8.1 스켈레이션 생성, ARCHITECTURE_CONVENTION v1.0.0, 하네스 구축 + E2E 검증, 표면 ① 랜딩 루트 골격, F-AUTH 이메일/비밀번호 인증(PRD v0.18·Q8 OAuth 폐기 반전), **랜딩 전체 LP-1~8·10 + UI 품질 기준 제도화 + AUTH-1.3 프로필 설정**(`2026-10-12`, PRD v0.18.1 — Pretendard·크림/딥그린 디자인 시스템, 랜딩 섹션 9종(파셜), /app/profile 6필드·require_authentication 첫 적용, 테스트 83건. 리뷰 CRITICAL 1·WARNING 8 수정)
+- **구현됨 상세**: `_workspace_prev/`(인증)·`_workspace/`(랜딩·프로필) 산출물 참조
 - **진행 중**: 없음
-- **예정**: AUTH-1.3 최초 프로필 설정 화면 → /app 대시보드 뼈대(표면 ②) → F-CLIENT → F-INV → F-SHARE → F-VIEW → F-REM(핵클 계약 선행) → F-PROMISE → F-PAY(MVP) → F-DASH → F-PLAN(토스 계약 선행) → F-ADMIN → F-LEGAL/REF/TAX → LP-2~13·블로그. 기술 부채: ② 구축 시 ① 전용 레이아웃 분리, Pretendard 도입, 이메일 발송 서비스 선정(재설정 실발송), 관리자 계정(AUTH-7 — F-ADMIN 시점)
+- **예정**: /app 대시보드 뼈대(표면 ②) → F-CLIENT → F-INV → F-SHARE → F-VIEW → F-REM(핵클 계약 선행) → F-PROMISE → F-PAY(MVP) → F-DASH → F-PLAN(토스 계약 선행) → F-ADMIN → F-LEGAL/REF/TAX → LP-11 콘텐츠 허브·무료 도구·블로그. 기술 부채: ② 구축 시 ① 전용 레이아웃 분리, Pretendard 셀프호스팅, 이메일 발송 서비스 선정(재설정 실발송), 관리자 계정(AUTH-7 — F-ADMIN 시점), LP-3 실화면 이미지(/app 완성 후), 푸터 약관·사업자 정보(법무 검토 후), 후기 시스템(3건+ 확보 시 LP-9 노출)
 - **작업 재개 가이드**: `.omp/progress.json`의 `currentPhase` 확인 → `awaiting_approval`이면 플랜 재보고 후 승인 대기, 그 외에는 다음 Phase부터 재개. 산출물은 `_workspace/`.

@@ -44,3 +44,11 @@ en:
               password_too_long: "비밀번호가 너무 깁니다. 72자 이내로 입력해 주세요."
             password_confirmation:
               confirmation: "비밀번호 확인이 일치하지 않습니다."
+            display_name:
+              blank: "표시명(또는 상호)을 입력해 주세요."
+            business_type:
+              blank: "사업자 유형을 선택해 주세요."
+            phone:
+              invalid: "연락처 형식이 올바르지 않습니다. 예) 010-1234-5678"
+            account_number:
+              invalid: "계좌번호 형식을 확인해 주세요. 숫자와 하이픈(-)으로 5자 이상 입력해 주세요."

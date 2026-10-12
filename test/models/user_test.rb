@@ -49,4 +49,38 @@ class UserTest < ActiveSupport::TestCase
     assert users(:alpha).authenticate("password")
     refute users(:alpha).authenticate("wrong-password")
   end
+
+  # ── AUTH-1.3 프로필 컨텍스트 검증 ──
+
+  test "가입 컨텍스트는 프로필 미설정을 통과시킨다 (AUTH-1.3 — 가입 시점 자유)" do
+    user = User.new(email: "fresh@example.com", password: "secret-123", password_confirmation: "secret-123")
+    assert_predicate user, :valid?
+  end
+
+  test "프로필 컨텍스트는 표시명·사업자 유형 누락을 한글 오류로 거부한다 (AUTH-1.3)" do
+    user = users(:beta)
+    assert_not user.valid?(:profile)
+    assert_includes user.errors[:display_name], "표시명(또는 상호)을 입력해 주세요."
+    assert_includes user.errors[:business_type], "사업자 유형을 선택해 주세요."
+  end
+
+  test "프로필 완료 사용자는 프로필 컨텍스트를 통과한다 (AUTH-1.3)" do
+    assert users(:gamma).valid?(:profile)
+  end
+
+  test "프로필 컨텍스트는 잘못된 형식의 연락처·계좌번호를 거부한다 (AUTH-1.3)" do
+    user = users(:gamma)
+    user.phone = "abc"
+    user.account_number = "12"
+    assert_not user.valid?(:profile)
+    assert_includes user.errors[:phone], "연락처 형식이 올바르지 않습니다. 예) 010-1234-5678"
+    assert_includes user.errors[:account_number],
+      "계좌번호 형식을 확인해 주세요. 숫자와 하이픈(-)으로 5자 이상 입력해 주세요."
+  end
+
+  test "표시명은 앞뒤 공백이 정규화된다 (AUTH-1.3)" do
+    user = users(:alpha)
+    user.display_name = "  감마랩  "
+    assert_equal "감마랩", user.display_name
+  end
 end

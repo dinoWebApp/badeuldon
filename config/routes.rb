@@ -5,6 +5,11 @@ Rails.application.routes.draw do
   get "welcome", to: "registrations#welcome"                           # 가입 직후 임시 안내(/app 대시보드 후속 작업)
   resources :passwords, param: :token, only: %i[ new create edit update ]  # 비밀번호 재설정(AUTH-8)
 
+  # ── 표면 ② 대시보드(/app) — 로그인 U1 전용. require_authentication 기본 가드 적용(공개 예외 없음) ──
+  namespace :app do
+    resource :profile, only: %i[ edit update ]  # AUTH-1.3 최초 프로필 설정(/app/profile)
+  end
+
   # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html
 
   # Reveal health status on /up that returns 200 if the app boots with no exceptions, otherwise 500.

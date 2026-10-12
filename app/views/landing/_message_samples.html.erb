@@ -1,0 +1,38 @@
+<%# LP-5 발신 문구 공개(투명성) — 실제 4단계 알림톡 예시 카드(카카오톡 버블형 UI).
+    REM-1 서비스 '받을돈' 명의 · REM-2 단계별 톤 · Q2 법적 조치 언급 금지. [ ]는 발송 시 채워지는 자리.
+    ※ 문구는 신규 작성 — Reviewer 검증 대상(_workspace/03_implementation.md 참조). %>
+<section class="bg-cream">
+  <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
+    <p class="text-sm font-bold text-emerald-700">투명성</p>
+    <h2 class="mt-2 text-2xl font-bold tracking-tight text-stone-900 sm:text-3xl">
+      거래처가 받을 메시지, 미리 보여드립니다
+    </h2>
+    <p class="mt-3 max-w-2xl text-sm leading-relaxed text-stone-500">
+      리마인더는 서비스 ‘받을돈’ 명의로, 만기 전후 4단계 흐름으로 발송됩니다. [ ] 안은 발송 시 채워지는 자리입니다.
+    </p>
+
+    <% samples = [
+         { stage: "D-1", label: "예고", body: "안녕하세요. 받을돈입니다. [발행인 표시명]님이 보낸 청구서 ‘[청구서명]’(결제 금액 [금액]원)의 결제 예정일이 내일 [만기일]입니다. 미리 안내드리며, 확인 부탁드립니다." },
+         { stage: "D+1", label: "확인", body: "안녕하세요. 받을돈입니다. 예정일이 지난 ‘[청구서명]’의 입금이 아직 확인되지 않았습니다. 이미 입금하셨다면 링크에서 알려주시면 [발행인 표시명]님께 전달드리겠습니다. 사정이 있으시면 입금 예정일을 알려주세요." },
+         { stage: "D+7", label: "재요청", body: "안녕하세요. 받을돈입니다. ‘[청구서명]’ 결제가 일주일 지연되고 있습니다. 일정 조정이 필요하시다면 링크에서 입금 예정일을 제안해 주세요. [발행인 표시명]님께 바로 전달드리겠습니다." },
+         { stage: "D+14", label: "최종 안내", body: "안녕하세요. 받을돈입니다. ‘[청구서명]’이 만기 후 2주가 되었습니다. 이번 안내로 정기 리마인더를 마칩니다. 입금 예정일이나 입금 완료 알림을 링크에 남겨주시면 [발행인 표시명]님께 전달드리겠습니다." }
+       ] %>
+    <div class="mt-10 grid gap-4 sm:grid-cols-2 sm:gap-6">
+      <% samples.each do |sample| %>
+        <div class="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-5">
+          <div class="flex items-center gap-2">
+            <span class="rounded-full bg-emerald-800/10 px-2.5 py-1 text-xs font-bold text-emerald-800"><%= sample[:stage] %></span>
+            <span class="text-xs font-semibold text-stone-500"><%= sample[:label] %></span>
+          </div>
+          <div class="mt-3.5 flex items-start gap-2.5">
+            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-800 text-sm font-bold text-white" aria-hidden="true">받</span>
+            <div class="min-w-0">
+              <p class="text-xs font-semibold text-stone-500">받을돈</p>
+              <p class="mt-1.5 rounded-2xl rounded-tl-sm bg-stone-100 px-3.5 py-2.5 text-sm leading-relaxed text-stone-700"><%= sample[:body] %></p>
+            </div>
+          </div>
+        </div>
+      <% end %>
+    </div>
+  </div>
+</section>

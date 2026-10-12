@@ -1,1 +1,16 @@
 @import "tailwindcss";
+
+/* ── 디자인 시스템 토큰 (PRD §7.3 DESIGN-2·3, AGENTS 「UI 품질 기준」) ──
+   크림 배경 + 딥 그린 액센트(emerald-800/900) + 중립 stone,
+   국문 우선 폰트는 Pretendard(layout에서 CDN 로드) — 시스템 스택 대체. */
+@theme {
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
+    "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Segoe UI", system-ui, sans-serif;
+  --color-cream: #faf9f5;
+}
+
+@layer base {
+  body {
+    @apply bg-cream font-sans text-stone-800 antialiased;
+  }
+}

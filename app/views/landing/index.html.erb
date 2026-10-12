@@ -1,34 +1,15 @@
-<%# 표면 ① 랜딩 — LP-1 히어로만 구현(LP-2~13은 후속 작업). 정적 마크업 — DB 쿼리·모델 호출·Stimulus 없음(SURF-6). %>
+<%# 표면 ① 랜딩 — LP-1~8·10 전체 구성. LP-9 후기는 미보유로 미표기(빈 후기 금지), LP-11 콘텐츠 허브는 후속.
+    정적 마크업 — DB 쿼리·모델 호출 없음(SURF-6). 인터랙션은 details/summary 기본 동작만 사용.
+    링크는 가입 CTA뿐(SURF-4 ①→② 단일 진입). %>
 <% content_for :title, "받을돈 — 말하기 어려운 '돈 다오', 받을돈이 대신합니다" %>
+<% content_for :description, "말하기 어려운 독촉, 받을돈이 대신합니다. 청구 링크 발행부터 열람 추적, 자동 리마인더, 입금 약속 수집까지 프리랜서 수금 루프 전체를 자동화합니다. 무료 · 카드등록 없음 · 3분 만에 시작." %>
 
-<%# DESIGN-2 크림·아이보리 배경 + 딥 그린 액센트 / DESIGN-3 국문 우선 시스템 폰트 스택(Pretendard 도입 전 임시) %>
-<section class="w-full bg-[#faf9f5] text-stone-800" style="font-family: 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;">
-  <div class="mx-auto flex max-w-3xl flex-col items-center px-6 py-20 text-center sm:py-28">
-    <%# LP-1 헤드라인 — PRD 확정 문구(Q6) 그대로 %>
-    <h1 class="text-3xl leading-snug font-bold tracking-tight text-emerald-900 sm:text-5xl">
-      말하기 어려운 '돈 다오',<br>
-      받을돈이 대신합니다
-    </h1>
-
-    <%# LP-1 서브카피 — 수금 루프 한 문장 요약 %>
-    <p class="mt-6 text-base leading-relaxed text-stone-600 sm:text-lg">
-      청구 링크 → 열람 추적 → 자동 리마인더 → 입금 약속 수집까지, 수금 루프 전체를 받을돈이 대신합니다.
-    </p>
-
-    <div class="mt-10 flex flex-col items-center gap-3">
-      <%# SURF-4 ①→② 단일 진입 CTA — 이메일/비밀번호 회원가입 화면으로 연결(AUTH-1) %>
-      <%# LP-1 주 CTA 확정 문구: 「무료로 시작하기」 %>
-      <%= link_to new_registration_path,
-                  class: "rounded-xl bg-emerald-800 px-8 py-4 text-lg font-bold text-white hover:bg-emerald-900" do %>
-        무료로 시작하기
-      <% end %>
-      <p class="text-sm font-medium text-emerald-800">무료 · 카드등록 없음 · 3분</p>
-    </div>
-
-    <%# LP-1 보조 CTA — 대상 섹션(LP-3 작동 방식) 미구현으로 href 없는 비활성 스타일 %>
-    <button type="button" aria-disabled="true" disabled
-            class="mt-8 cursor-not-allowed rounded-xl border border-emerald-800 px-6 py-3 text-base font-semibold text-emerald-800 opacity-60">
-      작동 방식 보기
-    </button>
-  </div>
-</section>
+<%= render "landing/hero" %>
+<%= render "landing/pain" %>
+<%= render "landing/how_it_works" %>
+<%= render "landing/features" %>
+<%= render "landing/message_samples" %>
+<%= render "landing/positioning" %>
+<%= render "landing/pricing" %>
+<%= render "landing/faq" %>
+<%= render "landing/closing" %>

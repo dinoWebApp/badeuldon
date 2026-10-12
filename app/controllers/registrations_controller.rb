@@ -18,8 +18,9 @@ class RegistrationsController < ApplicationController
     end
   end
 
-  # 가입 직후 임시 안내 화면 — /app 대시보드(표면 ②)는 후속 작업
+  # 가입 직후 임시 안내 화면 — 프로필(AUTH-1.3) 미설정 시 설정 안내, 설정 완료 시 완료 화면
   def welcome
+    @user = Current.user
   end
 
   private

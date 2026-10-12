@@ -1,0 +1,31 @@
+<%# LP-3 작동 방식 — 수금 루프 5단계 시각화(번호·인라인 SVG 아이콘·연결선, 이미지 파일 없이 순수 마크업+CSS). %>
+<section class="bg-cream">
+  <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
+    <p class="text-sm font-bold text-emerald-700">작동 방식</p>
+    <h2 class="mt-2 text-2xl font-bold tracking-tight text-stone-900 sm:text-3xl">
+      청구 링크 한 번으로, 수금 루프가 굴러갑니다
+    </h2>
+
+    <% steps = [
+         { no: 1, title: "발행", desc: "품목과 금액을 입력해 청구 링크를 만듭니다." },
+         { no: 2, title: "전달·열람 추적", desc: "카카오톡으로 전달하고, 열람 시점을 알려드립니다." },
+         { no: 3, title: "자동 리마인더", desc: "만기 전후 4단계 톤으로 받을돈이 정중히 안내합니다." },
+         { no: 4, title: "약속 수집", desc: "거래처가 입금 예정일을 클릭 한 번으로 답합니다." },
+         { no: 5, title: "수금 마감", desc: "입금 확인 후 수금을 완료 처리합니다." }
+       ] %>
+    <ol class="mt-12 grid gap-10 sm:grid-cols-5 sm:gap-4">
+      <% steps.each do |step| %>
+        <li class="relative flex flex-col items-center text-center <%= "sm:after:absolute sm:after:top-7 sm:after:left-[calc(50%_+_2.25rem)] sm:after:right-[calc(-50%_+_2.25rem)] sm:after:h-0.5 sm:after:bg-emerald-800/15 sm:after:content-['']" unless step == steps.last %>">
+          <span class="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-stone-200">
+            <svg class="h-6 w-6 text-emerald-800" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true"><%# 인라인 SVG 아이콘(장식) %>
+              <path stroke-linecap="round" stroke-linejoin="round" d="<%= step_icon_path(step[:no]) %>" />
+            </svg>
+            <span class="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-800 text-[10px] font-bold text-white"><%= step[:no] %></span>
+          </span>
+          <span class="mt-4 text-sm font-bold text-stone-800"><%= step[:title] %></span>
+          <span class="mt-1.5 text-xs leading-relaxed text-stone-500"><%= step[:desc] %></span>
+        </li>
+      <% end %>
+    </ol>
+  </div>
+</section>

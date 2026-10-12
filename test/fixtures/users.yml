@@ -1,6 +1,7 @@
-<%# 비밀번호 다이제스트 — 두 사용자 모두 평문 "password" (Rails 표준 ERB 산출) %>
+<%# 비밀번호 다이제스트 — 세 사용자 모두 평문 "password" (Rails 표준 ERB 산출) %>
 <% password_digest = BCrypt::Password.create("password") %>
 
+<%# alpha·beta — 프로필 미설정(AUTH-1.3 미완료): 로그인 직후 /app/profile/edit 리다이렉트 분기 기준 %>
 alpha:
   email: alpha@example.com
   password_digest: <%= password_digest %>
@@ -8,3 +9,14 @@ alpha:
 beta:
   email: beta@example.com
   password_digest: <%= password_digest %>
+
+<%# gamma — 프로필 완료(AUTH-1.3 6필드 설정): 로그인 직후 root 리다이렉트 분기 기준 %>
+gamma:
+  email: gamma@example.com
+  password_digest: <%= password_digest %>
+  display_name: "감마스튜디오"
+  business_type: freelancer
+  bank_name: "국민은행"
+  account_number: "123-45-678901"
+  account_holder: "김감마"
+  phone: "010-9876-5432"

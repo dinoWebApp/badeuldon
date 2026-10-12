@@ -16,9 +16,25 @@ class SessionsControllerTest < ActionDispatch::IntegrationTest
       attempt_login(email: users(:alpha).email, password: "password")
     end
     assert_response :see_other
-    assert_redirected_to root_url
+    # AUTH-1.3 — 프로필 미설정 사용자는 최초 프로필 설정 화면으로 먼저 안내된다(root보다 우선)
+    assert_redirected_to edit_app_profile_url
     follow_redirect!
     assert_select "p#notice", text: "로그인되었습니다."
+  end
+
+  test "프로필이 완료된 사용자 로그인은 root로 진입한다 (AUTH-1.3 분기)" do
+    attempt_login(email: users(:gamma).email, password: "password")
+    assert_response :see_other
+    assert_redirected_to root_url
+  end
+
+  test "로그인 전 방문 예정 페이지가 있어도 프로필 미설정이면 설정 화면이 우선한다 (AUTH-1.3)" do
+    get welcome_path
+    assert_redirected_to new_session_path
+
+    attempt_login(email: users(:alpha).email, password: "password")
+    assert_response :see_other
+    assert_redirected_to edit_app_profile_url
   end
 
   test "로그인 세션 쿠키는 30일 만료 속성으로 발급된다 (AUTH-1.6)" do

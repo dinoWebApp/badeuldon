@@ -1,1 +1,8 @@
 # See https://www.robotstxt.org/robotstxt.html for documentation on how to use the robots.txt file
+
+# SURF-3 — 대시보드·청구서 뷰어·관리자 콘솔은 검색 엔진 수집을 차단한다(랜딩·공개 콘텐츠는 수집 허용).
+User-agent: *
+Disallow: /app
+Disallow: /b/
+Disallow: /admin
+Disallow: /welcome
