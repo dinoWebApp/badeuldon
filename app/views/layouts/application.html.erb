@@ -1,50 +1,19 @@
 <!DOCTYPE html>
 <html lang="ko">
   <head>
-    <title><%= content_for(:title) || "받을돈 — 프리랜서 수금 자동화" %></title>
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <meta name="description" content="<%= content_for(:description) || "프리랜서 수금 자동화 서비스 받을돈" %>">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="application-name" content="Badeuldon">
-    <meta name="mobile-web-app-capable" content="yes">
-    <%# SURF-3 — /app·/b/*·/admin(및 인증 전용 /welcome)은 noindex, 랜딩 등 공개 표면은 색인 허용 %>
-    <%= tag.meta(name: "robots", content: "noindex, nofollow") if noindex? %>
-    <%= csrf_meta_tags %>
-    <%= csp_meta_tag %>
-
-    <%= yield :head %>
-
-    <link rel="icon" href="/icon.png" type="image/png">
-    <link rel="icon" href="/icon.svg" type="image/svg+xml">
-    <link rel="apple-touch-icon" href="/icon.png">
-
-    <%# DESIGN-3 — Pretendard(국문 우선 오픈소스 폰트) CDN, 전역 폰트 교체 %>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-    <%# Includes all stylesheet files in app/assets/stylesheets %>
-    <%= stylesheet_link_tag :app, "data-turbo-track": "reload" %>
-    <%= javascript_importmap_tags %>
+    <%= render "layouts/head" %>
   </head>
 
   <body class="min-h-dvh">
-    <%# 전역 상단 바 — 좌측 워드마크 + 우측 로그인 링크(비인증 시만, 랜딩 제외 — SURF-4 가입 단일 진입) %>
-    <header class="sticky top-0 z-10 border-b border-stone-200/80 bg-cream/90 backdrop-blur">
-      <div class="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
-        <span class="text-lg font-extrabold tracking-tight text-emerald-900">받을돈</span>
-        <% if show_login_link? %>
-          <%= link_to "로그인", new_session_path,
-                class: "inline-flex min-h-11 items-center rounded-lg px-3 text-sm font-semibold text-stone-600 transition hover:bg-stone-200/60 hover:text-stone-800" %>
-        <% end %>
-      </div>
-    </header>
+    <%# 표면 공통 기반 레이아웃 — 크롬(헤더·사이드바·푸터)은 표면별 레이아웃(landing/app)이 담당한다(SURF-6).
+        인증 화면(로그인·가입·재설정)이 이 레이아웃을 사용한다. %>
+    <%# 인증 화면 미니 크롬 — 링크 없는 중앙 워드마크만. 랜딩 상단 바와 동일 계열 스타일, a 요소 없음(SURF-4 앵커 순수성 — 가입 진입 CTA 단일 유지) %>
+    <div class="flex justify-center pb-6 pt-10">
+      <span class="text-lg font-extrabold tracking-tight text-emerald-900">받을돈</span>
+    </div>
 
     <main class="mx-auto w-full max-w-6xl px-4 pb-16 sm:px-6">
-      <%# 플래시 메시지 — 규약 §3.6.6(레이아웃 단일 표시) %>
-      <% if notice = flash[:notice] %>
-        <p class="mx-auto mt-5 w-fit rounded-xl bg-green-50 px-4 py-2.5 text-sm font-medium text-green-700 shadow-sm" id="notice"><%= notice %></p>
-      <% end %>
-      <% if alert = flash[:alert] %>
-        <p class="mx-auto mt-5 w-fit rounded-xl bg-red-50 px-4 py-2.5 text-sm font-medium text-red-600 shadow-sm" id="alert"><%= alert %></p>
-      <% end %>
+      <%= render "layouts/flash" %>
 
       <%= yield %>
     </main>

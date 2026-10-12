@@ -3,6 +3,9 @@
 class LandingController < ApplicationController
   allow_unauthenticated_access
 
+  # 표면 ① 전용 레이아웃 — 상단 바·LP-10 푸터 포함, 앱 자원·내비 미포함(SURF-6 예산 분리)
+  layout "landing"
+
   def index
     # 뷰 렌더용 빈 액션
   end

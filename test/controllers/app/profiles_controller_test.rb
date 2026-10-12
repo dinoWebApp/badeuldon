@@ -63,7 +63,8 @@ class App::ProfilesControllerTest < ActionDispatch::IntegrationTest
     sign_in_as users(:alpha)
     patch app_profile_path, params: { user: { display_name: "  알파랩  ", business_type: "business" } }
     assert_response :see_other
-    assert_redirected_to welcome_url
+    # 저장 완료 목적지 — welcome 임시 화면 소멸, /app 대시보드(03 §4.1)
+    assert_redirected_to app_root_url
 
     user = users(:alpha).reload
     assert_equal "알파랩", user.display_name # normalizes — 앞뒤 공백 제거
@@ -74,16 +75,16 @@ class App::ProfilesControllerTest < ActionDispatch::IntegrationTest
     assert_nil user.phone
   end
 
-  test "6필드 저장은 303으로 완료 화면에 안내하고 6컬럼 전부 DB에 반영된다 (AUTH-1.3)" do
+  test "6필드 저장은 303으로 /app에 안내하고 6컬럼 전부 DB에 반영된다 (AUTH-1.3, 03 §4.1)" do
     sign_in_as users(:alpha)
     patch app_profile_path, params: { user: {
       display_name: "알파스튜디오", business_type: "freelancer", bank_name: "우리은행",
       account_number: "1002-345-678901", account_holder: "김알파", phone: "010-1234-5678"
     } }
     assert_response :see_other
-    assert_redirected_to welcome_url
+    assert_redirected_to app_root_url
     follow_redirect!
-    assert_select "h1", text: "가입이 완료되었습니다"
+    assert_select "h1", text: "대시보드"
     assert_select "p#notice", text: "프로필 설정이 완료되었습니다."
 
     user = users(:alpha).reload
@@ -95,29 +96,30 @@ class App::ProfilesControllerTest < ActionDispatch::IntegrationTest
     assert_equal "010-1234-5678", user.phone
   end
 
-  test "프로필 완료 후 재로그인하면 root로 진입한다 (AUTH-1.3 분기)" do
+  test "프로필 완료 후 재로그인하면 /app으로 진입한다 (AUTH-1.3 분기, 03 §4.1)" do
     sign_in_as users(:alpha)
     patch app_profile_path, params: { user: { display_name: "알파스튜디오", business_type: "business" } }
-    assert_redirected_to welcome_url
+    assert_redirected_to app_root_url
 
     sign_out
     post session_path, params: { email: users(:alpha).email, password: "password" }
     assert_response :see_other
-    assert_redirected_to root_url
+    assert_redirected_to app_root_url
   end
 
-  test "welcome 미설정 분기에 프로필 설정 안내 CTA가 노출된다 (AUTH-1.3)" do
+  test "프로필 화면 헤더는 미완료 표시명에 플레이스홀더를 노출한다 (Phase 6 #2)" do
     sign_in_as users(:alpha)
-    get welcome_path
+    get edit_app_profile_path
     assert_response :success
-    assert_select "a[href=?]", edit_app_profile_path, text: "프로필 설정 시작하기"
+    # 표시명 공백 사용자 — 빈 span 대신 플레이스홀더(app 레이아웃 헤더)
+    assert_select "header span", text: "프로필 완성 중", count: 1
   end
 
-  test "welcome 완료 분기에 프로필 수정 링크가 노출된다 (AUTH-1.3 — 리뷰 이슈 #5)" do
+  test "프로필 화면 헤더는 완료 사용자의 표시명을 노출한다 (Phase 6 #2 — 완료 분기)" do
     sign_in_as users(:gamma)
-    get welcome_path
+    get edit_app_profile_path
     assert_response :success
-    assert_select "a[href=?]", edit_app_profile_path, text: "프로필 수정"
+    assert_select "header span", text: "감마스튜디오", count: 1
   end
 
   test "프로필 업데이트는 로그인 사용자에게만 적용되고 타 사용자·인증 정보는 불변이다 (소유자 스코프)" do
@@ -126,7 +128,7 @@ class App::ProfilesControllerTest < ActionDispatch::IntegrationTest
       display_name: "알파스튜디오", business_type: "business",
       email: "hijack@example.com", password: "escalated-secret"
     } }
-    assert_redirected_to welcome_url
+    assert_redirected_to app_root_url
 
     alpha = users(:alpha).reload
     assert_equal "알파스튜디오", alpha.display_name

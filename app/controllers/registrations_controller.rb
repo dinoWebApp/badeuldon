@@ -12,15 +12,12 @@ class RegistrationsController < ApplicationController
     @user = User.new(registration_params)
     if @user.save
       start_new_session_for @user
-      redirect_to welcome_path, status: :see_other, notice: "회원가입이 완료되었습니다. 받을돈에 오신 것을 환영합니다!"
+      # 가입 직후 AUTH-1.3 최초 프로필 설정으로 안내 — welcome 임시 화면은 /app 셸로 대체되어 제거됨(플랜 A-3)
+      redirect_to edit_app_profile_path, status: :see_other,
+                  notice: "회원가입이 완료되었습니다. 받을돈에 오신 것을 환영합니다!"
     else
       render :new, status: :unprocessable_entity
     end
-  end
-
-  # 가입 직후 임시 안내 화면 — 프로필(AUTH-1.3) 미설정 시 설정 안내, 설정 완료 시 완료 화면
-  def welcome
-    @user = Current.user
   end
 
   private

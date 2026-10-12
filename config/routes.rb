@@ -2,11 +2,11 @@ Rails.application.routes.draw do
   # ── 인증(표면 ② 진입 전) — AUTH-1 이메일/비밀번호, AUTH-8 비밀번호 재설정 ──
   resource :session, only: %i[ new create destroy ]                    # 로그인/로그아웃
   resource :registration, only: %i[ new create ]                       # 회원가입(SURF-4 가입 단일 진입)
-  get "welcome", to: "registrations#welcome"                           # 가입 직후 임시 안내(/app 대시보드 후속 작업)
   resources :passwords, param: :token, only: %i[ new create edit update ]  # 비밀번호 재설정(AUTH-8)
 
   # ── 표면 ② 대시보드(/app) — 로그인 U1 전용. require_authentication 기본 가드 적용(공개 예외 없음) ──
   namespace :app do
+    root to: "dashboards#show"                  # DASH-1/2/4 — /app 진입 셸
     resource :profile, only: %i[ edit update ]  # AUTH-1.3 최초 프로필 설정(/app/profile)
   end
 

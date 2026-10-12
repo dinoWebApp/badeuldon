@@ -9,6 +9,9 @@ class SessionsControllerTest < ActionDispatch::IntegrationTest
     assert_select "form[action=?]", session_path
     assert_select "a[href=?]", new_registration_path, text: /무료로 시작하기/
     assert_select "a[href=?]", new_password_path, text: /비밀번호 찾기/
+    # 인증 화면 브랜드 크롬(Phase 6 #1) — 워드마크 존재, 링크 아님(span)
+    assert_select "span", text: "받을돈", count: 1
+    assert_select "a", text: "받을돈", count: 0
   end
 
   test "올바른 자격 증명은 303과 세션 발급으로 로그인한다 (AUTH-1)" do
@@ -22,14 +25,15 @@ class SessionsControllerTest < ActionDispatch::IntegrationTest
     assert_select "p#notice", text: "로그인되었습니다."
   end
 
-  test "프로필이 완료된 사용자 로그인은 root로 진입한다 (AUTH-1.3 분기)" do
+  test "프로필이 완료된 사용자 로그인은 /app으로 진입한다 (AUTH-1.3 분기, 03 §4.1)" do
     attempt_login(email: users(:gamma).email, password: "password")
     assert_response :see_other
-    assert_redirected_to root_url
+    # 로그인 폴백 root_url(랜딩 ①) → app_root_url(/app) 변경 — 완료 사용자는 대시보드 진입
+    assert_redirected_to app_root_url
   end
 
   test "로그인 전 방문 예정 페이지가 있어도 프로필 미설정이면 설정 화면이 우선한다 (AUTH-1.3)" do
-    get welcome_path
+    get app_root_path
     assert_redirected_to new_session_path
 
     attempt_login(email: users(:alpha).email, password: "password")
@@ -80,7 +84,7 @@ class SessionsControllerTest < ActionDispatch::IntegrationTest
   test "로그아웃은 세션을 파기해 이전 쿠키로 재진입할 수 없다 (AUTH-1)" do
     sign_in_as(users(:alpha))
     stale_cookie = cookies["session_id"]
-    get welcome_path
+    get edit_app_profile_path
     assert_response :success
 
     delete session_path
@@ -92,7 +96,7 @@ class SessionsControllerTest < ActionDispatch::IntegrationTest
 
     cookies.delete("session_id")
     cookies["session_id"] = stale_cookie
-    get welcome_path
+    get edit_app_profile_path
     assert_redirected_to new_session_path
   end
 

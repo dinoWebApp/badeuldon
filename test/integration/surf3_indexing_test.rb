@@ -13,9 +13,9 @@ class Surf3IndexingTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "welcome 화면도 noindex 메타를 출력한다 (SURF-3)" do
-    sign_in_as users(:alpha)
-    get welcome_path
+  test "대시보드(/app)도 noindex 메타를 출력한다 (SURF-3, 03 §4.2 #15 대체)" do
+    sign_in_as users(:gamma)
+    get app_root_path
     assert_response :success
     assert_select "meta[name=robots]" do |metas|
       assert_equal 1, metas.size
@@ -28,11 +28,10 @@ class Surf3IndexingTest < ActionDispatch::IntegrationTest
     assert_select "meta[name=robots]", count: 0
   end
 
-  test "robots.txt는 대시보드·뷰어·관리자·welcome 경로를 차단한다 (SURF-3)" do
+  test "robots.txt는 대시보드·뷰어·관리자 경로를 차단한다 (SURF-3)" do
     robots = File.read(Rails.root.join("public/robots.txt"))
     assert_includes robots, "Disallow: /app"
     assert_includes robots, "Disallow: /b/"
     assert_includes robots, "Disallow: /admin"
-    assert_includes robots, "Disallow: /welcome"
   end
 end

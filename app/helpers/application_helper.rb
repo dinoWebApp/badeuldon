@@ -1,15 +1,10 @@
 module ApplicationHelper
-  # SURF-3 — 검색 색인 금지 표면(/app·/b/*·/admin). /welcome은 인증 전용 임시 화면이라 함께 제외.
+  # SURF-3 — 검색 색인 금지 표면(/app·/b/*·/admin).
   # 랜딩(①)·공개 콘텐츠는 색인을 허용한다(noindex 미출력).
-  NOINDEX_PATH_PREFIXES = [ "/app", "/b/", "/admin", "/welcome" ].freeze
+  NOINDEX_PATH_PREFIXES = [ "/app", "/b/", "/admin" ].freeze
 
   def noindex?
     NOINDEX_PATH_PREFIXES.any? { |prefix| request.path.start_with?(prefix) }
-  end
-
-  # SURF-4 — 랜딩(①)에서의 ② 진입은 가입 CTA 단일이므로 전역 헤더의 로그인 링크를 노출하지 않는다.
-  def show_login_link?
-    !authenticated? && request.path != root_path
   end
 
   # LP-3 — 작동 방식 5단계 인라인 SVG 아이콘 경로(장식용, aria-hidden으로 접근성 트리 제외)

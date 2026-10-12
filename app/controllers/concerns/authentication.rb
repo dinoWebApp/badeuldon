@@ -38,12 +38,12 @@ module Authentication
     end
 
     # AUTH-1.3 — 로그인 직후 표시명(display_name)이 미설정이면 최초 프로필 설정 화면으로 안내한다.
-    # 최초 프로필 완료가 원래 가려던 페이지(return_to)보다 우선한다.
+    # 최초 프로필 완료가 원래 가려던 페이지(return_to)보다 우선하며, 그 외에는 /app 대시보드로 보낸다.
     def after_authentication_url
       return_to = session.delete(:return_to_after_authenticating)
       return edit_app_profile_url if Current.user&.display_name.blank?
 
-      return_to || root_url
+      return_to || app_root_url
     end
 
     def start_new_session_for(user)

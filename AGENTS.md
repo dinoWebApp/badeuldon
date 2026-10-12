@@ -150,8 +150,8 @@ bin/jobs             # Solid Queue 잡 프로세스 (웹과 별도 실행)
 
 ## 구현 진행 상황 (로드맵)
 
-- **완료**: Rails 8.1 스켈레이션 생성, ARCHITECTURE_CONVENTION v1.0.0, 하네스 구축 + E2E 검증, 표면 ① 랜딩 루트 골격, F-AUTH 이메일/비밀번호 인증(PRD v0.18·Q8 OAuth 폐기 반전), **랜딩 전체 LP-1~8·10 + UI 품질 기준 제도화 + AUTH-1.3 프로필 설정**(`2026-10-12`, PRD v0.18.1 — Pretendard·크림/딥그린 디자인 시스템, 랜딩 섹션 9종(파셜), /app/profile 6필드·require_authentication 첫 적용, 테스트 83건. 리뷰 CRITICAL 1·WARNING 8 수정)
-- **구현됨 상세**: `_workspace_prev/`(인증)·`_workspace/`(랜딩·프로필) 산출물 참조
+- **완료**: Rails 8.1 스켈레이션 생성, ARCHITECTURE_CONVENTION v1.0.0, 하네스 구축 + E2E 검증, 표면 ① 랜딩 루트 골격, F-AUTH 이메일/비밀번호 인증(PRD v0.18·Q8 OAuth 폐기 반전), 랜딩 전체 LP-1~8·10 + UI 품질 기준 제도화 + AUTH-1.3 프로필 설정(PRD v0.18.1), **/app 대시보드 뼈대**(`2026-10-12`, PRD v0.18.2 — 레이아웃 3분리(landing/app/application, SURF-6), DASH-1/2/4 빈 상태 셸·ONB-1 CTA, welcome 소멸·리다이렉트 /app 직행, App::BaseController 가드 체인, 테스트 93건. 리뷰 WARNING 3 수정)
+- **구현됨 상세**: `_workspace_prev/`(랜딩·프로필)·`_workspace/`(app 셸) 산출물 참조
 - **진행 중**: 없음
-- **예정**: /app 대시보드 뼈대(표면 ②) → F-CLIENT → F-INV → F-SHARE → F-VIEW → F-REM(핵클 계약 선행) → F-PROMISE → F-PAY(MVP) → F-DASH → F-PLAN(토스 계약 선행) → F-ADMIN → F-LEGAL/REF/TAX → LP-11 콘텐츠 허브·무료 도구·블로그. 기술 부채: ② 구축 시 ① 전용 레이아웃 분리, Pretendard 셀프호스팅, 이메일 발송 서비스 선정(재설정 실발송), 관리자 계정(AUTH-7 — F-ADMIN 시점), LP-3 실화면 이미지(/app 완성 후), 푸터 약관·사업자 정보(법무 검토 후), 후기 시스템(3건+ 확보 시 LP-9 노출)
+- **예정**: F-CLIENT → F-INV(첫 발행 CTA·빈 상태 카드 실데이터 전환) → F-SHARE → F-VIEW → F-REM(핵클 계약 선행) → F-PROMISE → F-PAY(MVP) → F-DASH 실데이터 → F-PLAN(토스 계약 선행) → F-ADMIN → F-LEGAL/REF/TAX → LP-11 콘텐츠 허브·무료 도구·블로그. 기술 부채: Pretendard 셀프호스팅, 이메일 발송 서비스 선정(재설정 실발송), 관리자 계정(AUTH-7 — F-ADMIN 시점), LP-3 실화면 이미지(F-INV 후), 푸터 약관·사업자 정보(법무 검토 후), 후기 시스템(3건+ 확보 시 LP-9 노출), 표면별 Stimulus 컨트롤러 로드 분리·CSS 분할(SURF-6 — 현재 규모 영향 없음)
 - **작업 재개 가이드**: `.omp/progress.json`의 `currentPhase` 확인 → `awaiting_approval`이면 플랜 재보고 후 승인 대기, 그 외에는 다음 Phase부터 재개. 산출물은 `_workspace/`.

@@ -1,6 +1,8 @@
-# 프로필 설정(AUTH-1.3) — 표면 ② 첫 화면. ApplicationController 기본 가드(require_authentication)의
-# 첫 실전 적용: 비인증 접근은 로그인 화면으로 리다이렉트된다.
-class App::ProfilesController < ApplicationController
+# 프로필 설정(AUTH-1.3). App::BaseController의 프로필 완료 가드를 건너뛴다 —
+# 이 화면 자체가 미완료 사용자가 완료해야 할 첫 화면이므로.
+class App::ProfilesController < App::BaseController
+  skip_before_action :require_complete_profile
+
   def edit
     @user = Current.user
   end
@@ -9,8 +11,8 @@ class App::ProfilesController < ApplicationController
     @user = Current.user
     @user.assign_attributes(profile_params)
     if @user.save(context: :profile)
-      # 완료 후 임시 완료 화면(가입 완료 화면)으로 안내 — /app 대시보드 본체는 후속 작업
-      redirect_to welcome_path, status: :see_other, notice: "프로필 설정이 완료되었습니다."
+      # 완료 후 /app 대시보드로 안내 — welcome 임시 화면은 /app 셸로 대체되어 제거됨(플랜 A-3)
+      redirect_to app_root_path, status: :see_other, notice: "프로필 설정이 완료되었습니다."
     else
       render :edit, status: :unprocessable_entity
     end

@@ -8,35 +8,45 @@ class RegistrationsControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_select "form[action=?]", registration_path
     assert_select "a[href=?]", new_session_path, text: /로그인/
+    # 인증 화면 브랜드 크롬(Phase 6 #1) — 워드마크 존재, 링크 아님(span)
+    assert_select "span", text: "받을돈", count: 1
+    assert_select "a", text: "받을돈", count: 0
   end
 
-  test "정상 가입은 303으로 세션을 시작하고 welcome으로 안내한다 (AUTH-1)" do
+  test "정상 가입은 303으로 세션을 시작하고 프로필 설정으로 안내한다 (AUTH-1, 03 §4.1)" do
     assert_difference -> { User.count }, +1 do
       assert_difference -> { Session.count }, +1 do
         sign_up(email: "new-user@example.com")
       end
     end
     assert_response :see_other
-    assert_redirected_to welcome_path
+    # 가입 직후 AUTH-1.3 최초 프로필 설정 직행 — welcome 임시 화면은 소멸(플랜 A-3)
+    assert_redirected_to edit_app_profile_path
     assert cookies["session_id"]
 
     follow_redirect!
-    assert_select "h1", text: "가입이 완료되었습니다"
+    assert_select "h1", text: "프로필 설정"
     assert_select "p#notice", text: "회원가입이 완료되었습니다. 받을돈에 오신 것을 환영합니다!"
   end
 
-  test "가입으로 시작한 세션으로 /welcome에 접근할 수 있다 (AUTH-1)" do
+  test "가입으로 시작한 세션으로 /app에 접근할 수 있다 (AUTH-1)" do
     sign_up(email: "new-user@example.com")
     follow_redirect!
 
-    get welcome_path
-    assert_response :success
-    assert_select "h1", text: "가입이 완료되었습니다"
+    # 세션 유효 확인 — 미완료 가드(/app/profile/edit 리다이렉트)는 작동하지만 로그인 화면으로 밀리지 않는다
+    get app_root_path
+    assert_response :redirect
+    assert_redirected_to edit_app_profile_path
   end
 
-  test "인증 없이 /welcome 접근은 로그인 화면으로 리다이렉트된다" do
-    get welcome_path
+  test "인증 없이 /app 접근은 로그인 화면으로 리다이렉트된다 (03 §4.1)" do
+    get app_root_path
     assert_redirected_to new_session_path
+  end
+
+  test "GET /welcome 라우트는 소멸했다 (A-3 — 임시 안내 화면 제거 회귀)" do
+    get "/welcome"
+    assert_response :not_found
   end
 
   test "동일 이메일 재가입은 422와 중복 안내문으로 거부된다 (AUTH-1.4 — 리뷰 #1 회귀)" do
@@ -57,7 +67,7 @@ class RegistrationsControllerTest < ActionDispatch::IntegrationTest
 
   test "변형 이메일로 가입하면 정규화된 이메일로 로그인된다 (AUTH-1.4)" do
     sign_up(email: "  Mixed.Case@Example.COM ")
-    assert_redirected_to welcome_path
+    assert_redirected_to edit_app_profile_path
 
     attempt_login(email: "mixed.case@example.com", password: "secret-123")
     assert_response :see_other

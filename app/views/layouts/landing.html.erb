@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <%= render "layouts/head" %>
+  </head>
+
+  <body class="min-h-dvh">
+    <%# 표면 ① 랜딩 전용 레이아웃(SURF-6 — 앱 자원·내비 미포함).
+        상단 바는 워드마크만 노출하고 링크를 두지 않는다 — ①→② 진입은 가입 CTA 단일(SURF-4). %>
+    <header class="sticky top-0 z-10 border-b border-stone-200/80 bg-cream/90 backdrop-blur">
+      <div class="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
+        <span class="text-lg font-extrabold tracking-tight text-emerald-900">받을돈</span>
+      </div>
+    </header>
+
+    <%# 랜딩 섹션 파셜이 각자 풀블리드 배경·컨테이너를 관리하므로 main은 폭 제약을 두지 않는다 %>
+    <main class="w-full">
+      <%= render "layouts/flash" %>
+
+      <%= yield %>
+    </main>
+
+    <%# LP-10 푸터 — 랜딩 하단 고정 크롬. 문의 채널 중심 표기(결정 #5 — 약관·사업자 정보는 법무 검토 후 추가) %>
+    <footer class="border-t border-stone-200 bg-cream">
+      <div class="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-10 sm:flex-row sm:items-end sm:justify-between sm:px-6">
+        <div>
+          <p class="text-base font-extrabold tracking-tight text-emerald-900">받을돈</p>
+          <p class="mt-1 text-xs leading-relaxed text-stone-500">
+            프리랜서 수금 자동화 서비스 · 서비스 문의: 카카오톡 채널 ‘받을돈’
+          </p>
+        </div>
+        <p class="text-xs text-stone-500">© 2026 받을돈</p>
+      </div>
+    </footer>
+  </body>
+</html>

@@ -10,6 +10,9 @@ class PasswordsControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_select "form[action=?]", passwords_path
     assert_select "a[href=?]", new_session_path, text: /로그인으로 돌아가기/
+    # 인증 화면 브랜드 크롬(Phase 6 #1) — 워드마크 존재, 링크 아님(span)
+    assert_select "span", text: "받을돈", count: 1
+    assert_select "a", text: "받을돈", count: 0
   end
 
   test "가입 이메일 요청은 재설정 메일을 발송하고 안내 리다이렉트한다 (AUTH-8)" do
@@ -112,7 +115,7 @@ class PasswordsControllerTest < ActionDispatch::IntegrationTest
   test "재설정 완료 시 기존 세션은 전부 무효화된다 (AUTH-8)" do
     sign_in_as(@user)
     stale_cookie = cookies["session_id"]
-    get welcome_path
+    get edit_app_profile_path
     assert_response :success
 
     put password_path(@user.password_reset_token), params: { password: "brand-new-123", password_confirmation: "brand-new-123" }
@@ -121,7 +124,7 @@ class PasswordsControllerTest < ActionDispatch::IntegrationTest
 
     cookies.delete("session_id")
     cookies["session_id"] = stale_cookie
-    get welcome_path
+    get edit_app_profile_path
     assert_redirected_to new_session_path
   end
 

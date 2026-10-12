@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <%= render "layouts/head" %>
+  </head>
+
+  <body class="min-h-dvh bg-cream">
+    <%# 표면 ② 대시보드 전용 레이아웃 — 사이드바 + 헤더 골격(DESIGN-4 정보 밀도 중심, shadcn dashboard-01 참조).
+        데스크톱 고정 사이드바, 모바일은 상단 해시버거 드로어(Stimulus sidebar — UI 토글만 담당). %>
+    <div class="min-h-dvh lg:pl-64" data-controller="sidebar">
+      <aside id="app-sidebar" data-sidebar-target="drawer"
+            class="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-stone-200 bg-white lg:flex">
+        <div class="flex h-14 shrink-0 items-center border-b border-stone-200/80 px-5">
+          <span class="text-lg font-extrabold tracking-tight text-emerald-900">받을돈</span>
+        </div>
+
+        <nav class="flex-1 space-y-1 overflow-y-auto p-3" aria-label="대시보드 메뉴">
+          <% app_nav_items.each do |item| %>
+            <% if item[:disabled] %>
+              <%# 미구현 메뉴 — 링크 없이 준비 중 배지로 노출(플랜 결정 #2: 서비스 구조 안내) %>
+              <span aria-disabled="true"
+                    class="flex min-h-11 cursor-not-allowed items-center justify-between gap-2 rounded-lg px-3 text-sm font-semibold text-stone-400">
+                <%= item[:label] %>
+                <span class="rounded-full bg-stone-100 px-2 py-0.5 text-[11px] font-bold text-stone-500">준비 중</span>
+              </span>
+            <% else %>
+              <%= link_to item[:label], item[:path],
+                    data: { action: "sidebar#close" },
+                    aria: { current: ("page" if item[:active]) },
+                    class: app_nav_link_classes(active: item[:active]) %>
+            <% end %>
+          <% end %>
+        </nav>
+      </aside>
+
+      <%# 모바일 드로어 배경 — 탭하면 사이드바가 닫힌다 %>
+      <button type="button" data-sidebar-target="backdrop" data-action="sidebar#close" tabindex="-1" aria-hidden="true"
+            class="fixed inset-0 z-30 hidden cursor-default bg-stone-900/40 lg:hidden"></button>
+
+      <div class="flex min-h-dvh flex-col">
+        <%# 앱 헤더 — 좌측 모바일 해시버거, 우측 사용자 표시명·로그아웃(세션 종료) %>
+        <header class="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-stone-200/80 bg-cream/90 px-4 backdrop-blur sm:px-6">
+          <div class="flex items-center gap-1">
+            <button type="button" data-sidebar-target="toggle" data-action="sidebar#toggle"
+                  aria-controls="app-sidebar" aria-expanded="false"
+                  class="inline-flex h-11 w-11 items-center justify-center rounded-lg text-stone-600 transition hover:bg-stone-200/60 hover:text-stone-800 lg:hidden">
+              <span class="sr-only">메뉴 열기</span>
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="h-6 w-6" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+              </svg>
+            </button>
+            <span class="text-lg font-extrabold tracking-tight text-emerald-900 lg:hidden">받을돈</span>
+          </div>
+
+          <div class="flex items-center gap-2 sm:gap-3">
+            <%# 프로필 설정 화면은 완료 가드 skip이라 표시명이 공백일 수 있다 — 공백 시 플레이스홀더 노출(Phase 5 리뷰 #2) %>
+            <span class="max-w-40 truncate text-sm font-semibold text-stone-700"><%= Current.user.display_name.presence || "프로필 완성 중" %></span>
+            <%= button_to "로그아웃", session_path, method: :delete,
+                  data: { turbo_confirm: "로그아웃하시겠습니까?" },
+                  class: "inline-flex min-h-11 cursor-pointer items-center rounded-lg border border-stone-300 bg-white px-3 text-sm font-semibold text-stone-600 transition hover:border-stone-400 hover:text-stone-800" %>
+          </div>
+        </header>
+
+        <main class="mx-auto w-full max-w-6xl flex-1 px-4 pb-16 sm:px-6">
+          <%= render "layouts/flash" %>
+
+          <%= yield %>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>

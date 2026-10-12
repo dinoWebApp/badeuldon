@@ -1,0 +1,7 @@
+<%# 플래시 메시지 — 규약 §3.6.6(레이아웃 단일 표시) %>
+<% if notice = flash[:notice] %>
+  <p class="mx-auto mt-5 w-fit rounded-xl bg-green-50 px-4 py-2.5 text-sm font-medium text-green-700 shadow-sm" id="notice"><%= notice %></p>
+<% end %>
+<% if alert = flash[:alert] %>
+  <p class="mx-auto mt-5 w-fit rounded-xl bg-red-50 px-4 py-2.5 text-sm font-medium text-red-600 shadow-sm" id="alert"><%= alert %></p>
+<% end %>
