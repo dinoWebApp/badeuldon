@@ -47,5 +47,10 @@ module App
     def display_date(date)
       date&.strftime("%Y-%m-%d")
     end
+
+    # 일시 표기 — 분 단위(KST, TIME-1). 열람 이력(SHARE-3) 등 정확한 시각 안내에 쓴다.
+    def display_datetime(datetime)
+      datetime&.strftime("%Y-%m-%d %H:%M")
+    end
   end
 end

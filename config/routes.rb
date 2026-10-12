@@ -12,8 +12,9 @@ Rails.application.routes.draw do
     resources :items                            # CLIENT-2 — 품목 라이브러리 CRUD
     resources :invoices do                      # INV — 초안 CRUD + 상태 전환(member)
       member do
-        patch :issue  # 초안 → 발행(INV-4)
-        patch :void   # 발행 계열 → 무효(INV-6)
+        patch :issue             # 초안 → 발행(INV-4)
+        patch :void              # 발행 계열 → 무효(INV-6)
+        patch :regenerate_token  # 링크 재발급(SHARE-2 — 기존 링크 즉시 무효·유효기간 유지)
       end
     end
   end
@@ -27,6 +28,13 @@ Rails.application.routes.draw do
   # Render dynamic PWA files from app/views/pwa/* (remember to link manifest in application.html.erb)
   # get "manifest" => "rails/pwa#manifest", as: :pwa_manifest
   # get "service-worker" => "rails/pwa#service_worker", as: :pwa_service_worker
+
+  # ── 표면 ③ 청구서 뷰어(/b/:token) ───────────────
+  # 비로그인 U2(VIEW-1·P3), 토큰으로만 조회(SHARE-1). noindex·robots 차단(SURF-3 —
+  # NOINDEX_PATH_PREFIXES "/b/" + public/robots.txt), ③→① 링크 없음(SURF-4).
+  scope "/b" do
+    get "/:token", to: "viewer#show", as: :viewer
+  end
 
   # ── 표면 ① 랜딩 ───────────────────────────────
   # 비로그인 공개(SURF-1) — 색인 허용(SURF-3), ①→② 진입은 가입 CTA 단일(SURF-4)

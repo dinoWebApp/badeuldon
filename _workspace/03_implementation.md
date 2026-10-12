@@ -1,8 +1,8 @@
-# 03_implementation.md — F-INV 청구서 발행 + 대시보드 실데이터 전환
+# 03_implementation.md — F-SHARE 열람 추적 + F-VIEW 채무자 뷰어(표면 ③) + 링크 UI
 
 - **일자**: 2026-10-12
-- **범위**: 플랜 `_workspace/01_plan.md` (결정 4건 반영) — Invoice·InvoiceItem 도메인 신규, 초안 CRUD + 발행(issue)·무효(void) 상태 전환, 대시보드 DASH-1/4 실데이터·ONB-1 CTA 활성화
-- **후속 제외(미구현 확정)**: SHARE-3/4 열람 추적·알림, 뷰어(표면 ③), REM 발송, INV-7 반복, PDF, PAY 전환, 만기일 기본값 설정 UI, 부분입금
+- **범위**: 플랜 `_workspace/01_plan.md` (결정 4건 반영) — ViewEvent 신규 엔티티, 표면 ③ 뷰어 개봉(/b/:token), 발행 상세 링크 UI, 열람 이력 요약, viewed 뱃지
+- **후속 제외(미구현 확정)**: SHARE-4 U1 알림 발송(핵클 미계약 — 결정 #1, ViewEvent·viewed 전이로 근거 데이터 완비), SHARE-5 문구 분기(REM), VIEW-4 응답 버튼(F-PROMISE)·PDF, VIEW-7 수신 거부, INV-7
 
 ---
 
@@ -11,203 +11,155 @@
 ### 신규
 | 파일 | 내용 |
 |:---|:---|
-| `db/migrate/20261012000004_create_invoices.rb` | `invoices` + `invoice_items` 테이블. 컬럼 제약(`null: false`·`default`)·FK·인덱스 명시. `issue_number`·`token` 고유 인덱스(초안 NULL 허용 — 발행 시 채번), `[user_id, due_on]` 복합 인덱스(DASH-4 정렬) |
-| `app/models/invoice.rb` | INV-1~6 도메인. enum 8종, 상태 전이 `issue!`/`void!`, 금액 산식(`compute_amounts`), PLAN-1 한도 검증, 파생 연체 판정(`overdue?`·`days_overdue`), 스코프(`unsettled`·`overdue`·`due_within`·`voidable`·`sorted_by_due`) |
-| `app/models/invoice_item.rb` | 품목 행. 설명 필수, 수량 1~10,000, 단가 0~`Item::MAX_UNIT_PRICE`(CLIENT-2 상한 공유) |
-| `app/controllers/app/invoices_controller.rb` | 초안 CRUD + member `issue`/`void`. 소유권 스코프 겸용 before_action 3종(show=전체, draft=수정·삭제·발행, voidable=무효) |
-| `app/helpers/app/invoices_helper.rb` | 상태 뱃지(DESIGN-2 상태색), 라이브러리 JSON 직렬화(CLIENT-2) |
-| `app/views/app/invoices/` `index.html.erb` `show.html.erb` `new.html.erb` `edit.html.erb` `_form.html.erb` `_item_fields.html.erb` `_invoice.html.erb` `_table.html.erb` | 목록(연체일 내림차순 표)·상세(품목 표·금액 내역 INV-2 분해)·작성·수정 폼(품목 행 동적 편집·실시간 요약)·행·표 파셜 |
-| `app/javascript/controllers/invoice_form_controller.js` | 품목 행 추가·제거, 라이브러리 프리필(CLIENT-2), 금액 실시간 요약 — 서버 산식의 정수 JS 미러 |
+| `db/migrate/20261012000005_create_view_events.rb` | `view_events` 테이블 — `invoice_id`(FK·인덱스, `t.references null: false foreign_key: true`), `first`(boolean, default false), `device`(string mobile/pc), `ip`(string limit 45 — IPv6 최대, 플랜 결정 #4 기록), `viewed_at`(datetime, KST — TIME-1). 전 컬럼 `null: false` |
+| `app/models/view_event.rb` | SHARE-3 기록 모델. `belongs_to :invoice`, `device` inclusion(mobile/pc), `viewed_at`·`ip` presence. `ViewEvent.device_from_user_agent(ua)` — UA 대략 판별 클래스 메서드(모바일 키워드 매칭, UA 부재 시 PC) |
+| `app/services/view_events/track_service.rb` | **저장소 첫 Service**(§3.5 도입 기준 충족 — 2개 모델 쓰기 + 트랜잭션). `#call` 진입점, 생성자는 데이터만(invoice·user_agent·ip·viewed_at=Time.current 기본). 트랜잭션 안에서 ① `first = view_events.none?` ② ViewEvent create! ③ first이면 `invoice.mark_viewed!`. 실패는 예외 전파(기록 누락 상태로 뷰어 성공 응답 금지 — P4) |
+| `app/controllers/viewer_controller.rb` | 표면 ③. `layout "viewer"` + `allow_unauthenticated_access only: :show`(VIEW-1·P3). `Invoice.includes(:client).find_by(token:)` → `link_accessible?`(토큰 일치·미폐기·미만료) → TrackService 호출. 무효 시 `render :expired, status: :not_found` |
+| `app/views/layouts/viewer.html.erb` | 뷰어 전용 레이아웃 — 앱 내비·푸터·마케팅 일절 없음(VIEW-8·SURF-2), 흰 배경(body `bg-white text-[17px]` — DESIGN-4·6), `_head` 파셜 재사용(noindex·Pretendard·importmap 자동) |
+| `app/views/viewer/show.html.erb` | VIEW-2 헤더(「받을돈을 통해 **발행인**님이 보낸 청구서입니다」 + 링크 아닌 워드마크 — SURF-4), VIEW-3(청구번호·발행일·만기일·품목 표·금액 분해 INV-2·총액 대형 tabular·계좌 복사 카드·PAY-3 입금자명 안내), VIEW-5 하단 고지 |
+| `app/views/viewer/expired.html.erb` | VIEW-6 안내 화면 — 「링크가 만료되었거나 폐기되었습니다.」 + 「발행인에게 직접 연락해 주세요.」 링크·연락처 일절 없음(SURF-4·P2) |
+| `app/javascript/controllers/clipboard_controller.js` | 복사 UI 전용 Stimulus(1개 — UI 동작만). `navigator.clipboard.writeText` 성공 시 라벨 「복사됨」 2초 피드백, 실패 시 source 선택 수동 복사 fallback(비보안 컨텍스트 대응 — 플랜 리스크 노트). 링크 복사(②)·계좌 복사(③) 공용 |
 
 ### 수정
 | 파일 | 내용 |
 |:---|:---|
-| `app/models/user.rb` | `has_many :invoices, dependent: :destroy`(AUTH-1.5) |
-| `app/controllers/app/dashboards_controller.rb` | DASH-1 집계(미수 총액·연체 건수/금액·7일 내 만기) + DASH-4 상위 5건(`DASHBOARD_LIST_COUNT`) |
-| `app/views/app/dashboards/show.html.erb` | DASH-1 실데이터 카드(0건 시 기존 빈 상태 유지), DASH-4 목록 표, ONB-1 CTA 실링크(0건→`new`, 이후→목록 링크), DASH-2 빈 상태 유지 |
-| `app/helpers/app/base_helper.rb` | 사이드바 「청구서」 활성화, `won()`·`display_date()` 추가, `dash_summary_cards` 제거(빈 카드 헬퍼 — 실데이터 전환으로 소멸) |
-| `config/routes.rb` | `resources :invoices` + member `patch :issue`·`patch :void` |
-| `config/locales/en.yml` | invoice·invoice_item 검증 문구 한글화. belongs_to required 문구는 연관 속성 `client.required` 키 사용(런타임 실측) |
-| `db/schema.rb` | 자동 갱신(version `2026_10_12_000004`) |
+| `app/models/invoice.rb` | `has_many :view_events, dependent: :destroy`(연쇄 삭제 — invoices 파괴 경로 전부 자동), `scope :linkable`(초안·무효 제외 — SHARE-2 재발급 스코프), `regenerate_token!`(새 토큰 교체로 기존 링크 즉시 무효, `token_expires_at` 유지, voided는 INV-6로 거부), `mark_viewed!`(INV-4 issued→viewed — status 단일 컬럼 **조건부 UPDATE**로 원자화, 동시 열람에서 정확히 1회 적용) |
+| `app/controllers/app/invoices_controller.rb` | member `regenerate_token` 액션(성공 303/실패 422 — Turbo 규약) + `set_linkable_invoice`(linkable 스코프 = 소유권 격리 겸용) + `set_view_events` before_action(show·issue·void·regenerate_token — 422 재렌더에서도 show 템플릿 @변수 보장, 대상 조회 `set_*_invoice` **뒤** 실행) |
+| `app/views/app/invoices/show.html.erb` | ① 공유 링크 영역(token 보유 시; voided는 INV-6로 미노출): 전체 URL readonly 표시 + 복사 버튼 + 재발급 버튼(`button_to` + `turbo_confirm` 「기존 링크는 즉시 무효화됩니다. 재발급하시겠습니까?」) + 만료 임박/만료 표시 ② 열람 이력 요약(최초·최근 열람 시각 `display_datetime`·횟수 — SHARE-3 U1 가시화). 상단 주석의 「링크 미노출(플랜 결정 #1)」은 본 Phase 결정으로 대체 |
+| `app/helpers/app/invoices_helper.rb` | 뱃지 분리: `issued` → 「대기 중」 / `viewed` → **「열람」**(중립 톤 유지 — DESIGN-2 상태색 3종), `link_expiry_notice`(만료 7일 전 「만료 임박」+열람 가능일, 경과 시 「링크 만료」+주황) |
+| `app/helpers/app/base_helper.rb` | `display_datetime` 추가(분 단위 KST — TIME-1) |
+| `config/routes.rb` | 표면 ③: `scope "/b" { get "/:token" => "viewer#show", as: :viewer }`(SURF-1 표면별 블록), invoices member `patch :regenerate_token` |
+| `db/schema.rb` | 자동 갱신(version `2026_10_12_000005`) |
 
 ---
 
-## 2. 금액 계산 규칙·반올림 명세 (결정 #4 반영)
+## 2. 상태 전이·ViewEvent 구현 지점 (INV-4·SHARE-3)
 
-단일 지점: `Invoice.compute_amounts(row_totals, tax_mode:, withholding_enabled:)` — 저장 전 `before_validation :recalculate_amounts`가 품목 행(삭제 예정 행 제외)에서 재산정. 폼 실시간 요약(`invoice_form_controller.js`)은 동일 산식의 정수 JS 미러이며 **최종값은 서버 계산 기준**(폼 요약 하단 안내 문구 병기).
-
-| 항목 | 산식 (정수 원) | 반올림 |
+| 항목 | 구현 | 가드 |
 |:---|:---|:---|
-| 행 합계 | `Σ(수량 × 단가)` | — |
-| 부가세 **별도** | 공급가액 = 행 합계, 부가세 = `(공급가액 + 5) / 10`의 정수 나눗셈 (= 공급가액의 10%) | 원 단위 반올림(사사오입) |
-| 부가세 **포함** | 청구 총액 = 행 합계, 공급가액 = `(총액×10 + 5) / 11` (= `round(총액/1.1)`), 부가세 = 총액 − 공급가액 | 원 단위 반올림(사사오입) |
-| 청구 총액 | `공급가액 + 부가세` (양 모드 공통) | — |
-| 원천징수 (INV-2) | `공급가액 × 33 / 1000` (= 공급가액의 3.3%) | **내림**(결정 #4) |
-| 실수령액 | `청구 총액 − 원천징수` | — |
+| 열람 이벤트 기록 | `ViewEvents::TrackService#call` — 뷰어 유효 진입 1회마다 `ViewEvent(first: 기존 0건 여부, device: UA 판별, ip: request.remote_ip, viewed_at: Time.current)` | 트랜잭션으로 이벤트·전이 동시 확정. 컨트롤러는 유효 링크 판정 후 위임 |
+| 최초 열람 전이 | `Invoice#mark_viewed!` — `WHERE id = ? AND status = issued` 조건부 `update_all(status: viewed, updated_at:)`, 반환값 = 적용 1행 여부 | **update!가 아닌 전용 전이 메서드**(지시 준수). status는 INV-5 보호 컬럼(`PROTECTED_CONTENT_COLUMNS`)이 아니므로 본문 불변 가드와 무충돌. 발행 계열 viewed 진입의 유일 허용 경로(TrackService만 호출). 동시 열람 경합에서도 1회만 적용(조건부 UPDATE 원자성) |
+| 재열람 | 이벤트만 추가(`first: false`), 상태 viewed 유지·중복 전이 없음 | `mark_viewed!`는 issued일 때만 1 반환 |
+| 링크 재발급 | `Invoice#regenerate_token!` — `token` 새 urlsafe_base64(32), **`token_expires_at` 미변경(만기일 유지 — 지시)** | 초안·무효 거부(모델), 컨트롤러는 `linkable` 스코프 조회(이외 404). 토큰은 INV-5 보호 컬럼 아님 |
+| 링크 폐기 | 기존 `void!`(token=nil) 그대로 — voided 접근은 token 불일치로 VIEW-6 수렴 | INV-6 |
 
-- 컬럼 매핑: `subtotal`=공급가액, `tax_amount`=부가세, `total_amount`=청구 총액, `withholding_amount`=원천징수, `net_amount`=실수령액 — 전부 integer 원.
-- 상한: 수량 ≤ 10,000, 단가 ≤ 1e9(CLIENT-2 상수 공유) → 행당 ≤ 1e13, 64bit 정수·JS 안전 정수(2^53) 범위 내. 수량 상한은 단가 상한(Item)과 같은 RangeError 방지 취지.
+- **VIEW-6 응답 통일**: 미존재 토큰·만료·폐기(voided token nil)·재발급 이전 토큰 = 전부 동일 템플릿 + **404**. 존재 여부 구분 누설 금지(열거는 256bit 엔트로피로 무의미하나 동일 응답 유지 — 플랜 B안의 secure_compare는 `find_by(token:)` DB 색인 조회 구조상 실익이 없어 지시문 A-2(find_by + 유효성 체크)를 그대로 따름)
+- **토큰 유효 판정**: `token_expires_at > Time.current`(KST — TIME-1) + `voided?` 부정. paid 상태도 유효기간 내 링크는 열람 가능(청구 내용 확인용 — SHARE-2 유효기간 규정 준수)
 
-### 러너 실측 (dev DB 롤백 트랜잭션, `/tmp` 스크립트 — 저장소 비오염 확인)
-0원 행(전부 0) · 단일 행 별도+원천(100,000→총액 110,000·원천 3,300·실수령 106,700) · 복수 행 · 부가세 경계 104→10/105→11(사사오입) · 포함 역분해 1,100,000→공급가액 1,000,000, 109→99 · **포함+원천징수 조합**(110,000→공급 100,000·원천 3,300·실수령 106,700) · 원천 내림 경계(101→3, 10,000→330, 1원→0) · 대량(10,000×1e9 포함+원천 → 공급 9,090,909,090,909·원천 299,999,999,999 내림) · 50행 — **전부 일치 확인**. 스코프 SQL 실측: `overdue` → `status NOT IN (0,6,7) AND due_on < '오늘'`, `due_within` 범위 정상.
+### 2.1 뷰어·UI 구현 노트
 
----
+- **금액 분해 톤(P1)**: 원천징수 건은 총액 아래 「원천징수 (공급가액의 3.3%)」 −금액 + **「입금하실 금액」**(=net_amount, 지급액 관점 라벨) + 안내 문구 「원천징수 3.3%는 제외한 『입금하실 금액』만 입금해 주세요.」 — 지시의 "실수령액 관점·지급액 기준 안내" 반영. 실측: 100,000+부가 10,000 → 총액 110,000·원천 −3,300·입금하실 금액 106,700
+- **계좌 카드(③)**: 카드 전체가 복사 버튼(터치 타깃 — DESIGN-6), 복사 텍스트는 「은행 계좌번호 예금주」, 피드백 「탭하여 복사」→「복사됨」. sr-only input으로 수동 선택 fallback
+- **PAY-3**: 「입금 시 입금자명을 '<거래처명>'으로 입력해 주세요」 — 지시 문구 그대로
+- **만료 표기(②)**: 만료 7일 전부터 「만료 임박 — YYYY-MM-DD까지 열람할 수 있습니다」, 경과 시 「링크 만료 — 유효기간(만기일 + 60일)이 지났습니다.」(주황 — 연체 상태색 계열). 재발급해도 유효기간은 만기일 기준 유지(지시 명시 — 해석: 재발급은 유출 대응 토큰 교체 수단, 유효기간 연장 아님)
+- **SURF-2/4 준수 실측**: 뷰어 본문에 `<a href="/…">` 앵커 0개(러너 실측), 워드마크는 `<p>` 텍스트, 고지문·청구 내용 외 요소 없음. noindex 메타 출력 확인
+- **en.yml 미수정 사유**: ViewEvent 검증 오류는 서비스가 항상 유효값을 주입해 사용자에게 노출되지 않음(위반 시 500) — 사용자 대면 문구가 아니므로 한글화 대상 아님
 
-## 3. 상태 전이 구현 지점 (INV-4)
-
-| 전이 | 구현 | 가드 |
-|:---|:---|:---|
-| 초안 → 발행 | `Invoice#issue!` (`status=:issued`, `issued_at=Time.current`, 채번·토큰·유효기간 발급) | 컨트롤러 `set_draft_invoice`(draft 스코프 조회, 이외 404) + `issue!` 진입 `draft?` 재확인 + `on: :issue` 검증 컨텍스트 |
-| 발행 계열 → 무효 | `Invoice#void!` (`status=:voided`, `voided_at`, **token=nil 즉시 폐기**) | `set_voidable_invoice`(`VOIDABLE_STATUSES` = issued·viewed·overdue·promised·partially_paid) + `voidable?` 재확인. 초안은 삭제, paid는 종결로 무효 불가 |
-| 연체 표시 | **파생 판정**(결정 #2): `overdue?` = 미수 && `due_on < Date.current`(KST), `days_overdue` = 경과일 — enum 자동 전환은 F-REM 스케줄러 시점 | DASH-4 목록·뱃지·상세에 표기. `overdue` enum값은 예약 |
-
-- **INV-5** 발행 후 본문 수정 불가: `edit`/`update`/`destroy`/`issue` 진입을 draft 스코프로만 허용 — 발행본 PATCH 실측 404.
-- **INV-6** 시퀀스 즉시 중단: REM 부재로 N/A(무효 시 토큰 폐기만 구현 — 보고 명시).
-- 성공 303 redirect / 실패 422(Turbo 규약). 무효·발행 버튼은 `button_to` + `turbo_confirm`.
-
-### 채번 규칙 (INV-1)
-`BD-YYYYMMDD-NNN` — 발행 시점(KST) 일자 + **서비스 전역 일별 순번**(`issue_number` 단일 고유 인덱스 기준). 트랜잭션 내 `LIKE 'BD-YYYYMMDD-%'` 카운트 + 1, 일별 경합은 고유 인덱스 위반(`RecordNotUnique`) 시 최대 4회 재채번. 999 초과 시 `%03d` 포맷이 자연히 4자리로 확장(고유성 유지). 실측: `BD-20261012-001`.
-
-### 공유 링크 (SHARE-1/2 — 데이터만)
-발행 시 `SecureRandom.urlsafe_base64(32)`(≈256bit, 43자 urlsafe) 토큰 생성, `token_expires_at = 만기일 + 60일 end_of_day`(KST). UI 노출은 F-VIEW 시점(플랜 결정 #1) — 상세 화면에 링크·토큰·안내 문구 일절 없음.
-
-### PLAN-1 월 3건
-`FREE_MONTHLY_INVOICE_LIMIT = 3`(상수 단일 지점 — `FREE_CLIENT_LIMIT` 패턴). `on: :issue` 검증: 당월 `issued_at` 기준 카운트 ≥ 3이면 차단. **무효 건도 발행 이력으로 포함**(발행은 발행 — 문서화된 해석). 초과 문구: 「Free 플랜은 매월 3건까지 발행할 수 있습니다. Plus로 무제한 이용할 수 있습니다」(LP-12 준칙 — 확정 보장 없이 Plus 안내). 초안은 무제한(결정 #3).
-
----
-
-## 4. Rule ID 매핑
+## 3. Rule ID 매핑
 
 | Rule ID | 구현 지점 |
 |:---|:---|
-| **INV-1** | 필수 구성: `issue_number` 채번, 거래처, 품목 행(설명·수량·단가 복수), `tax_mode` 별도/포함, 총액, 만기일, 계좌 스냅샷(프로필 프리필·건별 변경), `issuer_display_name` 스냅샷(생성 시 `Current.user.display_name`) |
-| **INV-2** | `withholding_enabled`(new 시 프리랜서 기본 체크) + 상세·폼 요약에 공급가액·원천징수액·실수령액 분해 표기 + 안내 문구 「공급가액의 3.3% 원천징수 후 실수령액 표기」 |
-| **INV-3** | `DEFAULT_DUE_IN_DAYS = 30`, new 프리필 `Date.current + 30` |
-| **INV-4** | enum 8종 + `issue!`/`void!` 전이 가드, 연체 파생 판정(§3) |
-| **INV-5** | draft 스코프 가드(edit/update/destroy/issue) — 발행본 수정 실측 404 |
-| **INV-6** | `void!` — voidable 스코프 + 토큰 즉시 폐기 + `voided_at` |
-| **SHARE-1** | 발행 시 urlsafe_base64(32) 토큰, 고유 인덱스, 초안 NULL 허용 |
-| **SHARE-2** | `token_expires_at = due_on + 60일` (end_of_day, KST) |
-| **PLAN-1** | `FREE_MONTHLY_INVOICE_LIMIT = 3` 발행 시점 검사 + 한도 문구(§3) |
-| **DASH-1** | 미수 총액(`unsettled` sum), 연체 건수·금액(`overdue` 파생), 7일 내 만기(`due_within`) — 컨트롤러 집계, 뷰는 @변수만 |
-| **DASH-4** | `sorted_by_due`(만기일 asc = 연체일 desc 동치) 상위 5건 + 목록 연체일 표시, index 동일 정렬 |
-| **ONB-1** | 「첫 청구서 발행하기」 실링크→`new_app_invoice_path`, 준비 중 배지 제거, 청구서 존재 시 목록 링크로 전환 |
-| **CLIENT-2** | 품목 라이브러리 select → 행 설명·단가 프리필(Stimulus `prefillFromLibrary`), 라이브러리는 전송값 없는 보조 UI |
-| **DESIGN-2/5** | 상태 뱃지 상태색(연체 주황/대기·약속 중립/완료 녹색/초안·무효 회색), 연체일 수치 주황 강조, DASH 큰 숫자 카드·tabular-nums, 범례 유지 |
-| **TIME-1** | 전부 `Time.current`·`Date.current`(앱 TZ=Seoul) — 채번·issued_at·한도 카운트·연체 판정 |
-| **SURF-3** | `/app` 하위 신규 라우트 — 기존 noindex 접두 정책에 자동 포함(추가 작업 없음) |
-| **P4 준합** | 발행 이력 컬럼(`issued_at`·`voided_at`) 기록, 청구 발행 건은 삭제 불가(삭제는 초안만) |
+| **SHARE-1** | `/b/:token` 뷰어 — `find_by(token:)`(43자 urlsafe 256bit 토큰, 고유 인덱스 — 기존 발행 경로). 추측 불가·열거 무의미 |
+| **SHARE-2** | `linkable` 스코프 + `regenerate_token!`(수동 재발급 — 기존 링크 즉시 무효·유효기간 유지), `link_expiry_notice`(만료 임박/만료 표시), 뷰어 만료 판정(`token_expires_at > Time.current`) |
+| **SHARE-3** | `ViewEvent`(first·device·ip·viewed_at) + TrackService + 발행 상세 열람 이력 요약(최초·최근·횟수) + 목록 「열람」 뱃지 |
+| **SHARE-4** | **연기(플랜 결정 #1)** — 발송 채널(NOTI-1 알림톡·핵클) 미계약. viewed 전이+뱃지+ViewEvent로 인지·근거 확보, 채널 계약 후 REM/NOTI 파이프라인에서 연결 |
+| **SHARE-6** | 링크 복사만 제공(② 안내 문구 「카카오톡 등으로 직접 전달하세요」) — 서비스 명의 발송은 REM 시점(결정 #2) |
+| **VIEW-1** | 비로그인 모바일 웹 뷰어(비인증 라우트·전용 레이아웃), 모바일 우선·17px·터치 타깃. **allow_browser 경계 노트**: `modern` 세트 = Safari 17.2+·Chrome 120+·Firefox 121+(actionpack 8.1 실측). 버전 미보고 UA는 허용, 구형 버전 보고 UA는 **전 표면 공통**으로 406(뷰어 한정 정책 아님 — 랜딩·앱 동일). 카카오톡 인앱 실기 QA(VIEW-1 필수 항목)에서 확인 필요 — Reviewer 인계 → **Phase 6b에서 뷰어 한정 게이트 해제(말미 수정 이력 참조)** |
+| **VIEW-2** | 뷰어 헤더 「받을돈을 통해 **{issuer_display_name}**님이 보낸 청구서입니다」 + 받을돈 워드마크(링크 아님 — SURF-4) |
+| **VIEW-3** | 청구번호·발행일(issued_at)·만기일(due_on)·품목 표(설명·수량·단가·금액)·금액 분해(공급가액·부가세·원천징수·실지급 — INV-2, 총액 대형 tabular)·입금 계좌 카드(클릭 복사 + 복사됨 피드백, Stimulus 1개)·PAY-3 입금자명 안내 |
+| **VIEW-5** | 하단 고지 「본 청구서는 발행인이 직접 발행했습니다. 본 서비스는 채권 추심 업무를 수행하지 않습니다.」 (P5) |
+| **VIEW-6** | 만료·폐기·미존재·재발급 이전 링크 → 동일 안내 화면(문구 지시 원문 그대로) + 404. 링크·발행인 연락처 미노출(SURF-4·P2) |
+| **VIEW-8 / SURF-2** | 뷰어 화면 요소 = 청구 내용·계좌 복사(응답 액션 전신)·PAY-3 안내·고지문뿐. 내비·푸터·마케팅·가입 유도·③→① 링크 0개(러너 앵커 검증 포함) |
+| **INV-4** | `mark_viewed!` issued→viewed 전이(§2) + 목록·상세 「열람」 뱃지 |
+| **INV-5** | 무충돌 확인: status·token은 `PROTECTED_CONTENT_COLUMNS` 외 — `mark_viewed!`·`regenerate_token!` 저장 시 본문 불변 가드 통과(러너 실측) |
+| **INV-6** | voided 재발급 거부(모델 가드 + linkable 스코프 404), voided 링크 영역 미노출, voided 토큰 접근 → VIEW-6 |
+| **PAY-3** | 뷰어 입금자명 표준 힌트(거래처명 스냅샷) |
+| **SURF-1** | 표면 ③ 라우트 블록 `scope "/b"` — 단일 도메인 경로 분리 |
+| **SURF-3** | `/b/*` noindex: 기존 `NOINDEX_PATH_PREFIXES "/b/"` 경유 `_head` robots 메타(러너 실측 출력 확인) + `public/robots.txt` `Disallow: /b/`(기존 유지 — 회귀 테스트 통과) |
+| **SURF-4** | 뷰어 ③→① 링크 0개, VIEW-6에도 링크 없음, 워드마크는 비링크 텍스트 |
+| **DESIGN-4** | 뷰어 전용 레이아웃 — 흰 배경·타이포 중심·색 최소(무채색 위주 + 액센트 최소) |
+| **DESIGN-6** | 기본 글자 크기 상향(body 17px), 터치 타깃 min-h-11(복사·재발급 버튼), 모바일 우선 단일 컬럼 |
+| **P3** | 뷰어 전 구간 가입·로그인·개인정보 입력 요구 없음(`allow_unauthenticated_access`) |
+| **P4** | 열람도 기록(ViewEvent) — 기록 실패 시 뷰어 성공 응답 없음(예외 전파) |
+| **TIME-1** | `Time.current`·`Date.current`(앱 TZ=Seoul) — 만료 판정·viewed_at·만료 임박 계산 |
 
-## 5. UI 품질 기준 반영
-- 기존 디자인 시스템 재사용: 크림 배경·딥 그린 액센트·rounded-2xl 카드·`form_input_classes`(오류 상태 링)·터치 타깃 min-h-11·focus-visible 아웃라인.
-- 폼: 거래처 select(본인 거래처만 — 컨트롤러에서 `@clients` 전달, 뷰 쿼리 없음), 품목 행 grid + `<template>` 기반 행 추가(Stimulus 1개 — 추가·제거·프리필·요약 계산), 부가세 라디오(프로필 radio 패턴), 원천징수 체크+안내 문구, 만기일 date 필드, 계좌 3종(프로필 프리필 + `account-number` 하이픈 컨트롤러 재사용), 우측 sticky 금액 요약.
-- 검증 오류: 폼 상단 alert(품목 행 오류 제외 — 행별 인라인 표기로 중복 방지) + 행별 필드 오류.
-- 뷰어 미존재로 링크 미노출(결정 #1).
+## 4. 실패 예상 테스트 목록 (기존 테스트 수정 없음 — Phase 7 Tester 갱신 대상)
 
----
-
-## 6. §4 실패 예상 테스트 목록 (기존 테스트 수정 없음 — Phase 7 Tester 갱신 대상)
-
-`bin/rails test` 실측: **156 runs, 2 failures, 0 errors** — 실패 2건 모두 본 Phase가 의도적으로 대체한 「준비 중」 단계의 어설션이다.
+`bin/rails test` 실측: **228 runs, 1348 assertions, 2 failures, 0 errors, 0 skips** — 실패 2건 모두 본 Phase가 의도적으로 대체한 이전 스펙의 어설션이다.
 
 | # | 테스트 | 파일:행 | 사유 |
 |:---|:---|:---|:---|
-| 1 | `ONB-1 첫 발행 CTA는 disabled이며 준비 중 배지를 노출한다` | `test/controllers/app/dashboards_controller_test.rb:55` (어설션 :61) | CTA가 disabled 버튼→`new_app_invoice_path` 실링크로 활성화(ONB-1), 준비 중 배지 제거 |
-| 2 | `사이드바는 대시보드 활성 표시·거래처·품목 실링크·청구서 준비 중·설정을 렌더한다` | `test/controllers/app/dashboards_controller_test.rb:75` (어설션 :86) | 사이드바 「청구서」가 준비 중 span→`app_invoices_path` 실링크로 전환 |
+| 1 | `상세는 청구 정보·계좌·품목·금액 내역을 렌더하고 토큰을 노출하지 않는다 (INV-1·SHARE-1)` | `test/controllers/app/invoices_controller_test.rb:44` (어설션 :64) | 이전 플랜 결정 #1(링크 미노출)이 본 Phase에서 뒤집힘 — 발행 계열 상세에 링크 영역이 노출되며 본문에 전체 URL(토큰 포함)이 표시된다(SHARE-1/6 개봉). 어설션 `assert_no_match(/토큰/)`은 이제 무효 |
+| 2 | `목록 상태 뱃지는 상태색과 연체일·tabular 금액을 표기한다 (DESIGN-2·5)` | `test/controllers/app/invoices_controller_test.rb:442` (어설션 :451) | viewed 뱃지가 「대기 중」→「열람」으로 분리(SHARE-3 가시화). `assert_select "span", text: "대기 중", count: 2` → 실측 1(delta_due_soon만, delta_viewed는 「열람」) |
 
-유지 확인(통과): DASH-1 빈 카드·「0원 미표기」, DASH-2 빈 상태, DASH-4 빈 상태 문구 — **청구서 0건 사용자(gamma fixture) 분기는 기존 마크업을 그대로 유지**. 나머지 154건 전부 통과(사이드바 aria-current 분기 테스트 등).
+유지 확인(통과): 무효 본 상세(`main form.button_to` count 0 — voided는 링크 영역·재발급 버튼 미노출), 발행 본 상세(무효 처리 버튼 1 — 링크 영역 추가로 count 어설션 깨지지 않음), INV-2 원천징수 표기, 404 스코프, PLAN-1, FK 연쇄 삭제(view_events 연쇄 포함), SURF-3 색인 회귀 등 나머지 226건.
 
----
-
-## 7. 자체 점검 결과
+## 5. 자체 점검 결과
 
 | 항목 | 결과 |
 |:---|:---|
-| `bin/rubocop` | **0 offenses** (69 files) |
-| `bin/rails zeitwerk:check` | 통과 ("Otherwise, all is good!") |
-| `bin/rails db:migrate` | 성공 — `db/schema.rb` version `2026_10_12_000004` 갱신 |
-| `bin/rails test` | 156 runs, 929 assertions, **2 failures(§6 의도된 것)**, 0 errors, 0 skips |
-| 금액 경계 러너 실측 | §2 표 전 케이스 일치(롤백 트랜잭션, 잔존 데이터 0 확인) |
-| 뷰·플로우 실측 | 통합 세션(dev 롤백): 대시보드·목록·작성·수정·상세 200, 초안 생성 303(금액 검증), 행 삭제+포함 역산 수정 303, 필수 누락 422(한글 문구), 발행 303(채번·토큰 43자), 발행본 수정 404, 무효 303(토큰 폐기), 월 4번째 발행 422+한도 문구, 상태별 액션 버튼 렌더 |
-| 서버 기동 | 수행하지 않음(지시 준수) — 위 실측은 전부 `bin/rails runner` 통합 세션 |
-| 테스트 작성 | 하지 않음(지시 준수) — Phase 7 Tester 인계 |
+| `bin/rubocop` | **0 offenses** (76 files) |
+| `bin/rails zeitwerk:check` | 통과("Otherwise, all is good!" — test/mailers/previews 안내는 기존 상태) |
+| `bin/rails db:migrate` | 성공 — `db/schema.rb` version `2026_10_12_000005` 갱신, `db:test:prepare` 완료 |
+| `bin/rails test` | 228 runs, 1348 assertions, **2 failures(§4 의도된 것)**, 0 errors, 0 skips |
+| 뷰어 여정 러너 실측 | **35/35 PASS**(`/tmp/phase_share_view_check.rb` — 롤백 트랜잭션, 종료 시 잔존 0 확인) |
+| 서버 기동·테스트 작성 | 하지 않음(지시 준수) — Phase 7 Tester 인계 |
+
+### 러너 실측 시나리오 (§지시 자체 점검 4종 전부 포함)
+
+| 시나리오 | 실측 | 결과 |
+|:--|:--|:--|
+| 최초 열람(모바일 UA) | 200 + ViewEvent(first=true·mobile·ip 기록) + **issued→viewed 전이** + VIEW-2/5 문구·PAY-3·noindex·앵커 0개 | PASS |
+| 재열람(PC UA) | 200 + ViewEvent(**first=false**·pc) + **viewed 유지**(이벤트 2건·중복 전이 없음) | PASS |
+| 미존재 토큰 | 404 + VIEW-6 문구 | PASS |
+| 만료 토큰 | 404 + VIEW-6, 미존재와 **본문 동일**(누설 금지 — `<main>` 기준, 요청별 CSRF 메타 랜덤성은 제외) | PASS |
+| 링크 UI(②) | 전체 URL 표시·clipboard 컨트롤러·재발급 turbo_confirm | PASS |
+| 재발급 PATCH | 303, 토큰 교체 + **유효기간 유지**, 이전 링크 → VIEW-6 404, 신규 링크 정상 열람 | PASS |
+| 열람 이력 요약 | 최초·최근 열람·횟수(3회) 표기 | PASS |
+| 무효 건 | 발행 본 링크 영역 존재 → void! 후 **미노출**, 이전 토큰 → VIEW-6 404 동일 응답 | PASS |
+| 목록 뱃지 | viewed 건 「열람」 표기 | PASS |
+| 회귀 | 대시보드 200, 랜딩 200 + noindex 없음 | PASS |
+| 격리 | 타 사용자 스코프 재발급 대상 없음·RecordNotFound, 무효 건 linkable 제외 | PASS |
+
+### 기술 노트 (Tester·후속 참조)
+
+1. **per-form CSRF 토큰**(Rails 기본): 통합 세션에서 상태 변경 PATCH는 해당 폼(action 일치)에서 추출한 토큰을 써야 한다 — 타 폼 토큰은 `InvalidAuthenticityToken`(**422**, rescue_responses 매핑)로 거부된다. Tester가 member 액션 테스트 작성 시 `sign_in` 후 해당 버튼 폼 토큰 사용(또는 `spec` 세션 헬퍼)
+2. **러너 통합 세션**: 요청마다 `ActiveSupport::ExecutionContext` Record 파손(이전 Phase 노트 6 재확인) — 요청 후 `IsolatedExecutionState[:active_support_execution_context]` 교체로 회피. 경로 전용 요청은 세션 `host`가 기본 `www.example.com`이라 dev HostAuthorization(403)에 막힌다 — `session.host = "localhost"` 필요(또는 전체 URL 사용)
+3. **동시 열람 경합**: `first?`는 `view_events.none?` 기준이라 극히 드물게 중복 기록될 수 있으나, 상태 전이는 조건부 UPDATE로 정확히 1회(트랜잭션+원자성 — Tester 경합 테스트 시 참조)
+4. **allow_browser 경계**(§3 VIEW-1 행): 구형 인앱 브라우저는 전 표면 공통 406 — 뷰어 별도 완화는 정책 변경이므로 이번 범위에서 하지 않음. 실기 QA 결과에 따라 별도 결정 필요 (**→ Phase 6b에서 뷰어 한정 해제 결정·반영 — 말미 수정 이력 참조**)
+5. **시스템 테스트 환경 확인**: Gemfile test 그룹에 `capybara 3.40.0`·`selenium-webdriver 4.50.0` 존재. 단 **`test/application_system_test_case.rb`와 `test/system/` 디렉터리가 아직 없음** — 뷰어 여정(링크→렌더→복사) 시스템 테스트 도입 시(플랜 결정 #3) Tester가 먼저 시스템 테스트 케이스 파일 생성 필요. selenium-webdriver 4.5+는 Selenium Manager로 드라이버 자동 관리(로컬 Chrome 설치 필요 — capybara 설정은 Tester 담당)
+6. **실패 시 422 재렌더**: issue·void·재발급 실패 경로도 `show` 템플릿을 재렌더하므로 `set_view_events`를 해당 액션에 함께 걸었다(대상 조회 before_action보다 **나중** 실행 — 순서 변경 금지)
 
 ---
 
-## 수정 이력 (Phase 6 — 리뷰 WARNING 7건 처리)
+## 수정 이력 (Phase 6b — VIEW-1 브라우저 정책)
 
-- **일자**: 2026-10-12 · **대상**: `_workspace/05_review.md` 이슈 #1~#7 — 코드 6건(#1·#2·#4·#5·#6·#7) + 문서 1건(#3), 범위 외 변경 없음
-- **#2·#3 해석**: 오케스트레이터 확정(#2는 PRD 원문 회귀, #3은 `02_prd_update.md` 「Phase 6 리뷰 후속 정정」 절로 승인 편입)
+- **일자**: 2026-10-12
+- **계기**: Phase 8 실행 검증 실측 — 채무자 뷰어(/b/:token)가 카카오톡 인앱 UA(Safari/604.1 계열) 요청에서 **406 Not Acceptable**로 차단. `ApplicationController`의 `allow_browser versions: :modern` 상속이 원인(05_review WARNING #1 실증) — VIEW-1(인앱 완전 동작 필수 QA)·P3(브라우저 업그레이드 요구도 채무자 진입 장벽) 위반
 
-| # | Rule ID | 수정 | 파일 |
-|:--|:--|:--|:--|
-| 1 | INV-6 | 상세 부제 분기 순서 변경 — `voided_at` 우선(발행 계열→무효 건에서 무효 일자 미안내 데드 브랜치 해소) | `app/views/app/invoices/show.html.erb` |
-| 2 | INV-3 | `issue!` 진입 시 `reset_due_on_if_prefilled` — due_on이 프리필 원값(`created_at.to_date + 30`)과 동일하면 **발행일+30일로 재계산**, 명시 수정값은 존중. 토큰 유효기간(SHARE-2)은 재계산된 만기일 기준 | `app/models/invoice.rb` |
-| 3 | PLAN-1 | 문서 정정(코드 변경 없음) — 월 3건 한도 **무효 건 포함** 집계 해석을 02_prd_update.md에 기록 | `_workspace/02_prd_update.md` |
-| 4 | 무결성 | 위조 `items_attributes` id 방어 — 할당 전 소속 검증(`item_ids_owned?`)으로 **422** 응답(기존 RecordNotFound 500). create는 품목 행을 검증 통과 후 할당, 불일치 요청은 레코드 생성·수정 없이 `render_forged_items` | `app/controllers/app/invoices_controller.rb` |
-| 5 | INV-5 | 모델 레벨 본문 불변 가드 — `before_update :enforce_issued_content_immutable`: 갱신 직전 상태가 draft가 아니면 보호 컬럼(`PROTECTED_CONTENT_COLUMNS`: 거래처·만기·부가세·원천·계좌·표시명·금액 5종) 변경과 품목 행 변경(중첩 attributes 동반분)을 차단. 상태 전이·토큰·token_expires_at·voided_at·`issue!` 중 due_on 재계산(status_was=draft)은 통과 | `app/models/invoice.rb` |
-| 6 | INV-1 | 품목 행 수 상한 `Invoice::MAX_ITEMS = 100` — `items_count_within_limit` 검증(초과 시 base 오류) + JS `addRow` 동일 상한(폼에서 `maxItems` 주입, 도달 시 추가 막고 버튼 disabled) | `app/models/invoice.rb`, `app/javascript/controllers/invoice_form_controller.js`, `app/views/app/invoices/_form.html.erb` |
-| 7 | 이식성 | 금액 5컬럼(subtotal·tax_amount·total_amount·withholding_amount·net_amount)에 `limit: 8`(bigint) — 기존 마이그레이션 수정 + dev/test DB 재생성 | `db/migrate/20261012000004_create_invoices.rb`, `db/schema.rb` |
+### 실측 근거 (actionpack 8.1.4 러너 검증 — `ActionController::AllowBrowser::BrowserBlocker`)
 
-### #7 참고 — SQLite schema 표기
-SQLite는 정수형이 네이티브 64bit라 `limit: 8`이 DDL·`schema.rb`에 표기되지 않는다(컬럼 `INTEGER`, `limit=nil` 실측). `limit: 8`은 PostgreSQL 이식 시 bigint DDL을 보장하는 마이그레이션 레벨 명시이며, `schema.rb` 재생성 결과는 Phase 5 버전(`2026_10_12_000004`)과 동일 — 이식성 확보 목적은 달성.
-
-### Phase 6 러너 실측 (`bin/rails runner` — 롤백 트랜잭션, 종료 시 invoices/users/clients 0건 확인)
-
-**통합 플로우 21/21 PASS** (`/tmp/phase6_check.rb`):
-
-| 이슈 | 실측 | 결과 |
-|:--|:--|:--|
-| #6 | 100행 `valid?` 통과 / 101행 → base 오류 「품목 행은 최대 100개까지 입력할 수 있습니다」 | PASS |
-| #4 | 위조 id(타인 품목) `_destroy` PATCH → **422**(수정 전 500), 타인 품목 무영향 / 정상 품목 수정 → 303+반영 / 생성에서 위조 id → 422·무레코드 | PASS |
-| #5 | 발행본 `update(due_on:)` → false+base 오류 / `update!(bank_name:)` → 예외 차단(`ActiveRecord::RecordNotSaved`, base 오류 동반) / 발행본 품목 행 변경 차단 / **무변경 `save!` 통과** / **`void!` 통과**(status·token nil·voided_at) / 무효 건 본문 차단 유지 | PASS |
-| #2 | 10일 전 작성 초안(프리필 원값 유지) 발행 → due_on = **발행일+30**(2026-11-11)·토큰 만료 = 만기+60(2027-01-10 23:59:59 KST) / 명시 수정값(+45일) 발행 → **존중**(2026-11-16) / 당일 발행 프리필(오늘+30) 불변 | PASS |
-
-**뷰 렌더 5/5 PASS** (`/tmp/phase6_views.rb`): 초안·발행·무효 상세 부제 3분기(무효 건 「2026-10-12에 무효 처리했습니다.」 표기·발행 문구 미표기), 폼 `data-invoice-form-max-items-value="100"` 주입·addRowButton 타깃·disabled 스타일 확인.
-
-### Phase 6 자체 점검
-
-| 항목 | 결과 |
-|:--|:--|
-| `bin/rubocop` | **0 offenses** (69 files) |
-| `bin/rails zeitwerk:check` | 통과 |
-| `bin/rails db:drop db:create db:migrate` + `db:test:prepare` | 성공 — `schema.rb` version `2026_10_12_000004`(변경 없음 — §SQLite 표기 참고) |
-| JS 문법 | Bun.Transpiler 파싱 통과 |
-| 기존 테스트 수정 | 하지 않음(지시 준수) — §6의 2건 실패는 Phase 7 갱신 대상 유지 |
-
-### 구현 중 확정한 기술 노트 (Tester 참조)
-1. `params.expect`의 중첩 attributes는 **문서형 배열 `items_attributes: [[:id, ...]]`** 이어야 폼 전송 형태(인덱스 키 해시)를 허용한다 — 8.1 런타임 실측(단일 배열형은 키만 허용되고 내용이 파기됨).
-2. belongs_to 검증 오류 속성은 `:client`(연관)이며 메시지 키는 `required` — locale `activerecord.errors.models.invoice.attributes.client.required`.
-3. 전역 일별 채번이라 사용자 간 채번 연속성이 보인다(고유 인덱스 단일 기준의 귀결) — 민감 정보 아님(일자+순번).
-4. 만기일(INV-3): 프리필은 초안 작성일+30일, **발행 시점에 미수정 프리필이면 발행일+30일로 재계산**(Phase 6 #2 — `reset_due_on_if_prefilled`). 만기일 자체 설정 UI는 설정 도메인(후속)에서 다룬다.
-5. (Phase 6 추가) 발행 계열 본문 변경 차단(`update!`)은 `ActiveRecord::RecordNotSaved`를 낸다(`throw(:abort)` 경로) — `update`(non-bang)는 false+base 오류. Tester는 `RecordInvalid`가 아닌 `RecordNotSaved`를 기대해야 한다.
-6. (Phase 6 추가) 러너에서 통합 세션(ActionDispatch::Integration::Session)을 쓰면 요청마다 `ActiveSupport::ExecutionContext` Record가 파손되어 이후 쿼리의 QueryLogs가 `NoMethodError`로 깨진다 — 요청 후 `IsolatedExecutionState[:active_support_execution_context]`를 신규 Record로 교체하면 회피된다(실측 스크립트의 `req` 헬퍼).
-
-## 수정 이력 (Phase 6-2 — BUG-1 탈퇴 연쇄 삭제 FK 위반)
-
-- **일자**: 2026-10-12 · **대상**: Phase 7 Tester 발견 BUG-1(AUTH-1.5 위반) 1건 — 수정은 BUG-1에 1:1 대응, 범위 외 변경 없음
-
-### 원인
-
-`app/models/user.rb`의 `has_many` 선언 순서가 sessions → clients → items → invoices였다. `dependent: :destroy`는 **연관 선언 순서대로** 실행되므로 탈퇴 시 clients가 invoices보다 먼저 파괴됐고, 이 시점에 아직 삭제되지 않은 invoices의 `client_id`가 `add_foreign_key "invoices", "clients"` 제약(`db/schema.rb:101`)에 걸려 `ActiveRecord::InvalidForeignKey`로 전체 삭제(탈퇴)가 실패했다. 청구서를 보유한 사용자에서만 재현된다(거래처만 있는 사용자는 clients에 자식이 없어 성공).
+| 항목 | 실측 |
+|:---|:---|
+| 차단 UA | iOS 16.6 + `Safari/604.1`(WebKit 빌드 토큰이 버전으로 파싱 → 16.6 < 17.2)·Android WebView `Chrome/111.0.5563.116`(111 < 120) → `:modern` **차단** = 카카오톡 인앱 실측 패턴 재현 |
+| 면제 UA | `facebookexternalhit`(미등록 브라우저명 → 세트 미일치 면제)·버전 미보고 UA — 차단 경로는 버전 보고 UA 한정 |
+| `versions: :all` | **미지원 확인** — `NoMethodError: undefined method 'with_indifferent_access' for an instance of Symbol`(BrowserBlocker `SETS`에 `:modern`만 존재) |
+| 상속 해제 수단 | 상속된 before_action은 **익명 람다**(actionpack `allow_browser.rb:58`)라 `skip_before_action`으로 지목 불가 → 지시의「최소 우회」채택 |
+| `versions: {}` 후보 | 기술적으로 무차단이나 콜백 체인에서 상속 :modern 람다가 **먼저 실행**되어 무효 — 오버라이드로 대체 |
 
 ### 수정
 
-| # | Rule ID | 수정 | 파일 |
-|:--|:--|:--|:--|
-| 1 | AUTH-1.5 | `has_many :invoices` 선언을 clients·items보다 앞으로 이동(자식→부모 파괴 순서 보장) + FK 의존 순서·순서 변경 금지 주석 추가 | `app/models/user.rb` |
-| 2 | AUTH-1.5 | 회귀 테스트 추가 — 「청구서·거래처·품목을 보유한 사용자 삭제가 전부 연쇄 삭제된다 (AUTH-1.5)」: 신규 사용자에 거래처 1·품목 1·청구서 1건(품목 행 1개) 생성 후 `destroy`, users/invoices/clients/items/invoice_items에서 해당 사용자 소유 행 **전부 0건** 확인. fixtures와 무관한 자기완결 시나리오(alpha·beta는 FK 연쇄 검증용으로 청구서 보유 금지 — invoices.yml 운용 규칙 준수) | `test/models/user_test.rb` |
+| 파일 | 내용 |
+|:---|:---|
+| `app/controllers/viewer_controller.rb` | private `def allow_browser(**); end` no-op 오버라이드 — 상속 람다가 호출하는 인스턴스 메서드를 대체해 **뷰어 표면에서만** 게이트 무효화(모든 브라우저·인앱 웹뷰 허용 — 뷰어는 정적 문서 페이지, 클립보드 수동 복사 fallback 존재). `ApplicationController` 미수정 — 랜딩·앱·관리자 `:modern` 정책 불변(git diff로 확인) |
+| `test/controllers/viewer_controller_test.rb` | 회귀 2건 추가: ① 인앱 UA 2종(iOS 16.6 Safari/604.1·Android WebView Chrome/111)로 뷰어 200 + 본문 렌더(h1·총액·고지문) ② `facebookexternalhit` 크롤러 UA 200 + 가입 유도 없음(P3) — WARNING #1·#3 회귀 |
 
-### 회귀 테스트 결과
+### 회귀 결과
 
-- 신규 테스트 단건 실행: `bin/rails test test/models/user_test.rb -n "/연쇄 삭제/"` → **1 runs, 5 assertions, 0 failures, 0 errors**
-- 전체 스위트: `bin/rails test` → **228 runs, 1356 assertions, 0 failures, 0 errors, 0 skips**(기존 227 + 신규 1)
-
-### Phase 6-2 자체 점검
-
-| 항목 | 결과 |
-|:--|:--|
-| `bin/rubocop` | **0 offenses** (72 files) |
-| `bin/rails zeitwerk:check` | 통과(test/mailers/previews 미포함 안내는 기존 상태 그대로 — 변경 없음) |
-| 마이그레이션 | 없음(스키마 변경 없음 — `schema.rb` version `2026_10_12_000004` 유지) |
-| 기존 테스트 수정 | 하지 않음(지시 준수) |
+| 점검 | 결과 |
+|:---|:---|
+| 신규 테스트(수정 적용) | 2 runs 통과 — 인앱·크롤러 UA 모두 200 렌더 |
+| **구정책 변이 검증**(override 임시 비활성) | 신규 인앱 테스트가 **406 Not Acceptable로 실패** — 회귀 검출력 실증 후 복원(크롤러 UA는 구정책에서도 면제 경로라 통과하는 것이 정상) |
+| `bin/rubocop` | **0 offenses** (80 files) |
+| `bin/rails zeitwerk:check` | 통과 |
+| viewer 테스트 전체(컨트롤러 17+2·시스템) | **19 runs, 148 assertions, 0 failures, 0 errors, 0 skips** |

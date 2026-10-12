@@ -6,6 +6,10 @@ class App::InvoicesController < App::BaseController
   before_action :set_invoice, only: %i[ show ]
   before_action :set_draft_invoice, only: %i[ edit update destroy issue ]
   before_action :set_voidable_invoice, only: %i[ void ]
+  before_action :set_linkable_invoice, only: %i[ regenerate_token ]
+  # SHARE-3 — 열람 이력 요약(최초·최근·횟수). 422 재렌더(issue·void·재발급 실패)에서도
+  # show 템플릿이 동일한 @변수를 갖도록 함께 적재한다 — 대상 조회(set_*_invoice) 뒤에서 실행.
+  before_action :set_view_events, only: %i[ show issue void regenerate_token ]
 
   def index
     @invoices = Current.user.invoices.includes(:client).sorted_by_due  # DASH-4 정렬과 동일
@@ -87,10 +91,26 @@ class App::InvoicesController < App::BaseController
     end
   end
 
+  # 링크 재발급(SHARE-2 수동 재발급) — 새 토큰 교체로 기존 링크 즉시 무효, 유효기간 유지.
+  def regenerate_token
+    if @invoice.regenerate_token!
+      redirect_to app_invoice_path(@invoice), status: :see_other,
+                  notice: "링크가 재발급되었습니다. 기존 링크는 즉시 무효화됩니다."
+    else
+      flash.now[:alert] = @invoice.errors.full_messages_for(:base).first
+      render :show, status: :unprocessable_entity
+    end
+  end
+
   private
 
   def set_invoice
     @invoice = Current.user.invoices.find(params[:id])
+  end
+
+  # SHARE-3 — 열람 이력(시간순). show 템플릿의 최초·최근 열람·횟수 요약에 쓴다.
+  def set_view_events
+    @view_events = @invoice.view_events.order(:viewed_at, :id)
   end
 
   # INV-5 — 발행 후 본문 수정 불가: 수정·삭제·발행 진입은 초안만 조회한다(이외는 404).
@@ -101,6 +121,11 @@ class App::InvoicesController < App::BaseController
   # INV-6 — 무효는 발행 계열만 조회한다.
   def set_voidable_invoice
     @invoice = Current.user.invoices.voidable.find(params[:id])
+  end
+
+  # SHARE-2 — 재발급은 링크 보유 건만 조회한다(초안·무효 제외 — INV-6).
+  def set_linkable_invoice
+    @invoice = Current.user.invoices.linkable.find(params[:id])
   end
 
   def prepare_form_options

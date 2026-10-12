@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <%# SURF-3 — /b/*는 검색 색인 금지(layouts/_head가 경로 접두로 판정해 robots 메타 출력).
+        Pretendard·Tailwind·importmap 로드는 표면 공통 _head와 같은 원본을 쓴다(SURF-6 — 별도
+        번들 분할은 기술 부채로 AGENTS 로드맵에 기록됨). %>
+    <%= render "layouts/head" %>
+  </head>
+
+  <%# 표면 ③ 청구서 뷰어 전용 레이아웃(VIEW-8·SURF-2) — 앱 내비·푸터·마케팅 요소를 일절
+      두지 않고 ③→① 링크도 없다(SURF-4). DESIGN-4 문서 무결성: 흰 배경·타이포 중심·색 최소.
+      DESIGN-6: 모바일 우선, 거래처 담당자 연령대를 고려해 기본 글자 크기를 상향(17px). %>
+  <body class="min-h-dvh bg-white text-[17px] leading-relaxed text-stone-800 antialiased">
+    <main class="mx-auto w-full max-w-xl px-4 pb-12 pt-8 sm:px-6 sm:pt-12">
+      <%= yield %>
+    </main>
+  </body>
+</html>

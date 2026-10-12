@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_12_000004) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_12_000005) do
   create_table "clients", force: :cascade do |t|
     t.integer "user_id", null: false
     t.string "name", null: false
@@ -96,10 +96,22 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_12_000004) do
     t.index ["email"], name: "index_users_on_email", unique: true
   end
 
+  create_table "view_events", force: :cascade do |t|
+    t.integer "invoice_id", null: false
+    t.boolean "first", default: false, null: false
+    t.string "device", null: false
+    t.string "ip", limit: 45, null: false
+    t.datetime "viewed_at", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["invoice_id"], name: "index_view_events_on_invoice_id"
+  end
+
   add_foreign_key "clients", "users"
   add_foreign_key "invoice_items", "invoices"
   add_foreign_key "invoices", "clients"
   add_foreign_key "invoices", "users"
   add_foreign_key "items", "users"
   add_foreign_key "sessions", "users"
+  add_foreign_key "view_events", "invoices"
 end

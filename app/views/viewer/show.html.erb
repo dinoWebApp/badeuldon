@@ -1,0 +1,120 @@
+<% content_for :title, "청구서 #{(@invoice.issue_number.presence || "안내")} — 받을돈" %>
+
+<%# 표면 ③ 청구서 뷰어(VIEW-2/3/5) — 표시 요소는 화이트리스트만(VIEW-8·SURF-2): 청구 내용·
+    입금 계좌 복사·고지문. 응답 액션(VIEW-4·F-PROMISE)과 PDF는 후속이며, ③→① 링크·가입
+    유도·마케팅 요소는 일절 없다(SURF-4). 원천징수 표기는 지급액 기준 안내(P1 톤). %>
+
+<%# VIEW-2 — 발행인 표기 + 받을돈 워드마크(링크 아님 — SURF-4) %>
+<header>
+  <p class="text-base font-extrabold tracking-tight text-emerald-900">받을돈</p>
+  <h1 class="mt-8 text-xl font-bold leading-relaxed text-stone-900">
+    받을돈을 통해 <strong class="font-extrabold"><%= @invoice.issuer_display_name %></strong>님이 보낸 청구서입니다
+  </h1>
+</header>
+
+<%# VIEW-3 — 청구 내용(문서 카드). DESIGN-4 문서 무결성 — 흰 배경·타이포 위계·색 최소. %>
+<section class="mt-6 rounded-2xl border border-stone-200 bg-white p-5 sm:p-6" aria-label="청구 내용">
+  <dl class="space-y-2 text-sm">
+    <div class="flex items-baseline justify-between gap-4">
+      <dt class="text-stone-400">청구번호</dt>
+      <dd class="font-semibold tabular-nums text-stone-700"><%= @invoice.issue_number %></dd>
+    </div>
+    <div class="flex items-baseline justify-between gap-4">
+      <dt class="text-stone-400">발행일</dt>
+      <dd class="tabular-nums text-stone-700"><%= display_date(@invoice.issued_at) %></dd>
+    </div>
+    <div class="flex items-baseline justify-between gap-4">
+      <dt class="text-stone-400">만기일</dt>
+      <dd class="font-semibold tabular-nums text-stone-700"><%= display_date(@invoice.due_on) %></dd>
+    </div>
+  </dl>
+
+  <%# VIEW-3 — 품목 표(설명·수량·단가·금액) %>
+  <div class="mt-5 overflow-x-auto">
+    <table class="w-full min-w-[420px] text-left text-sm">
+      <thead>
+        <tr class="border-b border-stone-200 text-xs font-bold text-stone-400">
+          <th scope="col" class="py-2.5 pr-3">품목</th>
+          <th scope="col" class="py-2.5 pr-3 text-right">수량</th>
+          <th scope="col" class="py-2.5 pr-3 text-right">단가</th>
+          <th scope="col" class="py-2.5 text-right">금액</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% @invoice.items.each do |item| %>
+          <tr class="border-b border-stone-100 last:border-0">
+            <td class="py-3 pr-3 font-medium text-stone-700"><%= item.description %></td>
+            <td class="py-3 pr-3 text-right tabular-nums text-stone-600"><%= number_with_delimiter(item.quantity) %></td>
+            <td class="py-3 pr-3 text-right tabular-nums text-stone-600"><%= won(item.unit_price) %></td>
+            <td class="py-3 text-right font-semibold tabular-nums text-stone-800"><%= won(item.quantity * item.unit_price) %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+
+  <%# VIEW-3 — 금액 분해(INV-2). 총액은 크게(tabular). 원천징수 건은 실지급액 관점으로
+      안내한다 — 채무자가 입금할 금액이 무엇인지가 기준(P1 톤). %>
+  <dl class="mt-6 space-y-2.5 text-sm">
+    <div class="flex items-baseline justify-between gap-4">
+      <dt class="text-stone-500">공급가액</dt>
+      <dd class="tabular-nums text-stone-700"><%= won(@invoice.subtotal) %></dd>
+    </div>
+    <div class="flex items-baseline justify-between gap-4">
+      <dt class="text-stone-500">부가세</dt>
+      <dd class="tabular-nums text-stone-700"><%= won(@invoice.tax_amount) %></dd>
+    </div>
+    <div class="flex items-baseline justify-between gap-4 border-t border-stone-200 pt-3">
+      <dt class="text-base font-bold text-stone-900">청구 총액</dt>
+      <dd class="text-2xl font-extrabold tabular-nums tracking-tight text-stone-900 sm:text-3xl"><%= won(@invoice.total_amount) %></dd>
+    </div>
+    <% if @invoice.withholding_enabled? %>
+      <div class="flex items-baseline justify-between gap-4">
+        <dt class="text-stone-500">원천징수 (공급가액의 3.3%)</dt>
+        <dd class="tabular-nums text-stone-600">−<%= won(@invoice.withholding_amount) %></dd>
+      </div>
+      <div class="flex items-baseline justify-between gap-4">
+        <dt class="text-base font-bold text-stone-900">입금하실 금액</dt>
+        <dd class="text-xl font-extrabold tabular-nums tracking-tight text-emerald-900 sm:text-2xl"><%= won(@invoice.net_amount) %></dd>
+      </div>
+      <p class="text-xs leading-relaxed text-stone-400">
+        원천징수 3.3%는 제외한 「입금하실 금액」만 입금해 주세요.
+      </p>
+    <% end %>
+  </dl>
+</section>
+
+<%# VIEW-3 — 입금 계좌 카드(토스 송금 UX 벤치마크 — 큰 영역·복사 피드백). 카드 전체가
+    복사 버튼이며, 클립보드 API 불가 환경(비보안 컨텍스트 등)에서는 fallback으로 계좌를
+    선택 상태로 만들어 수동 복사를 유도한다. %>
+<section class="mt-4" aria-label="입금 계좌" data-controller="clipboard"
+         data-clipboard-text-value="<%= "#{@invoice.bank_name} #{@invoice.account_number} #{@invoice.account_holder}" %>">
+  <button type="button" data-action="clipboard#copy"
+          class="block w-full rounded-2xl border border-stone-200 bg-white p-5 text-left shadow-sm transition hover:border-stone-300 hover:shadow active:bg-stone-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 sm:p-6">
+    <span class="flex items-center justify-between gap-3">
+      <span class="text-sm font-bold text-stone-500">입금 계좌</span>
+      <span data-clipboard-target="label" class="text-xs font-bold text-emerald-700">탭하여 복사</span>
+    </span>
+    <span class="mt-3 block text-xl font-extrabold tabular-nums tracking-tight text-stone-900">
+      <%= @invoice.bank_name %> <%= @invoice.account_number %>
+    </span>
+    <span class="mt-1 block text-sm text-stone-600">예금주 <%= @invoice.account_holder %></span>
+  </button>
+  <%# 클립보드 fallback 수동 선택용 소스 — 화면에는 노출되지 않는다 %>
+  <input type="text" readonly tabindex="-1" data-clipboard-target="source" aria-label="입금 계좌 전체"
+         value="<%= "#{@invoice.bank_name} #{@invoice.account_number} #{@invoice.account_holder}" %>"
+         class="sr-only" />
+</section>
+
+<%# PAY-3 — 입금자명 표준 힌트 %>
+<p class="mt-3 rounded-xl bg-stone-50 px-4 py-3 text-sm leading-relaxed text-stone-600 ring-1 ring-inset ring-stone-200">
+  입금 시 입금자명을 '<strong class="font-bold text-stone-800"><%= @invoice.client.name %></strong>'으로 입력해 주세요.
+</p>
+
+<%# VIEW-5 — 하단 고지(P5 — 채무자 오인 방지). ③→① 링크 없음(SURF-4). %>
+<footer class="mt-10 border-t border-stone-100 pt-6">
+  <p class="text-center text-xs leading-relaxed text-stone-400">
+    본 청구서는 발행인이 직접 발행했습니다.<br />
+    본 서비스는 채권 추심 업무를 수행하지 않습니다.
+  </p>
+</footer>

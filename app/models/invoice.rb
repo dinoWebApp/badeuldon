@@ -33,6 +33,7 @@ class Invoice < ApplicationRecord
   belongs_to :user
   belongs_to :client
   has_many :items, class_name: "InvoiceItem", dependent: :destroy, inverse_of: :invoice
+  has_many :view_events, dependent: :destroy  # SHARE-3 — 열람 이력(뷰어 ③). 청구서 파괴 시 연쇄 삭제
 
   # 초안 작성·수정 폼 — 품목 행 동적 편집(nested attributes). 완전 공백 행은 폼에서 폐기한다.
   accepts_nested_attributes_for :items, allow_destroy: true, reject_if: :all_blank
@@ -71,6 +72,8 @@ class Invoice < ApplicationRecord
   scope :due_within, ->(range) { unsettled.where(due_on: range) }
   # INV-6 — 무효 처리 가능한 발행 계열
   scope :voidable, -> { where(status: VOIDABLE_STATUSES) }
+  # SHARE-2 — 링크 보유 상태(초안은 미발급, 무효는 INV-6로 폐기). 링크 재발급 대상 조회 스코프.
+  scope :linkable, -> { where.not(status: [ :draft, :voided ]) }
 
   # 연체 파생 판정 — issued 계열이면서 만기일이 경과한 건(DASH-4 연체일 계산 기준)
   def overdue?
@@ -129,6 +132,29 @@ class Invoice < ApplicationRecord
     self.voided_at = Time.current
     self.token = nil
     save
+  end
+
+  # SHARE-2 — 링크 수동 재발급: 새 토큰으로 교체해 기존 링크를 즉시 무효화한다(재발급 이전
+  # 링크 접근은 뷰어 VIEW-6 안내로 귀결). 유효기간(token_expires_at)은 만기일 기준 그대로
+  # 유지하며, 무효 처리된 건은 INV-6에 따라 재발급할 수 없다. 토큰은 INV-5 보호 컬럼이
+  # 아니므로 본문 불변 가드와 충돌하지 않는다.
+  def regenerate_token!
+    if draft? || voided?
+      errors.add(:base, "발행된 청구서의 링크만 재발급할 수 있습니다")
+      return false
+    end
+
+    self.token = SecureRandom.urlsafe_base64(TOKEN_URLSAFE_BYTES)
+    save
+  end
+
+  # INV-4 — 최초 열람 전이(issued→viewed). status 단일 컬럼 조건부 UPDATE로 원자화해 동시
+  # 열람에서도 정확히 1회 적용된다. status는 INV-5 보호 컬럼(PROTECTED_CONTENT_COLUMNS)이
+  # 아니므로 본문 불변 가드와 충돌하지 않으며, 발행 계열의 viewed 진입은 이 메서드가 유일한
+  # 허용 경로다(ViewEvents::TrackService만 호출한다).
+  def mark_viewed!
+    self.class.where(id: id, status: self.class.statuses.fetch(:issued))
+        .update_all(status: self.class.statuses.fetch(:viewed), updated_at: Time.current) == 1
   end
 
   # 금액 산식(정수 원) — 폼 실시간 요약(invoice_form_controller.js)과 동일 산식을 유지하고

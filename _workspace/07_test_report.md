@@ -1,9 +1,10 @@
-# 07_test_report.md — F-INV 청구서 발행 테스트 (Phase 7)
+# 07_test_report.md — F-SHARE 열람 추적 + F-VIEW 뷰어 + 링크 UI 테스트 (Phase 7)
 
 - **일자**: 2026-10-12
-- **작성자**: InvoiceTester (badeuldon-test-patterns 준거)
-- **대상**: F-INV 청구서 발행 + Phase 6 수정 6건(03 수정 이력 #1~#7) — 금액 계산·상태 전이·한도·소유권·대시보드 집계
-- **시나리오 기준**: `_workspace/03_implementation.md` §2·§3·Phase 6 이력, `_workspace/05_review.md` §5 Tester 중점, PRD INV-1~6·PLAN-1·DASH-1/4·ONB-1
+- **작성자**: ViewerTester (badeuldon-test-patterns 준거)
+- **대상**: F-SHARE 열람 추적·F-VIEW 채무자 뷰어(표면 ③)·발행 상세 링크 UI + **저장소 첫 시스템 테스트(capybara) 도입**
+- **시나리오 기준**: `_workspace/03_implementation.md` §2·§4·§5, `_workspace/05_review.md` §3·§7·§8, PRD SHARE-1/2/3·VIEW-2/3/5/6/8·INV-4/6·PAY-3·SURF-1/3/4
+- **코드 수정**: **0건** (리뷰 APPROVED — 발견 이슈 전부 테스트 오류로 자체 수정, §4)
 
 ---
 
@@ -11,140 +12,132 @@
 
 | 항목 | 결과 |
 |:---|:---|
-| `bin/rails test` 전체 회귀 | **227 runs, 1,351 assertions, 0 failures, 0 errors, 0 skips** ✅ |
-| 기존 대비 | 156 runs(실패 2건) → 227 runs(실패 0건) — 신규 +71 케이스 |
-| `bin/rubocop` | **72 files inspected, no offenses** ✅ |
-| 코드 수정 | **0건** (지시 준수 — 발견 버그는 §5 보고) |
-| 외부 API 실호출 | 0건 (대상 로직에 외부 호출 없음 — 핵클·토스 stub 불필요) |
+| `bin/rails test` 전체 회귀 | **256 runs, 1,548 assertions, 0 failures, 0 errors, 0 skips** ✅ (시드 2회 재실행 동일) |
+| `bin/rails test:system` | **3 runs, 17 assertions, 0 failures, 0 errors, 0 skips** ✅ (첫 도입) |
+| 기존 대비 | 228 runs(실패 2건) → 256 runs(실패 0건) — 신규 +28 케이스, 시스템 +3 케이스 |
+| `bin/rubocop` | **80 files inspected, no offenses** ✅ |
+| 코드 수정 | **0건** |
+| 외부 API 실호출 | 0건 (대상 로직에 핵클·토스 호출 없음 — stub 불필요) |
+| 테스트 DB 오염 | 없음 — 경합 테스트 자체 청소 확인(9개 DB 전수 `viewer-race` 잔존 0) |
 
 ### 신규·갱신 파일
 
 | 파일 | 내용 |
 |:---|:---|
-| `test/models/invoice_test.rb` | **신규 35 케이스** — 금액 산식 경계·저장 스냅샷·INV-1 채번·INV-3 재계산·INV-4 파생 연체·스코프·INV-5 모델 가드·INV-6 무효·PLAN-1·행 수 상한 |
-| `test/models/invoice_item_test.rb` | 신규 3 케이스 — 설명 필수·정규화, 수량 1~10,000 경계, 단가 0~1e9 경계 |
-| `test/controllers/app/invoices_controller_test.rb` | **신규 29 케이스** — CRUD·발행·무효·소유권·위조 품목 id·행 수 상한·PLAN-1·UI 뱃지·INV-2 표기 |
-| `test/controllers/app/dashboards_controller_test.rb` | **갱신 2건 + 신규 5건** (§2) |
-| `test/fixtures/invoices.yml` · `invoice_items.yml` | 신규 — 상태별 최소 1건(§4) |
-| `test/fixtures/users.yml` · `clients.yml` | `delta` 사용자·`delta_main` 거래처 신설(§4 FK 사유) |
+| `test/controllers/viewer_controller_test.rb` | **신규 14 케이스** — 토큰 매트릭스 5종+초안·최초/재열람 추적·device 판별·VIEW-6 404 본문 무차이·VIEW-8 앵커 0·noindex·원천징수 안내 |
+| `test/services/view_events/track_service_test.rb` | **신규 6 케이스** — 서비스 단위(first 플래그·재기록·비-issued 가드)·UA 판별 경계·조건부 UPDATE 계약·**2스레드 실시간 경합**(별도 클래스) |
+| `test/controllers/app/invoices_controller_test.rb` | **갱신 2건**(§2) + **신규 8 케이스** — 재발급 303·turbo_confirm·소유권·linkable 스코프·만료 임박/만료 분기·열람 이력 요약 |
+| `test/application_system_test_case.rb` · `test/system/viewer_test.rb` | **신규(첫 시스템 테스트)** 3 케이스 — 뷰어 여정·clipboard 복사·fallback·VIEW-6 여정·VIEW-8 DOM |
+| `test/fixtures/view_events.yml` | 신규 — delta_viewed 열람 이력 2건(최초 mobile·재열람 pc) |
+| `test/fixtures/invoices.yml` | `token_expires_at` 8건 KST 오프셋 명시(§4 #2·#3 — 기존 어설션 영향 0 사전 확인) |
 
 ---
 
-## 2. 기존 실패 2건 갱신 (명세 이행분)
+## 2. 기존 실패 2건 갱신 (명세 이행분 — 03 §4)
 
 | 기존 테스트 | 갱신 내용 | 결과 |
 |:---|:---|:---|
-| `ONB-1 첫 발행 CTA는 disabled이며 준비 중 배지를 노출한다`(:55) | → **「ONB-1 첫 발행 CTA는 신규 발행 화면 실링크로 활성화된다」** — `new_app_invoice_path` 실링크 1건, disabled·aria-disabled 버튼 0건, 「준비 중」 문구 0건 | ✅ |
-| `사이드바는 …청구서 준비 중…`(:75) | → **「사이드바는 … 거래처·품목·청구서·설정 실링크를 렌더한다」** — `nav a[href=app_invoices_path]` "청구서" 1건, `span[aria-disabled]`·「준비 중」 0건 | ✅ |
-
-추가로 ONB-1 보유 전환(「발행한 청구서를 관리합니다」+「청구서 전체 보기」)·초안만 보유 분기도 신설 검증했다.
+| `상세는 …토큰을 노출하지 않는다`(어설션 :64) | → **「상세는 청구 정보·계좌·품목·금액 내역과 공유 링크 UI를 렌더한다 (INV-1·SHARE-1/6)」** — readonly input에 전체 URL(`viewer_url(token)`) 표시·복사 버튼(`data-action='clipboard#copy'`)·재발급 버튼(`turbo_confirm` 문구 포함) 어설션으로 대체 | ✅ |
+| `목록 상태 뱃지는 …`(어설션 :451) | 「대기 중」 count 2→**1**(delta_due_soon만 — delta_issued는 파생 연체로 주황) + **「열람」 count 1** 신설(viewed 뱃지 분리 — delta_viewed) | ✅ |
 
 ---
 
 ## 3. 시나리오별 결과 (Rule ID → 검증)
 
-### 3.1 금액 계산 (최우선 — 03 §2 산식) — 전부 통과
-- **별도/포함 × 원천 on/off 4조합**(행 합계 110,000): 121,000/117,370/110,000/**106,700** 각각 전 컬럼 일치
-- **사사오입 경계**: 별도 부가세 104→10 · 105→11 · 정확반 15→2
-- **포함 역분해**: 1,100,000→공급 1,000,000·부가세 100,000(총액 보존) · 109→99/10 · 11→10/1 · 1→1/0
-- **원천징수 내림**(결정 #4): 101→3 · 10,000→330 · 33→1 · 1,000→33 · 100→3 · 1→0
-- **0원 행**: 4모드 전 컬럼 0원 · **복수 행** 3행 Σ130,456→부가세 13,046 · **50행** Σ1,275,000→원천 42,075·실수령 1,360,425
-- **상한 조합**: 10,000×1e9 별도→총액 1.1e13 · 포함+원천→공급 9,090,909,090,909·원천 내림 299,999,999,999(64bit 정밀도)
-- **저장 스냅샷**(모델+컨트롤러 통합): create→5컬럼 스냅샷 일치, `_destroy` 행 제외 재산정(165,000→110,000), 0원 저장, 컨트롤러 POST 포함+원천 106,700 스냅샷, `issuer_display_name` 파라미터 주입 불가(서버 스냅샷)
+### 3.1 토큰 매트릭스 5종 + 초안 (VIEW-6 응답 통일) — 전부 통과
 
-### 3.2 INV-1 채번 — 통과
-- 형식 `BD-YYYYMMDD-NNN`·일별 연속 순번(-001→-002)·**서비스 전역 순번 공유**(gamma -001 → alpha -002)
-- **KST 일자 경계**: 2026-10-12 23:59:59 발행→`BD-20261012-001`, 10-13 00:30 발행→`BD-20261013-001`(UTC로는 10-12가 나오는 시각 — KST 판정 근거)
-- 토큰 43자·urlsafe·만기+60일 end_of_day(SHARE-1/2), 상세·목록 본문에 토큰 미노출(플랜 결정 #1)
+| 시나리오 | 접근 | 결과 |
+|:--|:--|:--|
+| ① 정상 발행건 | 200·VIEW-2 헤더(발행인 표시명)·청구번호·품목·금액 분해·계좌 카드·PAY-3·VIEW-5 고지 | ✅ |
+| ② 만료 | `travel_to` 만료 경과 → 404 + VIEW-6 문구, **전이·이벤트 0건** | ✅ |
+| ③ 폐기(voided) | `void!` 후 이전 토큰 → 404 + VIEW-6, 이벤트 0건 | ✅ |
+| ④ 미존재 | 랜덤 43자 → 404 + VIEW-6, 이벤트 0건 | ✅ |
+| ⑤ 재발급 이전 | `regenerate_token!` 후 이전 토큰 → 404 + VIEW-6 | ✅ |
+| (보너스) 초안 | `token`·`token_expires_at` nil 단언 — 뷰어 진입 자체 불가 | ✅ |
 
-### 3.3 INV-4/5/6 전이 — 통과
-- **draft→issue**(컨트롤러): 303+알림·채번·토큰·issued_at·만기+60 유효기간 동시 검증
-- **발행본 수정 차단**: edit/update/destroy/issue PATCH 전부 **404**, 본문 무변경 — + **모델 `update!` 우회 차단**(Phase 6 #5): `ActiveRecord::RecordNotSaved`(기술 노트 5 준수 — RecordInvalid 아님), `update` false+base 오류, 품목 행 변경 차단, **무변경 `save!` 통과**(`updated_at` 불변), `void!` 통과
-- **무효**(컨트롤러): 303·토큰 즉시 폐기(nil)·voided_at·채번 보존·**금액 동결**(무효 후 total 220,000 불변)
-- **voidable 스코프**: 초안·paid·voided 무효 요청 404 / 모델 voidable 판정 — viewed·promised·partially_paid·**연체 enum 예약값**·issued·due_soon true / draft·paid·voided false(fixtures 상태 직접 세팅)
-- **재발행 차단**: 발행본·무효본 `issue!` false
-- **INV-4 파생 연체**: 만기 당일 non-overdue·days 0 / 익일 overdue·days 1 / unsettled 6건(초안·paid·voided 제외)·overdue 스코프 2건(파생+enum)·due_within·sorted_by_due 정렬
+- **본문 무차이(누설 금지)**: ②③④⑤의 `<main>` 영역을 추출해 비교 — **uniq 1**(CSRF 메타 등 요청별 랜덤 요소 제외 기준, 05_review §3과 동일). 4건 모두 404.
+- **초안·무효 링크 미노출**: voided 상세 `h2 "청구서 링크"` 0건(INV-6).
 
-### 3.4 Phase 6 #2 만기 재계산 — 통과
-- 10일 경과 프리필 초안 발행 → **발행일+30**(2026-11-11)·토큰 만료 2027-01-10 end_of_day
-- 명시 수정값(+45일) → **존중**(2026-11-16) · 당일 작성·당일 발행 → 작성일+30 동일
+### 3.2 최초 열람·재열람 추적 (INV-4·SHARE-3) — 통과
+- **최초**: 200 + `issued→viewed` 전이 + 이벤트(`first=true`·device·ip 127.0.0.1·`viewed_at` = frozen KST — TIME-1)
+- **재열람**: 이벤트 2건(2번째 `first=false`·UA별 device)·**상태 유지·중복 전이 없음**
+- **viewed 상태 재방문**: fixtures 2건 + 신규 1건 = 3건, `first=false`, 상태 viewed 유지
+- **비-issued 가드(서비스 단위)**: paid 건에 TrackService 호출 → 이벤트는 기록, **상태는 paid 유지**(조건부 UPDATE 0행)
+- **조건부 UPDATE 계약**: `mark_viewed!` 1회차 true(1행) → 2회차 **false(0행)** — 동일 전이 정확히 1회(이슈 #2의 핵심 계약)
 
-### 3.5 PLAN-1 월 3건 — 통과
-- 3건 발행 성공 → 4번째 **422**+한도 문구(컨트롤러 `#alert` 정확 일치) / 모델 base 오류 정확 일치
-- **무효 포함 카운트**(리뷰 #3 확정 해석): 3건→1건 무효→4번째 차단 유지
-- **다음 달 리셋**: 10월 3건→11-01 발행 성공(`BD-20261101-001`) / **초안 무제한**: 모델 5건·컨트롤러 4건 연속 저장
+### 3.3 동시 첫 열람 경합 (이슈 #2 회귀 방지) — 통과
+- **2스레드 동시 TrackService 호출**(게이트로 동시 진입 유도, 스레드별 독립 커넥션) → 양쪽 `:ok`(예외 0)·최종 상태 **viewed**(전이 1회)·이벤트 1~2건(`first=true` 중복은 문서화된 허용 범위로 명시)·`first=true` 이벤트 반드시 존재
+- 트랜잭션 롤백이 불가한 실커밋 경합이므로 **별도 클래스**(`use_transactional_tests = false`)로 자체 시드·자체 청소(teardown에서 view_events→invoice_items→invoice→client→session→user FK 순 삭제)
+- **5회 반복 실행 안정**(1 runs 6 assertions × 5 전부 통과)
 
-### 3.6 Phase 6 #4/#6 — 통과
-- **위조 items id**: 타 청구서 품목 id `_destroy` PATCH → **422**(500 아님)+「유효하지 않은 품목 요청입니다」·타 품목·본인 행 무영향 / 생성에서 위조 id → 422·레코드 0 / 타인 품목 id 섞은 수정 → 422
-- **행 수 상한**: 100행 저장(컨트롤러 POST +100행)·101행 422+「품목 행은 최대 100개까지」(모델+컨트롤러 이중 검증)
+### 3.4 device 판별·시각 (SHARE-3·TIME-1) — 통과
+- 모바일 UA(iPhone 17.2)→`mobile`, 데스크톱 UA(Chrome 120)→`pc`, **UA 부재·빈값→pc**(서비스 단위)
+- `viewed_at` 주입 시각 그대로 기록 — `Time.zone.parse`와 정확 일치(UTC 시프트 없음)
+- 발행 상세 열람 이력 요약: 「최초 열람 2026-09-06 09:30」·「최근 열람 2026-09-20 18:05」·「2회」 — KST 표기, 이력 0건이면 요약 미렌더
 
-### 3.7 소유권 격리 — 통과
-- 타 사용자 청구서 show/edit/update/destroy/issue/void 전 액션 **404**+값 무변경
-- 타인 client_id 생성 **422**(「본인의 거래처만 선택할 수 있습니다」)
-- index 스코프 — 0건 사용자 빈 상태·타인 채번 비노출, 수정 화면 거래처 select 본인 것만
+### 3.5 링크 UI·재발급 (SHARE-1/2/3·표면 ②) — 통과
+- **발행 상세 링크 영역**: 전체 URL readonly 표시·복사 버튼·재발급 버튼(`turbo_confirm` 문구 정확 일치·`_method=patch`)
+- **재발급 PATCH**: **303** + 새 토큰 43자·**`token_expires_at` 불변**(유효기간 유지)·상태 promised 유지·기존 ViewEvent 잔존 → 이전 토큰 404(VIEW-6)·신규 토큰 200
+- **소유권 격리**: 타 사용자(gamma) 재발급 PATCH → **404**·토큰 무변경
+- **linkable 스코프**: 초안·voided 재발급 PATCH → **404**(INV-6)
+- **만료 표기 3분기**: 만료 7일 이내 「만료 임박 — 2026-11-30까지 열람할 수 있습니다.」/ 경과 「링크 만료 — 유효기간(만기일 + 60일)이 지났습니다.」/ 정상 구간 표기 없음
 
-### 3.8 DASH-1/4 집계 — 통과
-- **카드 3종 실측**: 미수 총액 496,100원(연체 242,000+오늘 121,000+3일 72,600+20일 60,500 — **초안 1,098,900·paid·voided 제외**)·연체 1건 242,000원·7일 내 2건
-- **경계일**(travel 2026-10-12): 오늘·+7 포함, +8·연체(-1) 제외
-- **DASH-4**: 연체일 내림차순(만기 asc) 상위 5건만 렌더(+31·+40 탈락 검증)
-- **빈 상태 유지**: 0건 사용자 기존 어설션 전부 유지, 초안만 보유 시 실측 0원 표기(거짓 0원 아님)
-- **CTA 전환**: 0건→발행 실링크 / 보유→목록 안내·전체 보기 링크
+### 3.6 VIEW-8·SURF-3·PAY-3 — 통과
+- 뷰어 본문(정상·무효 모두) **`a[href]` 0개**·`nav` 0개·「로그인」 문구 0건(SURF-4 ③→① 차단)
+- noindex 메타 정상·무효 응답 모두 1건·content에 `noindex`(SURF-3) — robots.txt `/b/` 차단은 기존 `surf3_indexing_test` 회귀로 유지
+- 원천징수 건 뷰어: 「원천징수 (공급가액의 3.3%)」 −1,650원·**「입금하실 금액」 53,350원**·안내 문구(P1 지급액 관점)
 
-### 3.9 UI (DESIGN-2/5·INV-2) — 통과
-- 상태 뱃지 상태색: 연체 주황 2건(파생+enum)·대기 중 2·약속 대기 1·부분입금 1·수금 완료 녹색 1·무효 1·초안 2
-- 연체일 수치 주황 강조(41일·11일)·금액 `tabular-nums`(220,000원)
-- **INV-2 원천징수 내역**: 원천징수 (공급가액의 3.3%) −1,650원·실수령액 53,350원·안내 문구 / 포함 모드 「부가세 (총액 포함 — 역산)」
-- **무효 건 상세 부제**(Phase 6 #1): 「2026-09-01에 무효 처리했습니다.」+발행 문구 미도달(데드 브랜치 수정 검증)
-- 상태별 액션: 초안(발행·수정·삭제+turbo_confirm)·발행계열(무효 처리만)·무효(액션 없음+안내 문구)
+### 3.7 시스템 테스트 (첫 도입 — §5 환경 구성) — 3건 통과
+1. **뷰어 여정 E2E**: 발행 링크 접속 → VIEW-2 헤더·청구번호·품목·총액·PAY-3·VIEW-5 고지 표시 → **clipboard `writeText` 스텁으로 실제 전달값 단언**(「신한은행 110-234-567890 김델타」) + 「복사됨」 피드백 → **`a` 요소 0개**(VIEW-8)
+2. **클립보드 fallback**: `writeText` 거부 재현 → source 선택(`window.getSelection()` 값 단언) + 「선택됨 — 복사해 주세요」 라벨(05_review §8-b 3)
+3. **VIEW-6 여정**: 무효 토큰 → 안내 2문구·청구 내용 미노출·앵커 0개
 
 ---
 
-## 4. 원인 분류 — 실패 이력 (전부 테스트 오류, 코드 버그 아님)
-
-개발 중 발생했던 실패 6건을 자체 수정 후 재통과했다. **코드 수정은 0건**이다.
+## 4. 원인 분류 — 개발 중 실패 이력 (전부 테스트 오류, 코드 버그 0건)
 
 | # | 증상 | 원인 | 분류 |
 |:--|:---|:---|:---|
-| 1 | `token_expires_at` 비교 실패(999999999 vs 999999000) | `end_of_day` 나노초 vs DB 마이크로초 저장 정밀도 — 초 단위(`to_i`) 비교로 수정 | 테스트 오류 |
-| 2 | 50행 실수령액 기대 1,232,925 ≠ 실제 1,360,425 | 테스트 기대값 산술 오류(총액 1,402,500에서 원천 차감해야 함) — 구현이 03 산식대로 정확 | 테스트 오류 |
-| 3 | 생성 PATCH가 잇달아 422 | 테스트 파라미터에 `due_on` 누락 — 만기일 presence 오류가 원인(컨트롤러 정상) | 테스트 오류 |
-| 4 | 발행 플로우 테스트 RuntimeError | `travel_to` 블록 중첩 금지(Rails 가드) — 순차 호출+`travel_back`으로 재구성 | 테스트 오류 |
-| 5 | 무효 포함 한도 테스트 부분 문자열 단언 | `assert_includes`에 전체 문구 아닌 접두어 전달 | 테스트 오류 |
-| 6 | DASH-1 카드 451,000 ≠ 496,100 | 기대값에 부가세 10% 미반영(총액 기준 집계가 정확) | 테스트 오류 |
+| 1 | VIEW-5 고지문 `assert_select "p", text:` 불일치 | 고지 `<p>`는 두 문장을 `<br>`로 구분한 단락 — 정확 일치 어설션이 부적합, regex로 수정 | 테스트 오류 |
+| 2 | 열람 이력 표기 09:30 기대 ≠ 실제 18:30 | **fixture 무오프셋 datetime 문자열은 UTC로 저장**(KST 표기 9시간 시프트 — 실측 확인) → `viewed_at`에 `+0900` 명시 | 테스트 오류(설계 정정) |
+| 3 | 만료 임박 표기 불일치(기대 11-30 ≠ 실제 12-01) | #2와 동일 원인 — `token_expires_at` 무오프셋 저장 시 KST 다음 날이 됨. **`invoices.yml` 8건에 `+0900` 명시**(모델 발행값 = 만기일 end_of_day KST와 의미 일치). 기존 어설션은 `token_expires_at`을 발행 생성 경로(모델 생성값)에서만 비교해 영향 0 — 전수 grep 확인 | 테스트 오류(설계 정정) |
+| 4 | 타 사용자 재발급 테스트 TypeError | `assert_no_difference`는 수치 전용(토큰 String에 산술 시도) → before/after 캡처·`assert_equal`로 수정 | 테스트 오류 |
+| 5 | 경합 teardown FK 제약 실패 | `delete_all`은 `invoice_items` 연쇄 삭제를 우회 → teardown에 `invoice_items` 선삭제 추가 | 테스트 오류 |
 
-추가 설계 정정 1건: fixtures를 최초 alpha에 부착했다가 **기존 스위트 회귀**(ClientTest `clients.first.destroy`·SessionsControllerTest `users(:alpha).destroy!` — FK 제약)로 **신규 사용자 delta로 이관**했다(§4). 이 과정에서 아래 §5 코드 버그가 드러났다.
+추가 확인(이슈 없음): 05_review §8-a 5번 「422 재렌더 시 set_view_events 순서」는 재현 가능한 실패 경로가 void·재발급에 없음(스코프 before_action이 초안·무효를 404로 선차단)·issue 422의 초안은 이벤트 0건이 구조적으로 확정 — 기존 「4번째 발행 422」 회귀 테스트가 `render :show` 경로를 통과해 간접 검증됨.
 
 ---
 
-## 5. 코드 버그 보고 1건 — 직접 수정하지 않음 (오케스트레이터 위임 필요)
+## 5. 시스템 테스트 환경 구성 내역
 
-### BUG-1 · AUTH-1.5 위반: 청구서 보유 사용자의 계정 삭제가 FK 제약으로 실패
-
-- **재현**(`bin/rails runner` 롤백 트랜잭션 실측): 사용자+거래처+청구서 1건 생성 후 `user.destroy` → `ActiveRecord::InvalidForeignKey: SQLite3::ConstraintException: FOREIGN KEY constraint failed`
-- **원인**: `app/models/user.rb`의 연관 선언 순서 — `sessions → clients → items → invoices` 순으로 `dependent: :destroy` 연쇄가 진행되어, `invoices`가 남아 있는 상태에서 `clients`가 먼저 삭제되고 `invoices.client_id` FK(index_invoices_on_client_id)가 위반된다
-- **영향**: 청구서 1건이라 발행한 사용자는 **탈퇴(계정 삭제)가 500으로 실패**(P4 영구 기록과 AUTH-1.5 삭제 보장 충돌). 기존 `SessionsControllerTest`의 `users(:alpha).destroy!`는 alpha가 청구서를 갖지 않아 통과할 뿐, 실데이터 경로는 미커버 — 테스트 공백
-- **제안**(Developer): `has_many :invoices, dependent: :destroy`를 clients/items보다 먼저 선언해 삭제 순서를 보장하거나, `before_destroy`에서 invoices를 선삭제. 수정 후 「청구서 보유 사용자 삭제 시 연쇄 삭제」 회귀 테스트 추가 권장
-- **본 Phase 조치**: 코드 수정 금지 지시에 따라 미수정 — 위 실측 스크립트 롤백으로 저장소·DB 비오염 확인
+| 항목 | 구성 |
+|:---|:---|
+| 케이스 베이스 | `test/application_system_test_case.rb` 신설 — `ActionDispatch::SystemTestCase` |
+| 드라이버 | `driven_by :selenium, using: :headless_chrome, screen_size: [430, 932]` — **모바일 뷰포트 고정**(VIEW-1 모바일 우선·DESIGN-6) |
+| 브라우저 | 로컬 **Google Chrome 154.0.8037.98**(macOS arm64) headless |
+| 드라이버 관리 | **Selenium Manager 자동**(selenium-webdriver 4.50.0) — chromedriver 별도 설치·PATH 설정 불필요, 최초 실행 시 `~/.cache/selenium` 캐시 생성 |
+| 앱 서버 | Puma 8.0.2 in-process(Capybara 기동, 127.0.0.1 랜덤 포트) |
+| 데이터 | 기존 fixtures 그대로(`fixtures :all`) — 별도 시드 불필요 |
+| 클립보드 | 권한 프롬프트 회피를 위해 `navigator.clipboard.writeText`를 `execute_script`로 스텁 — **실제 전달값을 `evaluate_script`로 단언**(권한 플래그·OS 설정 의존 제거) |
+| 헤드리스 실패 | 없음 — pty 환경 변수·가시 브라우저 대체 불필요, 통합 테스트 대체 없이 브라우저 E2E로 완주 |
 
 ---
 
 ## 6. fixtures 설계 노트
 
-- **delta 신설 사유**: alpha(PLAN-1 거래처 5개·사용자 삭제 검증)·beta(AUTH-1.5 연쇄 삭제 검증)는 기존 테스트가 레코드 **삭제**를 단언하므로 청구서 fixtures를 붙이면 FK 제약으로 회귀한다. gamma는 대시보드 빈 상태 기준 유지. 세 사용자 모두 보존 목적이 상충하지 않는 **delta**(프로필 완료)를 INV 전용 소유자로 신설했다
-- **상태별 최소 1건**: draft 2종(1행·2행)·issued(연체 파생: 10-01 만기)·**연체 enum 예약값**(09-01 만기, 41일)·7일 내 만기(10-15)·viewed(원천징수)·promised(포함 모드)·partially_paid·paid·voided(토큰 nil)
-- **기준일 고정**: 날짜 파생 어설션은 전부 `travel_to(Time.zone.parse("2026-10-12 09:00"))`(TIME-1) — fixture 절대일자와 무관하게 실행 일자와 독립적
-- **토큰 고정값**(43자 urlsafe, 알파벳별 구분): 추측 불가 엔트로피 검증은 fixtures가 아닌 **발행 생성 경로**에서 수행(SHARE-1) — 픽스처 규칙 준수
-- **금액 컬럼**: 픽스처는 콜백 없이 적재되므로 산식과 일치하는 스냅샷값을 직접 기입(예: viewed 50,000→원천 1,650·실수령 53,350)
-- **병렬 PK 비보장**: 같은 만기일 tie-break(초안 2건) 어설션은 YAML 순서가 아닌 `id.sort` 기준 — 병렬 fixture PK 랜덤화 대응
-- **집계 시드**: DASH 테스트는 `issue!` 대신 상태 직접 세팅으로 시드한다(PLAN-1 월 3건 검증이 발행 플로우 테스트와 간섭하지 않도록 분리)
+- **`view_events.yml` 신규**: delta_viewed에만 2건(최초 `first=true·mobile`·재열람 `first=false·pc`). issued 계열(delta_issued 등)은 **0건 기준**을 유지해 최초 열람(`first=true`)·만료·폐기 시 「이벤트 0건」을 검증. ip는 RFC 5737/10064 문서화 대역
+- **delta 소유 원칙 유지**: alpha·beta는 기존 테스트가 삭제를 단언하므로 이벤트를 붙이지 않음(전 Phase §6 계승)
+- **KST 오프셋 명시(TIME-1)**: fixture의 datetime 무오프셋 문자열은 UTC로 직렬화된다(실측 — §4 #2·#3). `token_expires_at`은 모델 발행값과 동일한 의미(만기일 end_of_day KST)로 8건 정정, `viewed_at` 2건 신규 작성 시 오프셋 포함. 헤더 주석에 사유 기록
+- **경합 테스트는 fixtures 미사용**: 커밋이 필요해 자체 시드(전용 이메일 사용자·거래처·발행건) + teardown FK 순서 삭제 — 전체 스위트와 DB 오염 없음(9개 DB 잔존 0 확인)
 
 ---
 
 ## 7. Tester 완료 전 자체 점검
 
-- [x] 관련 Rule ID별 정상/경계/예외 커버 — INV-1(채번 형식·전역 순번·KST 자정·행 수 상한)·INV-2(3.3% 내림·내역 표기)·INV-3(발행일+30 재계산·명시값 존중)·INV-4(전이 가드·파생 연체 경계)·INV-5(컨트롤러 404+모델 RecordNotSaved)·INV-6(voidable 스코프·토큰 폐기·재무효 차단)·PLAN-1(3건·무효 포함·월 리셋·초안 무제한)·SHARE-1/2(토큰·유효기간·미노출)·DASH-1/4(집계·경계·정렬·limit 5)·ONB-1(실링크·전환)·TIME-1(KST travel)·P4(채번·voided_at 보존·발행본 삭제 불가)
+- [x] 관련 Rule ID별 정상/경계/예외 커버 — SHARE-1(토큰 43자·정상 열람)·SHARE-2(만료 경계·재발급·유효기간 유지·만료 임박 7일 분기)·SHARE-3(최초/재열람·device·ip·viewed_at·이력 요약)·VIEW-2/3/5(문구·분해·고지)·VIEW-6(4종 404 본문 무차이·링크 없음)·VIEW-8(앵커 0·nav 0)·INV-4(전이 1회·초안 노출 불가)·INV-6(voided 폐기·재발급 거부·링크 미노출)·PAY-3(입금자명)·SURF-3(noindex)·SURF-4(③→① 없음)·TIME-1(travel_to·viewed_at·이력 KST)
 - [x] 외부 API 실호출 0건
-- [x] 미사용 정의 0건·`bin/rubocop` **0 offenses**(72 files)·들여쓰기 2칸
-- [x] 전체 회귀 `bin/rails test` **227 runs 0 failures 0 errors**(추가 시드 2회 재실행 동일)
-- [x] 실패 원인 분류 — §4(테스트 오류 6건 자체 수정)·§5(코드 버그 1건 보고)
-- [x] 시스템 테스트 미작성 — 뷰어(표면 ③) 미구현 확정(03 후속 제외)으로 브라우저 여정 대상 없음. UI 서버 렌더는 통합 테스트(assert_select)로 전수 커버
+- [x] 미사용 정의 0건·`bin/rubocop` **no offenses**(80 files)·들여쓰기 2칸
+- [x] 전체 회귀 — `bin/rails test` **256 runs 0 failures**(시드 2회)·`bin/rails test:system` **3 runs 0 failures**
+- [x] 경합 테스트 5회 반복 안정·테스트 DB 잔존 0
+- [x] 실패 원인 분류 — §4(테스트 오류 5건 자체 수정, 코드 버그 0건)
+- [x] 05_review §8-a 1~8·§8-b 1~4 중점 영역 전부 커버(§8-a 5는 구조적 도달 불가 — §4 말미 근거 기록)

@@ -1,7 +1,8 @@
 require "test_helper"
 
 # 청구서 화면(표면 ② — INV) 통합 테스트 — 초안 CRUD·발행(INV-4)·무효(INV-6)·채번·스냅샷·
-# 소유권 격리·위조 품목 id 방어(Phase 6 #4)·행 수 상한(#6)·월 3건 한도(PLAN-1)·UI 뱃지·INV-2 표기.
+# 소유권 격리·위조 품목 id 방어(Phase 6 #4)·행 수 상한(#6)·월 3건 한도(PLAN-1)·UI 뱃지·INV-2 표기·
+# 공유 링크 UI·재발급(SHARE-1/2)·열람 이력 요약(SHARE-3).
 # 시나리오 기준: _workspace/03_implementation.md §3·Phase 6 수정 이력, _workspace/05_review.md §5.
 # 날짜 파생 어설션(연체·뱃지·만기)은 travel_to로 2026-10-12(KST) 기준일을 고정한다(TIME-1).
 # fixtures 청구서는 전부 delta 소유 — gamma·alpha·beta는 0건(대시보드 빈 상태·삭제 검증용).
@@ -41,7 +42,7 @@ class App::InvoicesControllerTest < ActionDispatch::IntegrationTest
     assert_no_match(/베타비밀거래처/, response.body)          # 타 사용자 데이터 비노출
   end
 
-  test "상세는 청구 정보·계좌·품목·금액 내역을 렌더하고 토큰을 노출하지 않는다 (INV-1·SHARE-1)" do
+  test "상세는 청구 정보·계좌·품목·금액 내역과 공유 링크 UI를 렌더한다 (INV-1·SHARE-1/6)" do
     travel_to(Time.zone.parse("2026-10-12 09:00")) do
       sign_in_as users(:delta)
       get app_invoice_path(invoices(:delta_issued))
@@ -61,7 +62,14 @@ class App::InvoicesControllerTest < ActionDispatch::IntegrationTest
     assert_select "dd", text: "200,000원"                       # 공급가액
     assert_select "dd", text: "220,000원"                       # 청구 총액
     assert_select "dt", text: "실수령액", count: 0              # 원천징수 미적용 — 실수령액 미표기
-    assert_no_match(/#{invoices(:delta_issued).token}/, response.body)  # 링크 미노출(플랜 결정 #1)
+    # 링크 UI 개봉(SHARE-1/6 — 본 Phase 명세): 전체 URL 표시·복사 버튼·재발급 버튼
+    assert_select "input[readonly][value=?]", viewer_url(invoices(:delta_issued).token)
+    assert_select "button[data-action='clipboard#copy']", text: "복사", count: 1
+    assert_select "form.button_to[action=?]",
+                  regenerate_token_app_invoice_path(invoices(:delta_issued)) do
+      assert_select "button[data-turbo-confirm='기존 링크는 즉시 무효화됩니다. 재발급하시겠습니까?']",
+                    text: "재발급", count: 1
+    end
   end
 
   test "원천징수 청구서 상세는 공급가액·원천징수·실수령액 내역을 표기한다 (INV-2)" do
@@ -448,7 +456,8 @@ class App::InvoicesControllerTest < ActionDispatch::IntegrationTest
 
     # 상태색 — 연체 주황(파생 1건 + enum 예약값 1건)·수금 완료 녹색·나머지 중립
     assert_select "span.bg-orange-50", text: "연체", count: 2
-    assert_select "span", text: "대기 중", count: 2
+    assert_select "span", text: "대기 중", count: 1          # issued 잔여 1건 — delta_issued는 파생 연체로 주황
+    assert_select "span", text: "열람", count: 1             # viewed 뱃지 분리(SHARE-3 가시화 — delta_viewed)
     assert_select "span", text: "약속 대기", count: 1
     assert_select "span", text: "부분입금", count: 1
     assert_select "span.bg-green-50", text: "수금 완료", count: 1
@@ -459,6 +468,119 @@ class App::InvoicesControllerTest < ActionDispatch::IntegrationTest
     assert_select "td span.text-orange-600", text: "11일", count: 1
     # 금액 tabular 표기
     assert_select "td.tabular-nums", text: "220,000원", count: 1
+  end
+
+  # ── 공유 링크 UI·재발급(SHARE-1/2/3 — 표면 ③ 개봉) ──
+
+  test "재발급은 303으로 새 토큰을 발급하고 유효기간·상태·이력을 유지한다 (SHARE-2·SHARE-3)" do
+    sign_in_as users(:delta)
+    invoice = invoices(:delta_promised)
+    old_token = invoice.token
+    expires_at = invoice.token_expires_at
+    ViewEvent.create!(invoice: invoice, first: true, device: "pc",
+                      ip: "203.0.113.5", viewed_at: Time.zone.parse("2026-09-20 10:00"))
+
+    patch regenerate_token_app_invoice_path(invoice)
+    assert_response :see_other
+    assert_redirected_to app_invoice_path(invoice)
+
+    invoice.reload
+    assert_not_equal old_token, invoice.token
+    assert_equal 43, invoice.token.length                        # 256bit urlsafe(SHARE-1)
+    assert_equal expires_at, invoice.token_expires_at            # 유효기간 유지(만기일 기준)
+    assert invoice.promised?                                     # 상태 무변경
+    assert_equal 1, invoice.view_events.count                    # 열람 이력 잔존
+
+    # 이전 토큰 즉시 무효(VIEW-6 404)·신규 토큰 정상 열람
+    get viewer_path(old_token)
+    assert_response :not_found
+    assert_select "h1", text: "링크가 만료되었거나 폐기되었습니다."
+
+    get viewer_path(invoice.token), headers: { "User-Agent" => "Chrome/120 Safari/537.36" }
+    assert_response :success
+  end
+
+  test "재발급 버튼은 turbo_confirm 확인 대화상자를 갖는다 (SHARE-2)" do
+    sign_in_as users(:delta)
+    get app_invoice_path(invoices(:delta_issued))
+    assert_response :success
+    assert_select "form.button_to[action=?]",
+                  regenerate_token_app_invoice_path(invoices(:delta_issued)) do
+      assert_select "input[name=_method][value=patch]", count: 1
+      assert_select "button[data-turbo-confirm='기존 링크는 즉시 무효화됩니다. 재발급하시겠습니까?']",
+                    text: "재발급", count: 1
+    end
+  end
+
+  test "타 사용자 청구서 재발급은 404로 거부된다 (소유권 격리)" do
+    sign_in_as users(:gamma)
+    invoice = invoices(:delta_issued)
+    original_token = invoice.token
+
+    patch regenerate_token_app_invoice_path(invoice)
+    assert_response :not_found
+    assert_equal original_token, invoice.reload.token
+  end
+
+  test "초안·무효 건은 재발급 대상에서 제외된다 (INV-6·linkable 스코프)" do
+    sign_in_as users(:delta)
+    patch regenerate_token_app_invoice_path(invoices(:delta_draft))
+    assert_response :not_found
+
+    patch regenerate_token_app_invoice_path(invoices(:delta_voided))
+    assert_response :not_found
+  end
+
+  test "만료 임박·만료 표기는 유효기간 7일 전·경과로 분기한다 (SHARE-2)" do
+    sign_in_as users(:delta)
+
+    travel_to(Time.zone.parse("2026-11-24 09:00")) do                # 만료 7일 이내(11-30 기준)
+      get app_invoice_path(invoices(:delta_issued))
+      assert_response :success
+      assert_select "span", text: "만료 임박", count: 1
+      assert_select "p", text: "2026-11-30까지 열람할 수 있습니다."
+    end
+
+    travel_to(Time.zone.parse("2026-12-01 09:00")) do                # 유효기간 경과
+      get app_invoice_path(invoices(:delta_issued))
+      assert_response :success
+      assert_select "span", text: "링크 만료", count: 1
+      assert_select "p", text: "유효기간(만기일 + 60일)이 지났습니다."
+    end
+
+    travel_to(Time.zone.parse("2026-10-12 09:00")) do                # 정상 구간 — 표기 없음
+      get app_invoice_path(invoices(:delta_issued))
+      assert_response :success
+      assert_select "span", text: "만료 임박", count: 0
+      assert_select "span", text: "링크 만료", count: 0
+    end
+  end
+
+  test "무효 건 상세는 링크 영역을 노출하지 않는다 (INV-6)" do
+    sign_in_as users(:delta)
+    get app_invoice_path(invoices(:delta_voided))
+    assert_response :success
+    assert_select "h2", text: "청구서 링크", count: 0
+  end
+
+  test "열람 이력 요약은 최초·최근·횟수를 KST로 표기한다 (SHARE-3·TIME-1)" do
+    sign_in_as users(:delta)
+    get app_invoice_path(invoices(:delta_viewed))
+    assert_response :success
+
+    assert_select "h2", text: "열람 이력", count: 1
+    assert_select "dt", text: "최초 열람"
+    assert_select "dd", text: "2026-09-06 09:30"
+    assert_select "dt", text: "최근 열람"
+    assert_select "dd", text: "2026-09-20 18:05"
+    assert_select "dd", text: "2회"
+  end
+
+  test "열람 이력이 없는 건은 이력 요약을 렌더하지 않는다 (SHARE-3)" do
+    sign_in_as users(:delta)
+    get app_invoice_path(invoices(:delta_issued))
+    assert_response :success
+    assert_select "h2", text: "열람 이력", count: 0
   end
 
   private
