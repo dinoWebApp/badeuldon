@@ -53,3 +53,12 @@ beta_secret:
   name: "베타비밀거래처"
   contact_name: "베타대표"
   phone: "010-9999-0000"
+
+# ── delta — 청구서(INV) fixtures의 거래처(테이블 ① 검증 대상 전부 delta 소유) ──
+delta_main:
+  user: delta
+  name: "델타파트너스"
+  contact_name: "델팀장"
+  phone: "010-3333-7777"
+  email: "partner@deltapartners.co.kr"
+  business_number: "888-88-88888"

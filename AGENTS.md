@@ -150,8 +150,8 @@ bin/jobs             # Solid Queue 잡 프로세스 (웹과 별도 실행)
 
 ## 구현 진행 상황 (로드맵)
 
-- **완료**: Rails 8.1 스켈레이션 생성, ARCHITECTURE_CONVENTION v1.0.0, 하네스 구축 + E2E 검증, 표면 ① 랜딩 루트 골격, F-AUTH 이메일/비밀번호 인증(PRD v0.18·Q8 OAuth 폐기 반전), 랜딩 전체 LP-1~8·10 + UI 품질 기준 제도화 + AUTH-1.3 프로필 설정(PRD v0.18.1), /app 대시보드 뼈대(PRD v0.18.2), **F-CLIENT 거래처·품목 관리**(`2026-10-12`, PRD v0.18.3 — Client·Item CRUD(CLIENT-1/2), PLAN-1 Free 5개 한도(FREE_CLIENT_LIMIT 상수), 사이드바 거래처·품목 활성화, 테스트 156건. 리뷰 CRITICAL 1·WARNING 5 중 4건 수정 — 단가 상한 1e9·한도 배너 재산출·allow_blank·사업자번호 정규화)
-- **구현됨 상세**: `_workspace_prev/`(app 셸)·`_workspace/`(F-CLIENT) 산출물 참조
+- **완료**: Rails 8.1 스켈레이션 생성, ARCHITECTURE_CONVENTION v1.0.0, 하네스 구축 + E2E 검증, 표면 ① 랜딩 루트 골격, F-AUTH 인증(OAuth 폐기·Q8), 랜딩 전체 + UI 품질 기준 제도화 + AUTH-1.3 프로필(v0.18.1), /app 대시보드 뼈대(v0.18.2), F-CLIENT 거래처·품목(v0.18.3), **F-INV 청구서 발행**(`2026-10-12`, PRD v0.18.4 — Invoice·InvoiceItem(품목 행), 채번 BD-YYYYMMDD-NNN(INV-1), 금액 계산(부가세 포함/별도·원천징수 3.3% 내림·산식 JS 미러), 상태 머신 draft→issued→voided(INV-4/5/6 — 모델 레벨 본문 불변 가드), SHARE-1/2 토큰(43자·만기+60일·UI 미노출), PLAN-1 월 3건(무효 포함), DASH-1/4 실데이터 전환·ONB-1 CTA 활성화, 테스트 228건. 리뷰 WARNING 7 반영 + BUG-1(탈퇴 연쇄 FK) 수정)
+- **구현됨 상세**: `_workspace_prev/`(F-CLIENT)·`_workspace/`(F-INV) 산출물 참조
 - **진행 중**: 없음
-- **예정**: F-INV(품목 선택·거래처 연결·첫 발행 CTA 활성화·DASH 실데이터 전환) → F-SHARE → F-VIEW → F-REM(핵클 계약 선행) → F-PROMISE → F-PAY(MVP) → F-DASH 나머지 → F-PLAN(토스 계약 선행 — 한도 상수 구독 체크 전환·with_lock 직렬화) → F-ADMIN → F-LEGAL/REF/TAX → CLIENT-3/4(데이터 확보 후) → LP-11 콘텐츠 허브·무료 도구·블로그. 기술 부채: Pretendard 셀프호스팅, 이메일 발송 서비스 선정(재설정 실발송), 관리자 계정(AUTH-7 — F-ADMIN 시점), LP-3 실화면 이미지(F-INV 후), 푸터 약관·사업자 정보(법무 검토 후), 후기 시스템(3건+ 확보 시 LP-9 노출), 표면별 Stimulus 컨트롤러 로드 분리·CSS 분할(SURF-6), 보조 인터랙션 focus-visible 통일
+- **예정**: F-SHARE(열람 추적 SHARE-3/4)·F-VIEW(뷰어 ③ — 링크/토큰 UI 개봉) → F-REM(핵클 계약 선행 — overdue enum 자동 전환 스케줄러 포함) → F-PROMISE → F-PAY(MVP) → F-DASH 나머지(DASH-2 실데이터) → F-PLAN(토스 계약 선행 — 한도 상수 구독 체크 전환·with_lock) → F-ADMIN → F-LEGAL/REF/TAX → CLIENT-3/4 → INV-7 반복·PDF(VIEW-4) → LP-11 콘텐츠 허브·블로그. 기술 부채: Pretendard 셀프호스팅, 이메일 서비스 선정, ko locale errors.format(오류 문구 속성명 접두), 관리자 계정(F-ADMIN), LP-3 실화면, 푸터 약관(법무), 후기 시스템, Stimulus 분리·CSS 분할(SURF-6), focus-visible 통일, F-PLAN with_lock
 - **작업 재개 가이드**: `.omp/progress.json`의 `currentPhase` 확인 → `awaiting_approval`이면 플랜 재보고 후 승인 대기, 그 외에는 다음 Phase부터 재개. 산출물은 `_workspace/`.

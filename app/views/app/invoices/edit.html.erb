@@ -1,0 +1,15 @@
+<% content_for :title, "청구서 초안 수정 — 받을돈" %>
+
+<%# 청구서 초안 수정(INV-5) — 발행된 청구서는 이 화면에 진입할 수 없다(초안 스코프 가드). %>
+<div class="mx-auto max-w-5xl py-8">
+  <header>
+    <%= link_to "← 청구서로 돌아가기", app_invoice_path(@invoice),
+          class: "text-sm font-semibold text-stone-500 transition hover:text-emerald-800" %>
+    <h1 class="mt-3 text-2xl font-bold tracking-tight text-emerald-900">청구서 초안 수정</h1>
+    <p class="mt-2 text-sm leading-relaxed text-stone-500">
+      발행 전까지 품목·금액·만기일·계좌를 자유롭게 수정할 수 있습니다.
+    </p>
+  </header>
+
+  <%= render "form", invoice: @invoice, clients: @clients, items: @items %>
+</div>

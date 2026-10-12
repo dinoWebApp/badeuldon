@@ -1,0 +1,161 @@
+<% content_for :title, "#{@invoice.issue_number || "청구서 초안"} — 받을돈" %>
+
+<%# 청구서 상세(INV) — 품목 표·금액 내역(INV-2 분해 표기)·상태 전환 액션.
+    발행 상태별 액션: 초안 → 발행·수정·삭제(INV-5 초안만), 발행 계열 → 무효(INV-6).
+    공유 링크는 여기에 노출하지 않는다(뷰어 없는 링크 노출 금지 — 플랜 결정 #1). %>
+<div class="py-8">
+  <header>
+    <%= link_to "← 청구서 목록", app_invoices_path,
+          class: "text-sm font-semibold text-stone-500 transition hover:text-emerald-800" %>
+    <div class="mt-3 flex flex-wrap items-center gap-3">
+      <h1 class="text-2xl font-bold tracking-tight text-emerald-900">
+        <%= @invoice.issue_number || "청구서 초안" %>
+      </h1>
+      <%= invoice_status_badge(@invoice) %>
+    </div>
+    <p class="mt-2 text-sm leading-relaxed text-stone-500">
+      <%# INV-6 — 무효 건은 voided_at이 항상 issued_at 이후에 기록되므로 무효 분기를 먼저 본다.
+          issued 계열→무효 순서로 두면 issued_at이 존재해 무효 일자가 안내되지 않는다. %>
+      <% if @invoice.voided_at.present? %>
+        <%= display_date(@invoice.voided_at) %>에 무효 처리했습니다.
+      <% elsif @invoice.issued_at.present? %>
+        <%= display_date(@invoice.issued_at) %>에 발행했습니다.
+      <% else %>
+        초안입니다. 발행 전까지 언제든 수정할 수 있습니다.
+      <% end %>
+    </p>
+  </header>
+
+  <%# ── 상태 전환 액션 — 파괴적 동작은 button_to + turbo_confirm(규약 §7.4) ── %>
+  <div class="mt-6 flex flex-wrap items-center gap-3">
+    <% if @invoice.draft? %>
+      <%= button_to "발행하기", issue_app_invoice_path(@invoice), method: :patch,
+            data: { turbo_confirm: "발행 후에는 내용을 수정할 수 없습니다. 발행하시겠습니까?" },
+            class: "inline-flex min-h-11 cursor-pointer items-center rounded-xl bg-emerald-800 px-6 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+      <%= link_to "수정", edit_app_invoice_path(@invoice),
+            class: "inline-flex min-h-11 items-center rounded-xl border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-600 transition hover:border-stone-400 hover:text-stone-800" %>
+      <%= button_to "삭제", app_invoice_path(@invoice), method: :delete,
+            data: { turbo_confirm: "이 초안을 삭제하시겠습니까?" },
+            class: "inline-flex min-h-11 cursor-pointer items-center rounded-xl border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-500 transition hover:border-red-300 hover:text-red-600" %>
+    <% elsif @invoice.voidable? %>
+      <%= button_to "무효 처리", void_app_invoice_path(@invoice), method: :patch,
+            data: { turbo_confirm: "무효 처리한 청구서는 되돌릴 수 없습니다. 무효 처리하시겠습니까?" },
+            class: "inline-flex min-h-11 cursor-pointer items-center rounded-xl border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-500 transition hover:border-red-300 hover:text-red-600" %>
+    <% elsif @invoice.voided? %>
+      <p class="text-sm text-stone-500">무효 처리된 청구서입니다. 필요하면 새 초안을 만들어 다시 발행하세요.</p>
+    <% end %>
+  </div>
+
+  <%# ── 청구 기본 정보·입금 계좌(INV-1 스냅샷) ── %>
+  <div class="mt-6 grid gap-4 lg:grid-cols-2">
+    <section class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+      <h2 class="text-base font-bold text-stone-800">청구 정보</h2>
+      <dl class="mt-4 space-y-2.5 text-sm">
+        <div class="flex gap-3">
+          <dt class="w-20 shrink-0 text-stone-400">거래처</dt>
+          <dd class="min-w-0 font-medium text-stone-700"><%= @invoice.client.name %></dd>
+        </div>
+        <div class="flex gap-3">
+          <dt class="w-20 shrink-0 text-stone-400">담당자</dt>
+          <dd class="font-medium text-stone-700"><%= @invoice.client.contact_name %> 님</dd>
+        </div>
+        <div class="flex gap-3">
+          <dt class="w-20 shrink-0 text-stone-400">만기일</dt>
+          <dd class="font-medium tabular-nums text-stone-700">
+            <%= display_date(@invoice.due_on) %>
+            <% if @invoice.days_overdue.positive? %>
+              <span class="ml-1.5 font-bold text-orange-600">연체 <%= @invoice.days_overdue %>일</span>
+            <% end %>
+          </dd>
+        </div>
+        <div class="flex gap-3">
+          <dt class="w-20 shrink-0 text-stone-400">발행자</dt>
+          <dd class="font-medium text-stone-700"><%= @invoice.issuer_display_name %></dd>
+        </div>
+        <div class="flex gap-3">
+          <dt class="w-20 shrink-0 text-stone-400">부가세</dt>
+          <dd class="font-medium text-stone-700"><%= @invoice.separate? ? "별도" : "포함" %></dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+      <h2 class="text-base font-bold text-stone-800">입금 계좌</h2>
+      <dl class="mt-4 space-y-2.5 text-sm">
+        <div class="flex gap-3">
+          <dt class="w-20 shrink-0 text-stone-400">은행</dt>
+          <dd class="font-medium text-stone-700"><%= @invoice.bank_name %></dd>
+        </div>
+        <div class="flex gap-3">
+          <dt class="w-20 shrink-0 text-stone-400">계좌번호</dt>
+          <dd class="font-medium tabular-nums text-stone-700"><%= @invoice.account_number %></dd>
+        </div>
+        <div class="flex gap-3">
+          <dt class="w-20 shrink-0 text-stone-400">예금주</dt>
+          <dd class="font-medium text-stone-700"><%= @invoice.account_holder %></dd>
+        </div>
+      </dl>
+    </section>
+  </div>
+
+  <%# ── 품목 표(INV-1 복수 행) ── %>
+  <section class="mt-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+    <h2 class="text-base font-bold text-stone-800">품목</h2>
+    <div class="mt-4 overflow-x-auto">
+      <table class="w-full min-w-[560px] text-left text-sm">
+        <thead>
+          <tr class="border-b border-stone-200 text-xs font-bold text-stone-500">
+            <th scope="col" class="py-2.5 pr-4">품목</th>
+            <th scope="col" class="py-2.5 pr-4 text-right">수량</th>
+            <th scope="col" class="py-2.5 pr-4 text-right">단가</th>
+            <th scope="col" class="py-2.5 text-right">금액</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% @invoice.items.each do |item| %>
+            <tr class="border-b border-stone-100 last:border-0">
+              <td class="py-3 pr-4 font-medium text-stone-700"><%= item.description %></td>
+              <td class="py-3 pr-4 text-right tabular-nums text-stone-600"><%= number_with_delimiter(item.quantity) %></td>
+              <td class="py-3 pr-4 text-right tabular-nums text-stone-600"><%= won(item.unit_price) %></td>
+              <td class="py-3 text-right font-bold tabular-nums text-stone-800"><%= won(item.quantity * item.unit_price) %></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <%# ── 금액 내역(INV-2 — 공급가액·원천징수액·실수령액 분해 표기) ── %>
+  <section class="mt-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+    <h2 class="text-base font-bold text-stone-800">금액 내역</h2>
+    <dl class="mt-4 max-w-md space-y-2.5 text-sm">
+      <div class="flex items-baseline justify-between gap-4">
+        <dt class="text-stone-500">공급가액</dt>
+        <dd class="font-medium tabular-nums text-stone-800"><%= won(@invoice.subtotal) %></dd>
+      </div>
+      <div class="flex items-baseline justify-between gap-4">
+        <dt class="text-stone-500">부가세<%= @invoice.separate? ? "" : " (총액 포함 — 역산)" %></dt>
+        <dd class="font-medium tabular-nums text-stone-800"><%= won(@invoice.tax_amount) %></dd>
+      </div>
+      <div class="flex items-baseline justify-between gap-4 border-t border-stone-200 pt-3">
+        <dt class="font-bold text-stone-800">청구 총액</dt>
+        <dd class="text-base font-extrabold tabular-nums text-emerald-900"><%= won(@invoice.total_amount) %></dd>
+      </div>
+      <% if @invoice.withholding_enabled? %>
+        <div class="flex items-baseline justify-between gap-4">
+          <dt class="text-orange-600">원천징수 (공급가액의 3.3%)</dt>
+          <dd class="font-medium tabular-nums text-orange-600">−<%= won(@invoice.withholding_amount) %></dd>
+        </div>
+        <div class="flex items-baseline justify-between gap-4">
+          <dt class="font-bold text-stone-800">실수령액</dt>
+          <dd class="text-base font-extrabold tabular-nums text-stone-900"><%= won(@invoice.net_amount) %></dd>
+        </div>
+      <% end %>
+    </dl>
+    <% if @invoice.withholding_enabled? %>
+      <p class="mt-4 text-xs leading-relaxed text-stone-400">
+        공급가액의 3.3% 원천징수 후 실수령액 기준으로 안내됩니다.
+      </p>
+    <% end %>
+  </section>
+</div>

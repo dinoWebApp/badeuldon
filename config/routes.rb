@@ -10,6 +10,12 @@ Rails.application.routes.draw do
     resource :profile, only: %i[ edit update ]  # AUTH-1.3 최초 프로필 설정(/app/profile)
     resources :clients                          # CLIENT-1 — 거래처 CRUD
     resources :items                            # CLIENT-2 — 품목 라이브러리 CRUD
+    resources :invoices do                      # INV — 초안 CRUD + 상태 전환(member)
+      member do
+        patch :issue  # 초안 → 발행(INV-4)
+        patch :void   # 발행 계열 → 무효(INV-6)
+      end
+    end
   end
 
   # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html

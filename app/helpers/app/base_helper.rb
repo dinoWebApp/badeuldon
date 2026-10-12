@@ -1,12 +1,12 @@
 module App
   # 표면 ②(/app) 공통 뷰 헬퍼 — 사이드바 내비 구성·대시보드 카드 데이터·입력 필드 공통 클래스.
   module BaseHelper
-    # 사이드바 메뉴 — 대시보드·거래처(CLIENT-1)·품목(CLIENT-2)·설정 활성, 청구서만 준비 중 배지.
+    # 사이드바 메뉴 — 대시보드·청구서(INV)·거래처(CLIENT-1)·품목(CLIENT-2)·설정 활성.
     # 활성 판정은 요청 경로 기준. 미구현 메뉴는 링크 없이 구조만 안내한다(플랜 결정 #2).
     def app_nav_items
       [
         { label: "대시보드", path: app_root_path, active: request.path == app_root_path, disabled: false },
-        { label: "청구서", path: nil, active: false, disabled: true },
+        { label: "청구서", path: app_invoices_path, active: request.path.start_with?(app_invoices_path), disabled: false },
         { label: "거래처", path: app_clients_path, active: request.path.start_with?(app_clients_path), disabled: false },
         { label: "품목", path: app_items_path, active: request.path.start_with?(app_items_path), disabled: false },
         { label: "설정", path: edit_app_profile_path, active: request.path.start_with?(app_profile_path), disabled: false }
@@ -38,14 +38,14 @@ module App
       end
     end
 
-    # DASH-1 요약 카드 3종(미수 총액·연체 건수·금액·7일 내 만기) — 상태색 점으로 카드 브랜딩(DESIGN-2).
-    # 수치 슬롯은 F-INV 데이터 확보 전까지 채우지 않는다(거짓 0원 금지 — 02_prd_update 결정).
-    def dash_summary_cards
-      [
-        { label: "미수 총액", dot_class: "bg-stone-400" },
-        { label: "연체 건수·금액", dot_class: "bg-orange-500" },
-        { label: "7일 내 만기", dot_class: "bg-stone-400" }
-      ]
+    # DESIGN-3 — 금액 표기: 원 단위 3자리 콤마. 수치 슬롯은 tabular-nums와 짝을 이룬다.
+    def won(amount)
+      "#{number_with_delimiter(amount)}원"
+    end
+
+    # 날짜 표기 — ISO 서식(목록·상세 공통)
+    def display_date(date)
+      date&.strftime("%Y-%m-%d")
     end
   end
 end

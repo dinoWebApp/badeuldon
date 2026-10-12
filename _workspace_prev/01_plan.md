@@ -1,49 +1,46 @@
-# 01_plan.md — /app 대시보드 뼈대 (표면 ② 셸)
+# 01_plan.md — F-CLIENT 거래처·품목 관리
 
 - **일자**: 2026-10-12
-- **pipelineType**: Full (Phase 0→1→✋→2→3→4→5→7→8→9) — 마이그레이션 없음
-- **도메인**: F-DASH(§6.9) + F-SURF(표면 ②) + F-ONB(첫 발행 훅)
-- **요청**: /app 대시보드 뼈대 — F-CLIENT·F-INV 데이터가 없으므로 **셸+빈 상태** 중심
+- **pipelineType**: Full (Phase 0→1→✋→2→3→4→5→7→8→9) — 신규 도메인 2엔티티·마이그레이션
+- **도메인**: F-CLIENT (PRD §6.3) + PLAN-1 연계
 
-## A. 구현 범위 (Phase 3 Developer)
+## 범위 (PRD 원문 기준)
 
-### A-1. 레이아웃 분리 (기술 부채 해소 — ② 구축 시점 도래, SURF-6)
+| Rule | 내용 | 이번 구현 |
+|:---|:---|:---|
+| **CLIENT-1** | 거래처 등록/수정/삭제 — 거래처명, 담당자명, 알림 수신 휴대폰 번호, 이메일(선택), 사업자번호(선택), 메모 | ✅ CRUD 전체 |
+| **CLIENT-2** | 품목 라이브러리 — 품목명·단가 저장, 청구서 작성 시 선택 | ✅ CRUD (선택 UI 연동은 F-INV) |
+| CLIENT-3 | 거래처 카드 — 누적 청구액·진행 건수·약속 이력 | ❌ F-INV/F-PROMISE 후속 (데이터 없음) |
+| CLIENT-4 | 지급 성적표 | ❌ PAY 완료 후속 |
+| **PLAN-1** | Free 거래처 한도 5개 | ✅ 적용 (아래 결정 #1) |
 
-- `layouts/landing.html.erb` — 표면 ① 전용: 푸터(LP-10) 포함, 앱 내비 미포함
-- `layouts/app.html.erb` — 표면 ② 전용: 사이드바 내비 + 헤더(사용자 표시명·로그아웃)
-- `layouts/application.html.erb` — 공통 기반(Pretendard·flash·CSS)만
-- 인증 화면(로그인/가입/재설정)은 application 공통 유지
-- 랜딩의 앱 자원 의존 제거로 SURF-6 예산 분리 실질화
+## 구현 설계
 
-### A-2. /app 대시보드 셸 (`/app` → DASH 컨트롤러)
+### 모델·마이그레이션
+- `Client`: user_id(FK), name(필수), contact_name(필수), phone(필수 — 휴대폰 형식 느슨 검증), email(선택), business_number(선택), memo(선택). `dependent: :destroy` 없음(참조 없음 — F-INV 시 정책 확정 시까지), 소유권 스코프
+- `Item`: user_id(FK), name(필수), unit_price(정수 원, 필수 ≥0). 품목명·단가만 (PRD 명시 필드 외 추가 금지)
 
-- **사이드바 내비**(shadcn dashboard-01 레퍼런스 — DESIGN-5): 대시보드(활성) · 청구서 · 거래처 (준비 중 표시) · 설정(프로필 수정 링크 — 실제 연결)
-- **DASH-1 요약 카드 3종 empty-state**: 미수 총액·연체 건수·7일 내 만기 — 「0원」이 아니라 「청구서를 발행하면 표시됩니다」 안내 (데이터 없는 상태에서 거짓 숫자 금지)
-- **DASH-2 오늘의 액션 empty-state**: 「오늘 할 일이 없습니다 — 첫 청구서를 발행해 보세요」
-- **ONB-1 훅**: 중앙 「첫 청구서 발행하기」 CTA (F-INV 미구현 — 준비 중 상태 표시, 활성화는 F-INV 시점)
-- **DASH-4 기반 목록 영역**: 청구서 목록 empty-state (연체일 내림차순 안내 문구 — 정렬 구현은 F-INV)
-- noindex(SURF-3), `require_authentication` + 프로필 미완료 리다이렉트 유지
+### 컨트롤러·화면 (표면 ②, App::BaseController 가드 상속)
+- `/app/clients` — 7종 표준 CRUD. 목록(카드/테이블) + 등록·수정 폼(모달 Frame 또는 페이지 — §3.3 표준), 삭제 turbo_confirm
+- `/app/items` — 품목 라이브러리 CRUD (단순 목록+폼)
+- Turbo: 성공 303/실패 422, 생성·삭제 후 목록 갱신 Stream(§7.3) 또는 redirect — 컨벤션 따름
+- 사이드바: 「거래처」 활성화(준비 중 해제) + 「품목」 메뉴 신규(결정 #2)
 
-### A-3. 플로우 정리 (welcome 소멸)
+### PLAN-1 한도 (결정 #1)
+- `Client` 등록 시 `user.clients.count >= 5`면 차단 + 「Free 플랜은 거래처 5개까지입니다. Plus로 무제한 이용할 수 있습니다」 안내 (PLAN-2 승격 유도 문구)
+- 구현: 모델 검증 or 컨트롤러 가드 — 상수 `FREE_CLIENT_LIMIT = 5` (F-PLAN에서 구독 체크로 교체)
 
-- 프로필 저장 완료 → **`/app`** (welcome 화면·라우트 제거 — /app가 그 역할 대체)
-- 로그인(프로필 완료) → `/app` (기존 root → 변경)
-- 관련 기존 테스트 갱신 발생 (Phase 7 Tester)
+## 후속 제외
+CLIENT-3/4(데이터 의존), 품목 선택 UI(F-INV), 청구서 연동, 삭제 시 진행 중 청구 정책(F-INV 시 INV 규칙과 함께)
 
-### 후속 제외
-DASH 실데이터(요약 수치·액션 목록·리포트 DASH-5/6 — F-INV/F-CLIENT 후), 청구서·거래처 화면 본체, 알림
+## 관련 Rule ID
+CLIENT-1, CLIENT-2, PLAN-1(한도), SURF-3(/app noindex — 상속), DESIGN-4/5/6(UI 기준), LP-12(한도 안내 문구)
 
-## B. 관련 Rule ID
+## 결정 사항 (제안)
+1. **Free 거래처 5개 한도**: 지금 적용(전 사용자 Free 취급, 상수) — F-PLAN에서 구독 체크로 전환. 근거: PLAN-1이 현행 규칙
+2. **품목 진입점**: 사이드바 「품목」 메뉴 신규 추가 (거래처와 별도 리소스 — 청구서 발행 시 선택은 F-INV)
+3. **거래처 삭제**: 참조(청구서)가 없는 현재 즉시 삭제 — F-INV에서 INV-6 연계 정책 확정
 
-DASH-1/2(empty 구현), DASH-4(목록 영역·안내), SURF-3/4/6, DESIGN-4/5/6, ONB-1(CTA 훅), AUTH-1.3(프로필 연계), LP-12(문구 준칙 — 빈 상태 문구)
-
-## C. 결정 사항 (제안)
-
-1. **welcome 화면 제거**: 프로필 완료·로그인 모두 `/app` 직행 (welcome 라우트·뷰 삭제, 리다이렉트 갱신)
-2. **준비 중 메뉴**: 사이드바에 청구서·거래처 메뉴를 **disabled(준비 중 배지)로 노출** — 서비스 구조 안내(랜딩 LP-3 정합)
-3. **첫 발행 CTA**: F-INV 전까지 disabled 「준비 중」 — 활성화는 F-INV 시점
-
-## D. 리스크
-
-- welcome 제거로 기존 테스트 4~5건 갱신 (예상 범위 — Phase 7)
-- 사이드바 모바일 반응형: 데스크톱 사이드바 + 모바일 상단 해시버거/하단 내비 — Tailwind 반응형으로 처리
+## 리스크
+- phone 형식 검증 과잉 시 등록 마찰 — 느슨한 패턴(숫자·하이픈 허용) + 표준화는 발송 도메인(REM)에서
+- 한도 상수가 F-PLAN에서 이중 로직 될 가능성 — 상수 단일 지점 유지

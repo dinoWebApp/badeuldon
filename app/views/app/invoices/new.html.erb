@@ -1,0 +1,16 @@
+<% content_for :title, "새 청구서 — 받을돈" %>
+
+<%# 청구서 초안 작성 — 거래처·품목·세금·계좌·만기일. 저장은 초안(draft)이며 발행은 상세 화면의
+    발행 버튼으로 진행한다(청구서 작성 중 실수로 발행되는 것을 막는 2단계 구조). %>
+<div class="mx-auto max-w-5xl py-8">
+  <header>
+    <%= link_to "← 청구서 목록", app_invoices_path,
+          class: "text-sm font-semibold text-stone-500 transition hover:text-emerald-800" %>
+    <h1 class="mt-3 text-2xl font-bold tracking-tight text-emerald-900">새 청구서</h1>
+    <p class="mt-2 text-sm leading-relaxed text-stone-500">
+      초안으로 저장하면 언제든 수정할 수 있고, 발행 버튼을 눌러야 거래처에 전달할 준비가 완료됩니다.
+    </p>
+  </header>
+
+  <%= render "form", invoice: @invoice, clients: @clients, items: @items %>
+</div>

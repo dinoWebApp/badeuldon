@@ -1,120 +1,150 @@
-# 07_test_report.md — F-CLIENT 거래처·품목 관리 테스트 (Phase 7)
+# 07_test_report.md — F-INV 청구서 발행 테스트 (Phase 7)
 
-- **일자**: 2026-10-12 · **작성자**: ClientTester
-- **대상**: F-CLIENT 거래처(CLIENT-1)·품목(CLIENT-2)·PLAN-1 거래처 한도 + Phase 6 수정 4건 회귀
-- **기준**: PRD v0.18.3 §6.3·§6.10·LP-12, `_workspace/03_implementation.md`(Phase 6 수정 이력), `_workspace/05_review.md`(「Tester 중점」)
+- **일자**: 2026-10-12
+- **작성자**: InvoiceTester (badeuldon-test-patterns 준거)
+- **대상**: F-INV 청구서 발행 + Phase 6 수정 6건(03 수정 이력 #1~#7) — 금액 계산·상태 전이·한도·소유권·대시보드 집계
+- **시나리오 기준**: `_workspace/03_implementation.md` §2·§3·Phase 6 이력, `_workspace/05_review.md` §5 Tester 중점, PRD INV-1~6·PLAN-1·DASH-1/4·ONB-1
 
-## 실행 결과 요약
+---
+
+## 1. 최종 결과
 
 | 항목 | 결과 |
 |:---|:---|
-| 전체 회귀 `bin/rails test` | ✅ **156 runs, 935 assertions, 0 failures, 0 errors, 0 skips** |
-| 이전 기준(03 §4) 대비 | 93 runs/1 failure → 156 runs/0 failure — **신규 63건 추가, 기존 실패 1건(사이드바) 해소** |
-| `bin/rubocop` | ✅ 64 files inspected, **no offenses** (들여쓰기 2칸 포함) |
-| 코드 버그 | **0건** — 발견 실패 2건 모두 테스트 오류로 자체 수정 후 통과(§ 실패 원인 분류) |
-| 외부 API 실호출 | 0건 — F-CLIENT는 외부 API 미사용 기능(핵클·토스페이먼츠 호출 경로 자체가 없어 stub 불필요) |
+| `bin/rails test` 전체 회귀 | **227 runs, 1,351 assertions, 0 failures, 0 errors, 0 skips** ✅ |
+| 기존 대비 | 156 runs(실패 2건) → 227 runs(실패 0건) — 신규 +71 케이스 |
+| `bin/rubocop` | **72 files inspected, no offenses** ✅ |
+| 코드 수정 | **0건** (지시 준수 — 발견 버그는 §5 보고) |
+| 외부 API 실호출 | 0건 (대상 로직에 외부 호출 없음 — 핵클·토스 stub 불필요) |
 
-## 변경 파일
+### 신규·갱신 파일
 
-| 파일 | 구분 | 내용 |
-|:---|:---|:---|
-| `test/fixtures/clients.yml` | 신규 | alpha 5개(PLAN-1 한도 도달 상태)·gamma 1개(CRUD 정상 경로)·beta 1개(소유권 404 대상) |
-| `test/fixtures/items.yml` | 신규 | gamma·alpha·beta 각 1개 — 소유권 격리·목록 렌더 검증용 |
-| `test/models/client_test.rb` | 신규 | 13건 — 필수·선택·연락처/이메일 형식·정규화·PLAN-1 한도·AUTH-1.5 |
-| `test/models/item_test.rb` | 신규 | 11건 — 단가 경계 3종·빈 단가 1건·정규화·AUTH-1.5 |
-| `test/controllers/app/clients_controller_test.rb` | 신규 | 23건 — CRUD 7종·소유권 404·PLAN-1 한도 UI·서버 게이트 |
-| `test/controllers/app/items_controller_test.rb` | 신규 | 14건 — CRUD·단가 경계 HTTP 경로·소유권 404 |
-| `test/controllers/app/dashboards_controller_test.rb` | 갱신 | 사이드바 테스트 갱신 + aria-current 분기 신규(§ 사이드바 갱신) |
-| `test/integration/surf3_indexing_test.rb` | 갱신 | /app/clients·/app/items noindex 1건 추가 |
-
-**코드 수정 없음** — 규칙 준수(발견 이슈 전무).
-
-## 시나리오별 결과
-
-### 거래처 CRUD (CLIENT-1)
-
-| 시나리오 | 결과 | 근거 |
-|:---|:---|:---|
-| 필수·선택 6필드 등록 → 303·notice·6컬럼 DB 반영 | ✅ | clients_controller `필수·선택 6필드 등록은 303…` |
-| 선택 3종 공백 등록 허용 → 303 | ✅ | `선택 3종 공백 등록은 303으로 성공한다` |
-| 필수 누락 → 422 + 한글 오류 3종(role=alert li) | ✅ | `필수 누락 등록은 422와 필드별 한글 오류…` |
-| phone 숫자만 허용·+82 거부(422 한글 오류) | ✅ | `연락처는 숫자만 입력도 허용하고…`(모델: 하이픈·지역번호·070 허용, 0505·자릿수 미달 거부) |
-| 이메일 형식 오류 → 422 한글 오류 | ✅ | 컨트롤러 + 모델 각 1건 |
-| 수정 303·DB 반영 / 수정 실패 422·기존값 보존 | ✅ | 각 1건 |
-| 삭제 303·레코드 제거 + 목록·상세 turbo_confirm button_to 구조(`이 거래처를 삭제하시겠습니까?`) | ✅ | `삭제는 303…`·`목록·상세의 삭제 버튼은…` |
-| 목록 카드·상세 전 필드 렌더 | ✅ | `목록은 거래처 카드에…`·`상세는 필수·선택 전 필드를…` |
-| 비인증 302 로그인 / 프로필 미완료 → 프로필 화면 가드 | ✅ | 각 1건 |
-
-### 소유권 격리
-
-| 시나리오 | 결과 |
+| 파일 | 내용 |
 |:---|:---|
-| 타 사용자 거래처 show·edit → 404 | ✅ (gamma → beta_secret) |
-| 타 사용자 거래처 update·delete → 404 + 값 보존 | ✅ |
-| 타 사용자 품목 show·edit / update·delete → 404 + 값 보존 | ✅ (2건) |
+| `test/models/invoice_test.rb` | **신규 35 케이스** — 금액 산식 경계·저장 스냅샷·INV-1 채번·INV-3 재계산·INV-4 파생 연체·스코프·INV-5 모델 가드·INV-6 무효·PLAN-1·행 수 상한 |
+| `test/models/invoice_item_test.rb` | 신규 3 케이스 — 설명 필수·정규화, 수량 1~10,000 경계, 단가 0~1e9 경계 |
+| `test/controllers/app/invoices_controller_test.rb` | **신규 29 케이스** — CRUD·발행·무효·소유권·위조 품목 id·행 수 상한·PLAN-1·UI 뱃지·INV-2 표기 |
+| `test/controllers/app/dashboards_controller_test.rb` | **갱신 2건 + 신규 5건** (§2) |
+| `test/fixtures/invoices.yml` · `invoice_items.yml` | 신규 — 상태별 최소 1건(§4) |
+| `test/fixtures/users.yml` · `clients.yml` | `delta` 사용자·`delta_main` 거래처 신설(§4 FK 사유) |
 
-### PLAN-1 Free 거래처 한도
+---
 
-| 시나리오 | 결과 | 근거 |
+## 2. 기존 실패 2건 갱신 (명세 이행분)
+
+| 기존 테스트 | 갱신 내용 | 결과 |
 |:---|:---|:---|
-| 5번째까지 등록 성공, 6번째 422+「Free 플랜은 거래처 5개까지입니다」 | ✅ | `5번째까지는 등록되고 6번째부터 차단된다`(gamma 1→5 등장 경계) |
-| 6번째 모델 등록 무효(base 오류)·4개→5번째 유효 | ✅ | client_test 각 1건 |
-| 한도 도달 목록: 배너 + CTA 링크 소멸 + aria-disabled span | ✅ | `한도 도달 목록은 배너와 비활성 CTA로…`(li 5개 확인) |
-| 한도 도달 등록 화면(직접 접근): 배너 + 저장 disabled·aria-disabled | ✅ | `한도 도달 등록 화면은…` |
-| 한도 도달 POST → 422 + 한도 문구 li(서버 최종 게이트) | ✅ | `한도 도달 사용자의 6번째 등록 POST는…` |
-| **create 실패 재렌더 배너·저장 비활성 유지(Phase 6 #2)** | ✅ | `한도 도달 상태의 등록 실패 재렌더에도…` — alert li 4건(필수 3종 + 한도 base) |
-| 삭제 후 재등록 슬롯 회수(5개 유지) | ✅ | 컨트롤러 + 모델 각 1건 |
-| 한도 도달 상태 수정 허용(on: :create) | ✅ | 컨트롤러 + 모델 각 1건 |
-| 한도 문구 LP-12 준수(확정 보장·100% 표현 부재) | ✅ | `한도 오류 문구는 Plus 이용 가능성만 안내하고…` |
+| `ONB-1 첫 발행 CTA는 disabled이며 준비 중 배지를 노출한다`(:55) | → **「ONB-1 첫 발행 CTA는 신규 발행 화면 실링크로 활성화된다」** — `new_app_invoice_path` 실링크 1건, disabled·aria-disabled 버튼 0건, 「준비 중」 문구 0건 | ✅ |
+| `사이드바는 …청구서 준비 중…`(:75) | → **「사이드바는 … 거래처·품목·청구서·설정 실링크를 렌더한다」** — `nav a[href=app_invoices_path]` "청구서" 1건, `span[aria-disabled]`·「준비 중」 0건 | ✅ |
 
-### 품목 · 단가 경계 (CLIENT-2 + Phase 6)
+추가로 ONB-1 보유 전환(「발행한 청구서를 관리합니다」+「청구서 전체 보기」)·초안만 보유 분기도 신설 검증했다.
 
-| 시나리오 | 결과 | 근거 |
-|:---|:---|:---|
-| CRUD: 등록 303·수정 303·삭제 303 + 목록·상세 렌더(tabular-nums 150,000원) + turbo_confirm | ✅ | items_controller 4건 |
-| **음수 단가** → 422「단가는 0원 이상의 정수로 입력해 주세요」 | ✅ | 컨트롤러 + 모델 |
-| **단가 0원 허용**(기본값 0·≥0) → 303 저장 0 | ✅ | 컨트롤러 + 모델 |
-| **20자리("9"×20)** → **500(RangeError) 아닌 422**「단가는 1,000,000,000원 이하로 입력해 주세요」 | ✅ | 컨트롤러 + 모델(`RangeError가 아닌 검증 실패` — Phase 6 #1 CRITICAL 회귀) |
-| 상한 경계: 1,000,000,000 허용 / +1 거부(MAX_UNIT_PRICE 상수 공유) | ✅ | 컨트롤러 + 모델 |
-| **빈 단가 오류 1건만**(blank 중복 제거, not_a_number 부재) | ✅ | 모델 `errors[:unit_price] == [blank]` 정확 일치 + 컨트롤러 alert li 1건(Phase 6 #4) |
-| 품목명 누락 422 / 소수("3.5")·비숫자("만원") 거부 / 품목명 strip | ✅ | 모델 4건 |
+---
 
-### 정규화 (Phase 6 #5)
+## 3. 시나리오별 결과 (Rule ID → 검증)
 
-| 시나리오 | 결과 |
-|:---|:---|
-| business_number `"  123-45-67890  "` → `"123-45-67890"` strip | ✅ |
-| name·contact_name·phone strip / email strip+소문자 | ✅ |
+### 3.1 금액 계산 (최우선 — 03 §2 산식) — 전부 통과
+- **별도/포함 × 원천 on/off 4조합**(행 합계 110,000): 121,000/117,370/110,000/**106,700** 각각 전 컬럼 일치
+- **사사오입 경계**: 별도 부가세 104→10 · 105→11 · 정확반 15→2
+- **포함 역분해**: 1,100,000→공급 1,000,000·부가세 100,000(총액 보존) · 109→99/10 · 11→10/1 · 1→1/0
+- **원천징수 내림**(결정 #4): 101→3 · 10,000→330 · 33→1 · 1,000→33 · 100→3 · 1→0
+- **0원 행**: 4모드 전 컬럼 0원 · **복수 행** 3행 Σ130,456→부가세 13,046 · **50행** Σ1,275,000→원천 42,075·실수령 1,360,425
+- **상한 조합**: 10,000×1e9 별도→총액 1.1e13 · 포함+원천→공급 9,090,909,090,909·원천 내림 299,999,999,999(64bit 정밀도)
+- **저장 스냅샷**(모델+컨트롤러 통합): create→5컬럼 스냅샷 일치, `_destroy` 행 제외 재산정(165,000→110,000), 0원 저장, 컨트롤러 POST 포함+원천 106,700 스냅샷, `issuer_display_name` 파라미터 주입 불가(서버 스냅샷)
 
-### 기존 테스트 갱신 — 사이드바 (dashboards_controller_test)
+### 3.2 INV-1 채번 — 통과
+- 형식 `BD-YYYYMMDD-NNN`·일별 연속 순번(-001→-002)·**서비스 전역 순번 공유**(gamma -001 → alpha -002)
+- **KST 일자 경계**: 2026-10-12 23:59:59 발행→`BD-20261012-001`, 10-13 00:30 발행→`BD-20261013-001`(UTC로는 10-12가 나오는 시각 — KST 판정 근거)
+- 토큰 43자·urlsafe·만기+60일 end_of_day(SHARE-1/2), 상세·목록 본문에 토큰 미노출(플랜 결정 #1)
 
-| 시나리오 | 결과 |
-|:---|:---|
-| 사이드바: `aria-disabled` span **2→1**(청구서만), 「준비 중」 **2→1**, 거래처·품목 실링크(href) 렌더, 대시보드만 aria-current | ✅ — 기존 실패 1건 해소(03 §4 갱신 대상) |
-| **aria-current 분기**: /app/clients에서 「거래처」·/app/items에서 「품목」 활성 표시 | ✅ — 신규 1건 |
+### 3.3 INV-4/5/6 전이 — 통과
+- **draft→issue**(컨트롤러): 303+알림·채번·토큰·issued_at·만기+60 유효기간 동시 검증
+- **발행본 수정 차단**: edit/update/destroy/issue PATCH 전부 **404**, 본문 무변경 — + **모델 `update!` 우회 차단**(Phase 6 #5): `ActiveRecord::RecordNotSaved`(기술 노트 5 준수 — RecordInvalid 아님), `update` false+base 오류, 품목 행 변경 차단, **무변경 `save!` 통과**(`updated_at` 불변), `void!` 통과
+- **무효**(컨트롤러): 303·토큰 즉시 폐기(nil)·voided_at·채번 보존·**금액 동결**(무효 후 total 220,000 불변)
+- **voidable 스코프**: 초안·paid·voided 무효 요청 404 / 모델 voidable 판정 — viewed·promised·partially_paid·**연체 enum 예약값**·issued·due_soon true / draft·paid·voided false(fixtures 상태 직접 세팅)
+- **재발행 차단**: 발행본·무효본 `issue!` false
+- **INV-4 파생 연체**: 만기 당일 non-overdue·days 0 / 익일 overdue·days 1 / unsettled 6건(초안·paid·voided 제외)·overdue 스코프 2건(파생+enum)·due_within·sorted_by_due 정렬
 
-### 회귀·비기능
+### 3.4 Phase 6 #2 만기 재계산 — 통과
+- 10일 경과 프리필 초안 발행 → **발행일+30**(2026-11-11)·토큰 만료 2027-01-10 end_of_day
+- 명시 수정값(+45일) → **존중**(2026-11-16) · 당일 작성·당일 발행 → 작성일+30 동일
 
-| 시나리오 | 결과 |
-|:---|:---|
-| 대시보드·인증(세션/가입/비밀번호)·프로필·랜딩·메일러·health 기존 전체 통과 | ✅ 156 runs 0 failures |
-| noindex /app/clients·/app/items meta robots(SURF-3) | ✅ surf3_indexing_test 1건 추가 |
-| 사용자 삭제 시 거래처·품목 연쇄 삭제(AUTH-1.5) | ✅ 모델 2건 |
+### 3.5 PLAN-1 월 3건 — 통과
+- 3건 발행 성공 → 4번째 **422**+한도 문구(컨트롤러 `#alert` 정확 일치) / 모델 base 오류 정확 일치
+- **무효 포함 카운트**(리뷰 #3 확정 해석): 3건→1건 무효→4번째 차단 유지
+- **다음 달 리셋**: 10월 3건→11-01 발행 성공(`BD-20261101-001`) / **초안 무제한**: 모델 5건·컨트롤러 4건 연속 저장
 
-## 실패 원인 분류 (자체 수정 이력)
+### 3.6 Phase 6 #4/#6 — 통과
+- **위조 items id**: 타 청구서 품목 id `_destroy` PATCH → **422**(500 아님)+「유효하지 않은 품목 요청입니다」·타 품목·본인 행 무영향 / 생성에서 위조 id → 422·레코드 0 / 타인 품목 id 섞은 수정 → 422
+- **행 수 상한**: 100행 저장(컨트롤러 POST +100행)·101행 422+「품목 행은 최대 100개까지」(모델+컨트롤러 이중 검증)
 
-실행 과정에서 2건 실패 — **모두 테스트 오류**, 코드 버그 0건:
+### 3.7 소유권 격리 — 통과
+- 타 사용자 청구서 show/edit/update/destroy/issue/void 전 액션 **404**+값 무변경
+- 타인 client_id 생성 **422**(「본인의 거래처만 선택할 수 있습니다」)
+- index 스코프 — 0건 사용자 빈 상태·타인 채번 비노출, 수정 화면 거래처 select 본인 것만
 
-1. `한도 도달 상태의 등록 실패 재렌더…`(alert li 3건 기대 → 4건 실측): 한도 도달 상태의 blank 제출은 필수 3종 오류 **+ 한도 base 오류**가 함께 노출되는 것이 올바른 동작(서버 게이트 유지 확인). 기대치 4건으로 수정 + 한도 문구 li 추가 어설션.
-2. `목록은 거래처 카드에 등록 정보를 렌더한다`(「감과장 담당」을 `dd`에서 탐색): 카드의 담당자 표기는 `<p>` 요소. 셀렉터 `dd`→`p` 수정.
+### 3.8 DASH-1/4 집계 — 통과
+- **카드 3종 실측**: 미수 총액 496,100원(연체 242,000+오늘 121,000+3일 72,600+20일 60,500 — **초안 1,098,900·paid·voided 제외**)·연체 1건 242,000원·7일 내 2건
+- **경계일**(travel 2026-10-12): 오늘·+7 포함, +8·연체(-1) 제외
+- **DASH-4**: 연체일 내림차순(만기 asc) 상위 5건만 렌더(+31·+40 탈락 검증)
+- **빈 상태 유지**: 0건 사용자 기존 어설션 전부 유지, 초안만 보유 시 실측 0원 표기(거짓 0원 아님)
+- **CTA 전환**: 0건→발행 실링크 / 보유→목록 안내·전체 보기 링크
 
-수정 후 해당 파일 재실행 23 runs 0 failures → 전체 재실행으로 확정.
+### 3.9 UI (DESIGN-2/5·INV-2) — 통과
+- 상태 뱃지 상태색: 연체 주황 2건(파생+enum)·대기 중 2·약속 대기 1·부분입금 1·수금 완료 녹색 1·무효 1·초안 2
+- 연체일 수치 주황 강조(41일·11일)·금액 `tabular-nums`(220,000원)
+- **INV-2 원천징수 내역**: 원천징수 (공급가액의 3.3%) −1,650원·실수령액 53,350원·안내 문구 / 포함 모드 「부가세 (총액 포함 — 역산)」
+- **무효 건 상세 부제**(Phase 6 #1): 「2026-09-01에 무효 처리했습니다.」+발행 문구 미도달(데드 브랜치 수정 검증)
+- 상태별 액션: 초안(발행·수정·삭제+turbo_confirm)·발행계열(무효 처리만)·무효(액션 없음+안내 문구)
 
-## 자체 점검 (Tester 체크리스트)
+---
 
-- [x] Rule ID별 정상·경계·예외 시나리오 커버(CLIENT-1·2, PLAN-1, LP-12, AUTH-1.5, SURF-3)
-- [x] 외부 API 실호출 0건(대상 기능에 호출 경로 자체 없음)
-- [x] 테스트 소스 미사용 정의 0건 — `complete_profile_of` 6곳 사용, `new_valid_client` 사용 확인 / RuboCop 0 offenses
-- [x] 기존 테스트 전체 회귀 통과(156 runs, 0 failures — 이전 실패 1건 포함 해소)
-- [x] fixtures 표준 세트 유지: alpha 5거래처(한도용)·gamma·beta, 품목 3건, 금액 정수(원)
-- [x] 코드 수정 0건 — 검증 실패·UI 문제 전무(Phase 6 수정분 4건 모두 실측 통과)
+## 4. 원인 분류 — 실패 이력 (전부 테스트 오류, 코드 버그 아님)
+
+개발 중 발생했던 실패 6건을 자체 수정 후 재통과했다. **코드 수정은 0건**이다.
+
+| # | 증상 | 원인 | 분류 |
+|:--|:---|:---|:---|
+| 1 | `token_expires_at` 비교 실패(999999999 vs 999999000) | `end_of_day` 나노초 vs DB 마이크로초 저장 정밀도 — 초 단위(`to_i`) 비교로 수정 | 테스트 오류 |
+| 2 | 50행 실수령액 기대 1,232,925 ≠ 실제 1,360,425 | 테스트 기대값 산술 오류(총액 1,402,500에서 원천 차감해야 함) — 구현이 03 산식대로 정확 | 테스트 오류 |
+| 3 | 생성 PATCH가 잇달아 422 | 테스트 파라미터에 `due_on` 누락 — 만기일 presence 오류가 원인(컨트롤러 정상) | 테스트 오류 |
+| 4 | 발행 플로우 테스트 RuntimeError | `travel_to` 블록 중첩 금지(Rails 가드) — 순차 호출+`travel_back`으로 재구성 | 테스트 오류 |
+| 5 | 무효 포함 한도 테스트 부분 문자열 단언 | `assert_includes`에 전체 문구 아닌 접두어 전달 | 테스트 오류 |
+| 6 | DASH-1 카드 451,000 ≠ 496,100 | 기대값에 부가세 10% 미반영(총액 기준 집계가 정확) | 테스트 오류 |
+
+추가 설계 정정 1건: fixtures를 최초 alpha에 부착했다가 **기존 스위트 회귀**(ClientTest `clients.first.destroy`·SessionsControllerTest `users(:alpha).destroy!` — FK 제약)로 **신규 사용자 delta로 이관**했다(§4). 이 과정에서 아래 §5 코드 버그가 드러났다.
+
+---
+
+## 5. 코드 버그 보고 1건 — 직접 수정하지 않음 (오케스트레이터 위임 필요)
+
+### BUG-1 · AUTH-1.5 위반: 청구서 보유 사용자의 계정 삭제가 FK 제약으로 실패
+
+- **재현**(`bin/rails runner` 롤백 트랜잭션 실측): 사용자+거래처+청구서 1건 생성 후 `user.destroy` → `ActiveRecord::InvalidForeignKey: SQLite3::ConstraintException: FOREIGN KEY constraint failed`
+- **원인**: `app/models/user.rb`의 연관 선언 순서 — `sessions → clients → items → invoices` 순으로 `dependent: :destroy` 연쇄가 진행되어, `invoices`가 남아 있는 상태에서 `clients`가 먼저 삭제되고 `invoices.client_id` FK(index_invoices_on_client_id)가 위반된다
+- **영향**: 청구서 1건이라 발행한 사용자는 **탈퇴(계정 삭제)가 500으로 실패**(P4 영구 기록과 AUTH-1.5 삭제 보장 충돌). 기존 `SessionsControllerTest`의 `users(:alpha).destroy!`는 alpha가 청구서를 갖지 않아 통과할 뿐, 실데이터 경로는 미커버 — 테스트 공백
+- **제안**(Developer): `has_many :invoices, dependent: :destroy`를 clients/items보다 먼저 선언해 삭제 순서를 보장하거나, `before_destroy`에서 invoices를 선삭제. 수정 후 「청구서 보유 사용자 삭제 시 연쇄 삭제」 회귀 테스트 추가 권장
+- **본 Phase 조치**: 코드 수정 금지 지시에 따라 미수정 — 위 실측 스크립트 롤백으로 저장소·DB 비오염 확인
+
+---
+
+## 6. fixtures 설계 노트
+
+- **delta 신설 사유**: alpha(PLAN-1 거래처 5개·사용자 삭제 검증)·beta(AUTH-1.5 연쇄 삭제 검증)는 기존 테스트가 레코드 **삭제**를 단언하므로 청구서 fixtures를 붙이면 FK 제약으로 회귀한다. gamma는 대시보드 빈 상태 기준 유지. 세 사용자 모두 보존 목적이 상충하지 않는 **delta**(프로필 완료)를 INV 전용 소유자로 신설했다
+- **상태별 최소 1건**: draft 2종(1행·2행)·issued(연체 파생: 10-01 만기)·**연체 enum 예약값**(09-01 만기, 41일)·7일 내 만기(10-15)·viewed(원천징수)·promised(포함 모드)·partially_paid·paid·voided(토큰 nil)
+- **기준일 고정**: 날짜 파생 어설션은 전부 `travel_to(Time.zone.parse("2026-10-12 09:00"))`(TIME-1) — fixture 절대일자와 무관하게 실행 일자와 독립적
+- **토큰 고정값**(43자 urlsafe, 알파벳별 구분): 추측 불가 엔트로피 검증은 fixtures가 아닌 **발행 생성 경로**에서 수행(SHARE-1) — 픽스처 규칙 준수
+- **금액 컬럼**: 픽스처는 콜백 없이 적재되므로 산식과 일치하는 스냅샷값을 직접 기입(예: viewed 50,000→원천 1,650·실수령 53,350)
+- **병렬 PK 비보장**: 같은 만기일 tie-break(초안 2건) 어설션은 YAML 순서가 아닌 `id.sort` 기준 — 병렬 fixture PK 랜덤화 대응
+- **집계 시드**: DASH 테스트는 `issue!` 대신 상태 직접 세팅으로 시드한다(PLAN-1 월 3건 검증이 발행 플로우 테스트와 간섭하지 않도록 분리)
+
+---
+
+## 7. Tester 완료 전 자체 점검
+
+- [x] 관련 Rule ID별 정상/경계/예외 커버 — INV-1(채번 형식·전역 순번·KST 자정·행 수 상한)·INV-2(3.3% 내림·내역 표기)·INV-3(발행일+30 재계산·명시값 존중)·INV-4(전이 가드·파생 연체 경계)·INV-5(컨트롤러 404+모델 RecordNotSaved)·INV-6(voidable 스코프·토큰 폐기·재무효 차단)·PLAN-1(3건·무효 포함·월 리셋·초안 무제한)·SHARE-1/2(토큰·유효기간·미노출)·DASH-1/4(집계·경계·정렬·limit 5)·ONB-1(실링크·전환)·TIME-1(KST travel)·P4(채번·voided_at 보존·발행본 삭제 불가)
+- [x] 외부 API 실호출 0건
+- [x] 미사용 정의 0건·`bin/rubocop` **0 offenses**(72 files)·들여쓰기 2칸
+- [x] 전체 회귀 `bin/rails test` **227 runs 0 failures 0 errors**(추가 시드 2회 재실행 동일)
+- [x] 실패 원인 분류 — §4(테스트 오류 6건 자체 수정)·§5(코드 버그 1건 보고)
+- [x] 시스템 테스트 미작성 — 뷰어(표면 ③) 미구현 확정(03 후속 제외)으로 브라우저 여정 대상 없음. UI 서버 렌더는 통합 테스트(assert_select)로 전수 커버

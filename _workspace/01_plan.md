@@ -1,46 +1,41 @@
-# 01_plan.md — F-CLIENT 거래처·품목 관리
+# 01_plan.md — F-INV 청구서 발행 (핵심 엔티티)
 
 - **일자**: 2026-10-12
-- **pipelineType**: Full (Phase 0→1→✋→2→3→4→5→7→8→9) — 신규 도메인 2엔티티·마이그레이션
-- **도메인**: F-CLIENT (PRD §6.3) + PLAN-1 연계
+- **pipelineType**: Full — 신규 도메인(Invoice·InvoiceItem)·마이그레이션·대시보드 전환 (최대 규모 파이프라인)
+- **도메인**: F-INV (§6.4) + SHARE-1/2(토큰 데이터 최소) + DASH-1/4 실데이터 전환 + PLAN-1(월 3건)
 
-## 범위 (PRD 원문 기준)
+## A. 구현 범위
 
-| Rule | 내용 | 이번 구현 |
-|:---|:---|:---|
-| **CLIENT-1** | 거래처 등록/수정/삭제 — 거래처명, 담당자명, 알림 수신 휴대폰 번호, 이메일(선택), 사업자번호(선택), 메모 | ✅ CRUD 전체 |
-| **CLIENT-2** | 품목 라이브러리 — 품목명·단가 저장, 청구서 작성 시 선택 | ✅ CRUD (선택 UI 연동은 F-INV) |
-| CLIENT-3 | 거래처 카드 — 누적 청구액·진행 건수·약속 이력 | ❌ F-INV/F-PROMISE 후속 (데이터 없음) |
-| CLIENT-4 | 지급 성적표 | ❌ PAY 완료 후속 |
-| **PLAN-1** | Free 거래처 한도 5개 | ✅ 적용 (아래 결정 #1) |
+### A-1. 모델·마이그레이션
+- `Invoice`: user_id·client_id(FK), issue_number(**INV-1** 자동 채번 `BD-YYYYMMDD-NNN` 일별 순번·고유), status(**INV-4** enum: draft/issued/viewed/overdue/promised/partially_paid/paid/voided), due_on(**INV-3** 발행일+30일 기본), tax_mode(부가세 별도/포함 — INV-1), withholding_enabled(**INV-2** boolean — 프리랜저 기본 반영), 발행자 표시명 스냅샷, 입금 계좌 스냅샷(은행·계좌·예금주 — INV-1 "프로필 기본값 또는 건별 변경"), 총액·공급가액·부가세·원천징수액·실수령액(계산 컬럼), token·token_expires_at(**SHARE-1/2** — 발행 시 생성, 만기+60일), issued_at, voided_at
+- `InvoiceItem`: invoice_id(FK), description·quantity·unit_price(원) — 복수 행
+- 금액 계산: 합계 = Σ(수량×단가) → 부가세 별도 시 +10% / 포함 시 내역 분해. 원천징수 시 공급가액의 3.3% 차감·실수령액 표기(INV-2) — 정수 원 반올림 규칙 명시
 
-## 구현 설계
+### A-2. 상태 전이·비즈니스 규칙
+- **INV-4 전이**: `draft → issued(발행)`, `issued → voided(무효)`. viewed/promised/partially_paid/paid는 enum 예약(이벤트 도메인 SHARE/PROMISE/PAY에서 진입) — **연체 표시는 만기일 비교 파생 판정**(scope, DASH-4 연체일 계산)으로 이번에 구현, enum 자동 전환은 REM 시점
+- **INV-5 발행 후 본문 수정 불가**: 수정 액션 가드(draft만 허용)
+- **INV-6 무효**: member `void` — 토큰 즉시 폐기·voided_at 기록 (시퀀스 중단은 REM 부재로 N/A)
+- **PLAN-1 월 3건**: 발행(초안→issued) 시 당월 발행 수 ≥3 차단 + Plus 안내 (FREE_MONTHLY_INVOICE_LIMIT 상수 — 거래처 한도 패턴 재사용)
 
-### 모델·마이그레이션
-- `Client`: user_id(FK), name(필수), contact_name(필수), phone(필수 — 휴대폰 형식 느슨 검증), email(선택), business_number(선택), memo(선택). `dependent: :destroy` 없음(참조 없음 — F-INV 시 정책 확정 시까지), 소유권 스코프
-- `Item`: user_id(FK), name(필수), unit_price(정수 원, 필수 ≥0). 품목명·단가만 (PRD 명시 필드 외 추가 금지)
+### A-3. 화면·플로우 (표면 ②)
+- `/app/invoices` 목록(상태 뱃지·연체일·금액 — DASH-4 연체일 내림차순), 상세(금액 내역 INV-2 표기·무효 버튼), **초안 작성·수정 폼**: 거래처 select(CLIENT 연결)·품목 행 동적 편집(라이브러리 선택 CLIENT-2 + 직접 입력)·부가세 모드·원천징수(프리랜저 기본 반영)·만기일·계좌(프로필 기본 프리필)·금액 실시간 요약
+- 발행 버튼 → issue 액션(채번·토큰 생성) → 상세. **링크 복사 UI는 F-VIEW에서 개봉**(뷰어 없는 링크 노출 금지 — 발행 상세에는 「링크는 뷰어 오픈 후 제공됩니다」 안내 없이 링크 미노출)
+- **대시보드 전환**: DASH-1 카드 3종 실데이터(미수 총액·연체 건수·금액·7일 내 만기 — issued 계열·만기 미경과 등 Query 계산) / DASH-4 목록 = 청구서 목록(빈 상태 교체) / **ONB-1 CTA 활성화** → /app/invoices/new / DASH-2는 이벤트 부재로 빈 상태 유지(REM/PROMISE 의존)
+- 사이드바 「청구서」 활성화
 
-### 컨트롤러·화면 (표면 ②, App::BaseController 가드 상속)
-- `/app/clients` — 7종 표준 CRUD. 목록(카드/테이블) + 등록·수정 폼(모달 Frame 또는 페이지 — §3.3 표준), 삭제 turbo_confirm
-- `/app/items` — 품목 라이브러리 CRUD (단순 목록+폼)
-- Turbo: 성공 303/실패 422, 생성·삭제 후 목록 갱신 Stream(§7.3) 또는 redirect — 컨벤션 따름
-- 사이드바: 「거래처」 활성화(준비 중 해제) + 「품목」 메뉴 신규(결정 #2)
+### 후속 제외 (명시)
+SHARE-3/4(열람 추적·알림), 뷰어(표면 ③ F-VIEW), 발송(REM·핵클), 반복 청구(INV-7), PDF(VIEW-4), PAY 상태 전환, 만기일 설정 변경 UI(설정 도메인), 부분입금
 
-### PLAN-1 한도 (결정 #1)
-- `Client` 등록 시 `user.clients.count >= 5`면 차단 + 「Free 플랜은 거래처 5개까지입니다. Plus로 무제한 이용할 수 있습니다」 안내 (PLAN-2 승격 유도 문구)
-- 구현: 모델 검증 or 컨트롤러 가드 — 상수 `FREE_CLIENT_LIMIT = 5` (F-PLAN에서 구독 체크로 교체)
+## B. 관련 Rule ID
+INV-1~6, SHARE-1/2(데이터), PLAN-1(월 3건), PLAN-3 아님, DASH-1/4, ONB-1, CLIENT-2(품목 선택), SURF-3, DESIGN-2(상태색 3종 뱃지)·5, TIME-1(KST)
 
-## 후속 제외
-CLIENT-3/4(데이터 의존), 품목 선택 UI(F-INV), 청구서 연동, 삭제 시 진행 중 청구 정책(F-INV 시 INV 규칙과 함께)
+## C. 결정 사항 (제안)
+1. **링크/토큰**: 발행 시 생성(데이터)하되 UI 노출은 F-VIEW 시점 — 뷰어 없는 링크 노출 금지
+2. **연체 표시**: 파생 판정(만기일 비교) — enum 자동 전환은 F-REM에서 스케줄러와 함께
+3. **월 3건 한도**: 발행 시점 적용(초안 무제한) — FREE_MONTHLY_INVOICE_LIMIT 상수
+4. **금액 반올림**: 원천징수 3.3%는 공급가액 기준 내림(정수 원) — 표기 시 원 단위
 
-## 관련 Rule ID
-CLIENT-1, CLIENT-2, PLAN-1(한도), SURF-3(/app noindex — 상속), DESIGN-4/5/6(UI 기준), LP-12(한도 안내 문구)
-
-## 결정 사항 (제안)
-1. **Free 거래처 5개 한도**: 지금 적용(전 사용자 Free 취급, 상수) — F-PLAN에서 구독 체크로 전환. 근거: PLAN-1이 현행 규칙
-2. **품목 진입점**: 사이드바 「품목」 메뉴 신규 추가 (거래처와 별도 리소스 — 청구서 발행 시 선택은 F-INV)
-3. **거래처 삭제**: 참조(청구서)가 없는 현재 즉시 삭제 — F-INV에서 INV-6 연계 정책 확정
-
-## 리스크
-- phone 형식 검증 과잉 시 등록 마찰 — 느슨한 패턴(숫자·하이픈 허용) + 표준화는 발송 도메인(REM)에서
-- 한도 상수가 F-PLAN에서 이중 로직 될 가능성 — 상수 단일 지점 유지
+## D. 리스크
+- 최대 규모 구현(폼 복수 행·계산·전이) — Developer 스폰 1회, 리뷰 집중 필요(특히 금액 계산 경계: 0원 행·대량·부가세 포함+원천징수 조합)
+- 대시보드 기존 빈 상태 테스트 갱신 다수 발생 (Phase 7)
+- 부가세 포함 모드의 역산(합계→공급가액 분해) 반올림 경계

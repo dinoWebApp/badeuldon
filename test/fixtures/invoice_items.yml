@@ -1,0 +1,68 @@
+<%# 청구서 품목 행 fixtures — 각 청구서의 금액 컬럼(invoices.yml)과 산식 일치.
+    delta_draft는 1행, delta_draft_two_rows는 2행(행 삭제·재산정 검증용). %>
+
+delta_draft_item:
+  invoice: delta_draft
+  description: "로고 디자인"
+  quantity: 1
+  unit_price: 300000
+
+delta_draft_two_rows_item_1:
+  invoice: delta_draft_two_rows
+  description: "웹 유지보수"
+  quantity: 1
+  unit_price: 100000
+
+delta_draft_two_rows_item_2:
+  invoice: delta_draft_two_rows
+  description: "디자인 수정"
+  quantity: 2
+  unit_price: 25000
+
+delta_issued_item:
+  invoice: delta_issued
+  description: "웹 개발"
+  quantity: 1
+  unit_price: 200000
+
+delta_overdue_item:
+  invoice: delta_overdue
+  description: "컨설팅"
+  quantity: 1
+  unit_price: 150000
+
+delta_due_soon_item:
+  invoice: delta_due_soon
+  description: "유지보수"
+  quantity: 1
+  unit_price: 60000
+
+delta_viewed_item:
+  invoice: delta_viewed
+  description: "디자인 시안"
+  quantity: 1
+  unit_price: 50000
+
+delta_promised_item:
+  invoice: delta_promised
+  description: "랜딩 페이지 제작"
+  quantity: 1
+  unit_price: 110000
+
+delta_partially_paid_item:
+  invoice: delta_partially_paid
+  description: "앱 개발"
+  quantity: 1
+  unit_price: 300000
+
+delta_paid_item:
+  invoice: delta_paid
+  description: "월 정기 개발"
+  quantity: 1
+  unit_price: 100000
+
+delta_voided_item:
+  invoice: delta_voided
+  description: "프로토타입 제작"
+  quantity: 1
+  unit_price: 120000

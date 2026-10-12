@@ -20,3 +20,15 @@ gamma:
   account_number: "123-45-678901"
   account_holder: "김감마"
   phone: "010-9876-5432"
+
+<%# delta — 프로필 완료 + 청구서 fixtures 소유(INV 테스트 전용).
+    alpha·beta는 기존 테스트가 사용자·거래처 삭제(FK 연쇄)를 검증하므로 청구서를 두면 안 된다. %>
+delta:
+  email: delta@example.com
+  password_digest: <%= password_digest %>
+  display_name: "델타디자인"
+  business_type: freelancer
+  bank_name: "신한은행"
+  account_number: "110-234-567890"
+  account_holder: "김델타"
+  phone: "010-5555-1111"

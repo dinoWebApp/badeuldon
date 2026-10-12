@@ -83,4 +83,31 @@ class UserTest < ActiveSupport::TestCase
     user.display_name = "  감마랩  "
     assert_equal "감마랩", user.display_name
   end
+
+  # ── AUTH-1.5 탈퇴 연쇄 삭제 ──
+
+  # BUG-1 회귀 — dependent: :destroy는 연관 선언 순서대로 실행된다. clients·items가
+  # invoices보다 먼저 선언될 경우 거래처 삭제 시점에 invoices.client_id 외래 키 제약
+  # (ActiveRecord::InvalidForeignKey)으로 탈퇴 자체가 실패했다. 자식→부모 순서를 보장한다.
+  test "청구서·거래처·품목을 보유한 사용자 삭제가 전부 연쇄 삭제된다 (AUTH-1.5)" do
+    user = User.create!(email: "cascade@example.com",
+                        password: "secret-123", password_confirmation: "secret-123")
+    client = user.clients.create!(name: "연쇄삭제거래처", contact_name: "김연쇄", phone: "010-1234-5678")
+    user.items.create!(name: "연쇄삭제품목", unit_price: 10_000)
+    invoice = user.invoices.create!(
+      client: client, due_on: Date.current + 30, tax_mode: :separate, withholding_enabled: false,
+      issuer_display_name: "테스트발행자", bank_name: "국민은행",
+      account_number: "123-45-678901", account_holder: "테스트예금주",
+      items_attributes: { "0" => { description: "품목1", quantity: "1", unit_price: "10000" } }
+    )
+
+    user.destroy
+
+    # 사용자·청구서·거래처·품목·청구서 품목 행 — 삭제된 사용자 소유 행이 전 테이블에서 0건이다.
+    assert_equal 0, User.where(id: user.id).count, "사용자 행이 삭제된다"
+    assert_equal 0, Invoice.where(user_id: user.id).count, "청구서가 거래처보다 먼저 연쇄 삭제된다"
+    assert_equal 0, Client.where(user_id: user.id).count, "거래처가 연쇄 삭제된다"
+    assert_equal 0, Item.where(user_id: user.id).count, "품목 라이브러리가 연쇄 삭제된다"
+    assert_equal 0, InvoiceItem.where(invoice_id: invoice.id).count, "청구서 품목 행이 연쇄 삭제된다"
+  end
 end

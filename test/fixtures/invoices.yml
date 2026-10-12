@@ -1,0 +1,221 @@
+<%# 청구서(INV) fixtures — 전부 delta 소유. gamma·beta·alpha는 0건 유지:
+    gamma는 대시보드 빈 상태 검증, alpha·beta는 기존 테스트가 사용자·거래처 삭제(FK 연쇄)를
+    검증하므로 청구서를 두면 외래 키 제약으로 기존 스위트가 깨진다(ClientTest·SessionsControllerTest).
+    상태별 최소 1건(draft·issued·연체 파생·연체 enum·7일 내 만기·viewed·promised·partially_paid·
+    paid·voided) + 타인 품목 위조 검증용 초안. 기준 테스트 일자 = 2026-10-12(KST, TIME-1) —
+    날짜 파생 어설션 테스트는 travel_to("2026-10-12 09:00")로 고정한다. 금액 컬럼은
+    Invoice.compute_amounts 산식과 일치하는 스냅샷값(픽스처는 콜백 없이 적재됨). 토큰은 43자
+    urlsafe 고정값(추측 불가 엔트로피 검증은 발행 생성 경로에서 별도 수행 — SHARE-1). %>
+
+# ── 초안 — 발행·수정·삭제·무효 스코프(404) 검증 대상 ──
+delta_draft:
+  user: delta
+  client: delta_main
+  status: draft
+  due_on: "2026-11-11"
+  tax_mode: separate
+  withholding_enabled: false
+  issuer_display_name: "테스트발행자"
+  bank_name: "신한은행"
+  account_number: "110-234-567890"
+  account_holder: "김델타"
+  subtotal: 300000
+  tax_amount: 30000
+  total_amount: 330000
+  withholding_amount: 0
+  net_amount: 330000
+
+# 2행 초안 — 행 삭제(_destroy) 후 금액 재산정·수정 흐름 검증 대상
+delta_draft_two_rows:
+  user: delta
+  client: delta_main
+  status: draft
+  due_on: "2026-11-11"
+  tax_mode: separate
+  withholding_enabled: false
+  issuer_display_name: "테스트발행자"
+  bank_name: "신한은행"
+  account_number: "110-234-567890"
+  account_holder: "김델타"
+  subtotal: 150000
+  tax_amount: 15000
+  total_amount: 165000
+  withholding_amount: 0
+  net_amount: 165000
+
+# ── 발행(issued) — 만기 2026-10-01 → 기준일에 연체 파생(11일 경과) ──
+delta_issued:
+  user: delta
+  client: delta_main
+  status: issued
+  issue_number: "BD-20260901-001"
+  due_on: "2026-10-01"
+  tax_mode: separate
+  withholding_enabled: false
+  issuer_display_name: "테스트발행자"
+  bank_name: "신한은행"
+  account_number: "110-234-567890"
+  account_holder: "김델타"
+  subtotal: 200000
+  tax_amount: 20000
+  total_amount: 220000
+  withholding_amount: 0
+  net_amount: 220000
+  token: "IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII"
+  token_expires_at: "2026-11-30 23:59:59"
+  issued_at: "2026-09-01 10:00:00"
+
+# ── 연체(enum 예약값 3 — F-REM 진입 상태 직접 세팅) — 만기 2026-09-01 → 41일 경과 ──
+delta_overdue:
+  user: delta
+  client: delta_main
+  status: overdue
+  issue_number: "BD-20260801-001"
+  due_on: "2026-09-01"
+  tax_mode: separate
+  withholding_enabled: false
+  issuer_display_name: "테스트발행자"
+  bank_name: "신한은행"
+  account_number: "110-234-567890"
+  account_holder: "김델타"
+  subtotal: 150000
+  tax_amount: 15000
+  total_amount: 165000
+  withholding_amount: 0
+  net_amount: 165000
+  token: "OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO"
+  token_expires_at: "2026-10-31 23:59:59"
+  issued_at: "2026-08-01 09:00:00"
+
+# ── 7일 내 만기(issued, 만기 2026-10-15 = 기준일 +3) — 뱃지 대기 중·DASH-1 집계 대상 ──
+delta_due_soon:
+  user: delta
+  client: delta_main
+  status: issued
+  issue_number: "BD-20261001-001"
+  due_on: "2026-10-15"
+  tax_mode: separate
+  withholding_enabled: false
+  issuer_display_name: "테스트발행자"
+  bank_name: "신한은행"
+  account_number: "110-234-567890"
+  account_holder: "김델타"
+  subtotal: 60000
+  tax_amount: 6000
+  total_amount: 66000
+  withholding_amount: 0
+  net_amount: 66000
+  token: "SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS"
+  token_expires_at: "2026-12-14 23:59:59"
+  issued_at: "2026-10-01 09:30:00"
+
+# ── 열람(viewed) — 원천징수(INV-2) 내역 표기 검증 대상: 50,000 → 원천 1,650·실수령 53,350 ──
+delta_viewed:
+  user: delta
+  client: delta_main
+  status: viewed
+  issue_number: "BD-20260905-001"
+  due_on: "2026-10-20"
+  tax_mode: separate
+  withholding_enabled: true
+  issuer_display_name: "테스트발행자"
+  bank_name: "신한은행"
+  account_number: "110-234-567890"
+  account_holder: "김델타"
+  subtotal: 50000
+  tax_amount: 5000
+  total_amount: 55000
+  withholding_amount: 1650
+  net_amount: 53350
+  token: "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV"
+  token_expires_at: "2026-12-19 23:59:59"
+  issued_at: "2026-09-05 14:00:00"
+
+# ── 약속 대기(promised) — 포함 모드 역산 표기 검증 대상: 110,000 → 공급 100,000·부가세 10,000 ──
+delta_promised:
+  user: delta
+  client: delta_main
+  status: promised
+  issue_number: "BD-20260910-001"
+  due_on: "2026-10-25"
+  tax_mode: included
+  withholding_enabled: false
+  issuer_display_name: "테스트발행자"
+  bank_name: "신한은행"
+  account_number: "110-234-567890"
+  account_holder: "김델타"
+  subtotal: 100000
+  tax_amount: 10000
+  total_amount: 110000
+  withholding_amount: 0
+  net_amount: 110000
+  token: "PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP"
+  token_expires_at: "2026-12-24 23:59:59"
+  issued_at: "2026-09-10 11:00:00"
+
+# ── 부분입금(partially_paid) ──
+delta_partially_paid:
+  user: delta
+  client: delta_main
+  status: partially_paid
+  issue_number: "BD-20260915-001"
+  due_on: "2026-10-30"
+  tax_mode: separate
+  withholding_enabled: false
+  issuer_display_name: "테스트발행자"
+  bank_name: "신한은행"
+  account_number: "110-234-567890"
+  account_holder: "김델타"
+  subtotal: 300000
+  tax_amount: 30000
+  total_amount: 330000
+  withholding_amount: 0
+  net_amount: 330000
+  token: "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+  token_expires_at: "2026-12-29 23:59:59"
+  issued_at: "2026-09-15 16:00:00"
+
+# ── 수금 완료(paid) — 종결 상태: 무효 불가·미수 집계 제외 검증 대상 ──
+delta_paid:
+  user: delta
+  client: delta_main
+  status: paid
+  issue_number: "BD-20260820-001"
+  due_on: "2026-09-19"
+  tax_mode: separate
+  withholding_enabled: false
+  issuer_display_name: "테스트발행자"
+  bank_name: "신한은행"
+  account_number: "110-234-567890"
+  account_holder: "김델타"
+  subtotal: 100000
+  tax_amount: 10000
+  total_amount: 110000
+  withholding_amount: 0
+  net_amount: 110000
+  token: "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  token_expires_at: "2026-11-18 23:59:59"
+  issued_at: "2026-08-20 10:00:00"
+
+# ── 무효(voided) — 토큰 폐기(nil)·무효 일자 안내(Phase 6 #1)·재무효 차단 검증 대상 ──
+delta_voided:
+  user: delta
+  client: delta_main
+  status: voided
+  issue_number: "BD-20260815-001"
+  due_on: "2026-09-14"
+  tax_mode: included
+  withholding_enabled: false
+  issuer_display_name: "테스트발행자"
+  bank_name: "신한은행"
+  account_number: "110-234-567890"
+  account_holder: "김델타"
+  subtotal: 109090
+  tax_amount: 10910
+  total_amount: 120000
+  withholding_amount: 0
+  net_amount: 120000
+  token:
+  token_expires_at: "2026-11-13 23:59:59"
+  issued_at: "2026-08-15 13:00:00"
+  voided_at: "2026-09-01 10:00:00"

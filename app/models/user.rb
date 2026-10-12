@@ -2,6 +2,10 @@
 class User < ApplicationRecord
   has_secure_password
   has_many :sessions, dependent: :destroy
+  # AUTH-1.5 — 연관 선언 순서가 곧 dependent: :destroy 실행 순서다. invoices는 clients를
+  # 참조하므로 자식(청구서)을 손자·부모(거래처·품목)보다 먼저 선언해 탈퇴 연쇄 삭제 시
+  # invoices.client_id 외래 키 위반(ActiveRecord::InvalidForeignKey)을 방지한다. 순서 변경 금지.
+  has_many :invoices, dependent: :destroy # INV — 탈퇴 시 청구서 데이터 삭제(AUTH-1.5)
   has_many :clients, dependent: :destroy  # CLIENT-1 — 탈퇴 시 거래처 데이터 삭제(AUTH-1.5)
   has_many :items, dependent: :destroy    # CLIENT-2 — 탈퇴 시 품목 데이터 삭제(AUTH-1.5)
 
