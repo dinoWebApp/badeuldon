@@ -34,10 +34,13 @@ class App::PromisesController < App::BaseController
   end
 
   # 실패 422 재렌더에 청구서 상세 템플릿이 필요로 하는 @변수 — App::InvoicesController와
-  # 동일 구성(SHARE-3 열람 이력·F-PROMISE 응답 이력).
+  # 동일 구성(SHARE-3 열람 이력·F-PROMISE 응답 이력·F-PAY 입금 이력·입금 폼). 폼 객체는
+  # 컬렉션 분리형(App::InvoicesController#set_payments 주석 참조).
   def load_invoice_show
     @invoice = @promise.invoice
     @view_events = @invoice.view_events.order(:viewed_at, :id)
     @promises = @invoice.promises.order(created_at: :desc, id: :desc)
+    @payments = @invoice.payments.order(paid_on: :desc, id: :desc)
+    @payment = Payment.new(invoice_id: @invoice.id, paid_on: Date.current)
   end
 end

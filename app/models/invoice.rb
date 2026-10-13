@@ -22,6 +22,12 @@ class Invoice < ApplicationRecord
   # 부분입금까지 포함하는 INV-4 발행 분기 전체를 발행 계열로 본다.
   VOIDABLE_STATUSES = %w[ issued viewed overdue promised partially_paid ].freeze
 
+  # PAY — 입금 기록 가능 상태 = 미수 계열(unsettled 스코프와 동일 모집단: 초안·수금완료·무효
+  # 제외). VOIDABLE_STATUSES와 집합이 같아 보이지만 의미가 다르므로(무효 가능 = 이력 보존,
+  # 입금 가능 = 잔액 회수) 별도 상수로 둔다. mark_paid!·mark_partially_paid!의 조건부 UPDATE가
+  # 이 목록으로 전이를 가드한다.
+  PAYABLE_STATUSES = %w[ issued viewed overdue promised partially_paid ].freeze
+
   # INV-5 — 발행 후 본문 불변(모델 레벨 가드). 발행 계열 갱신 시 이 컬럼들과 품목 행의
   # 변경을 차단한다. due_on 재계산은 초안→발행 전이 안에서만 일어나므로 이 가드 대상이 아니다.
   PROTECTED_CONTENT_COLUMNS = %w[
@@ -36,6 +42,9 @@ class Invoice < ApplicationRecord
   has_many :view_events, dependent: :destroy  # SHARE-3 — 열람 이력(뷰어 ③). 청구서 파괴 시 연쇄 삭제
   has_many :promises, dependent: :destroy  # F-PROMISE — 응답·약속 이력(뷰어 ③). 연쇄 삭제는
   # 초안 삭제에서만 실질 발생한다(발행 계열은 삭제 불가 — 초안은 뷰어 진입이 없어 응답이 없다).
+  has_many :payments, dependent: :destroy  # F-PAY — 입금 이력(PAY-1/2). 연쇄 삭제는 promises와
+  # 같은 이유로 초안 삭제에서만 실질 발생하며, 발행 계열의 입금 이력은 영구 보존 대상(P4)이라
+  # 삭제 경로 자체가 없다.
 
   # 초안 작성·수정 폼 — 품목 행 동적 편집(nested attributes). 완전 공백 행은 폼에서 폐기한다.
   accepts_nested_attributes_for :items, allow_destroy: true, reject_if: :all_blank
@@ -59,6 +68,10 @@ class Invoice < ApplicationRecord
   validate :must_have_at_least_one_item
   # INV-1 — 품목 행 수 상한
   validate :items_count_within_limit
+  # F-PAY(리뷰 #2) — 0원 청구서(품목 단가 전부 0원)는 원클릭·부분입금 어떤 경로로도 마감(paid)
+  # 전이가 불가해 영구 미수로 남는다(PAY-1 교착). 발행 시점에 차단하며, 초안은 계산 중 상태라
+  # 검증 대상이 아니다. 문구는 en.yml(invoice.attributes.base)에서 관리한다.
+  validate :total_amount_must_be_positive, on: :issue
 
   normalizes :issuer_display_name, :bank_name, :account_holder, with: ->(value) { value.strip }
 
@@ -168,6 +181,37 @@ class Invoice < ApplicationRecord
         .update_all(status: self.class.statuses.fetch(:promised), updated_at: Time.current) == 1
   end
 
+  # INV-4 — 수금 완료 전이(미수 계열→paid). mark_promised!와 동일한 status 조건부 UPDATE로
+  # 원자화해 동시 마감에서도 정확히 1회 적용된다. PAY-1 원클릭 마감의 유일한 상태 진입 경로며,
+  # 호출 전 잔액 도달 검증은 Payments::RecordService(청구서 행 잠금 하)가 담당한다. status는
+  # INV-5 보호 컬럼이 아니므로 본문 불변 가드와 충돌하지 않는다.
+  def mark_paid!
+    self.class.where(id: id, status: self.class.statuses.slice(*PAYABLE_STATUSES).values)
+        .update_all(status: self.class.statuses.fetch(:paid), updated_at: Time.current) == 1
+  end
+
+  # INV-4 — 부분입금 전이(미수 계열→partially_paid). PAY-2 — 잔액은 total_amount−입금 합계로
+  # 재계산되며(Invoice#remaining_amount), 미수 계열이므로 연체 파생 판정·DASH 집계에 계속
+  # 포함된다. 이미 partially_paid인 재기록은 조건이 계속 일치해 무변경(true) — 부분입금 반복을
+  # 흡수한다.
+  def mark_partially_paid!
+    self.class.where(id: id, status: self.class.statuses.slice(*PAYABLE_STATUSES).values)
+        .update_all(status: self.class.statuses.fetch(:partially_paid),
+                    updated_at: Time.current) == 1
+  end
+
+  # PAY-2 — 입금 누계(정수 원). 항상 최신값이 필요하므로 메서드 호출마다 합계를 조회한다
+  # (연쇄 캐시 없음 — 마감 직전 동시 등록 반영이 잔액 정확성의 전제).
+  def payments_total
+    payments.sum(:amount)
+  end
+
+  # PAY-2 — 잔액 = 청구 총액 − 입금 합계. 초과 등록 차단(Payments::RecordService — 결정 #3)으로
+  # 음수가 될 수 없다. DASH-1 미수 총액·연체 금액도 이 잔액 기준으로 집계한다.
+  def remaining_amount
+    total_amount - payments_total
+  end
+
   # 금액 산식(정수 원) — 폼 실시간 요약(invoice_form_controller.js)과 동일 산식을 유지하고
   # 최종값은 서버 계산을 기준으로 한다.
   # - 행 합계 = Σ(수량 × 단가)
@@ -232,6 +276,14 @@ class Invoice < ApplicationRecord
     return if items.reject(&:marked_for_destruction?).count <= MAX_ITEMS
 
     errors.add(:base, "품목 행은 최대 #{MAX_ITEMS}개까지 입력할 수 있습니다")
+  end
+
+  # 0원 청구서 발행 차단(위 validate :total_amount_must_be_positive). before_validation의
+  # recalculate_amounts가 저장 직전 재산정한 total_amount 기준으로 판정한다.
+  def total_amount_must_be_positive
+    return if total_amount.to_i.positive?
+
+    errors.add(:base, :total_amount_must_be_positive)
   end
 
   # INV-3 — 발행 시점 만기일 확정: 초안 작성일+30일 프리필을 사용자가 수정하지 않은 경우

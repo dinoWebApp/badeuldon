@@ -13,6 +13,8 @@ class App::InvoicesController < App::BaseController
   # F-PROMISE — 응답·약속 이력(최신 우선 — 청구서 약속 표시는 최신 응답 기준). 422 재렌더 대응은
   # set_view_events와 동일 취지다.
   before_action :set_promises, only: %i[ show issue void regenerate_token ]
+  # F-PAY — 입금 이력·입금 폼(입금일 기본 오늘). 422 재렌더 대응은 set_view_events와 동일 취지다.
+  before_action :set_payments, only: %i[ show issue void regenerate_token ]
 
   def index
     @invoices = Current.user.invoices.includes(:client).sorted_by_due  # DASH-4 정렬과 동일
@@ -119,6 +121,15 @@ class App::InvoicesController < App::BaseController
   # F-PROMISE — 응답·약속 이력(최신 우선). 타임라인 첫 행이 최신 응답이며 약속 표시 기준이다.
   def set_promises
     @promises = @invoice.promises.order(created_at: :desc, id: :desc)
+  end
+
+  # F-PAY — 입금 이력(입금일 내림차순)과 폼용 신규 입금(입금일 기본 오늘 — PAY-1·TIME-1).
+  # 폼 객체는 컬렉션에 붙이지 않고(invoice_id 직접 지정) 분리해 둔다 — payments 컬렉션에
+  # 추가하면 청구서 저장(issue!/void! 등) 시 미완성 Payment가 자동 저장되어
+  # "Payments is invalid"로 발행이 막힌다.
+  def set_payments
+    @payments = @invoice.payments.order(paid_on: :desc, id: :desc)
+    @payment = Payment.new(invoice_id: @invoice.id, paid_on: Date.current)
   end
 
   # INV-5 — 발행 후 본문 수정 불가: 수정·삭제·발행 진입은 초안만 조회한다(이외는 404).

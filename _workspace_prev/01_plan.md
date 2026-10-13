@@ -1,45 +1,45 @@
-# 01_plan.md — F-SHARE 열람 추적 + F-VIEW 채무자 뷰어 (표면 ③ 개봉)
+# 01_plan.md — F-PROMISE 응답(약속) 수집
 
-- **일자**: 2026-10-12
-- **pipelineType**: Full — 신규 엔티티(ViewEvent)·신규 표면(③)·링크 UI 개봉
-- **도메인**: F-SHARE (§6.5) + F-VIEW (§6.11) + SURF-2/3/4
+- **일자**: 2026-10-13
+- **pipelineType**: Full — 신규 엔티티(Promise)·뷰어 액션 UI·DASH-2 첫 실데이터
+- **도메인**: F-PROMISE (§6.7) + F-VIEW 확장(VIEW-4) + F-DASH 일부(DASH-2)
 
 ## A. 구현 범위
 
-### A-1. 열람 추적 (SHARE-3) + 상태 전이 (INV-4)
-- `ViewEvent` 마이그레이션·모델: invoice_id, first?(boolean — 최초/재열람), device(mobile/pc — User-Agent 대략 판별), viewed_at, ip(기록만)
-- `GET /b/:token` (비인증, 토큰 상수시간 비교 `secure_compare`):
-  - 유효 토큰·미만료·미폐기 → 뷰어 렌더 + **트랜잭션 내** ViewEvent 기록 + **최초 열람 시 invoice issued→viewed 전이**(INV-4)
-  - 토큰 조회는 `Invoice.find_by(token:)` — 엔트로피 256bit로 열거 무의미, 타이밍 보강(secure_compare 또는 동등 처리)
-- **SHARE-4 U1 알림**: 이번 파이프라인은 **연기** (결정 #1) — 발송 채널이 NOTI-1 알림톡(핵클 미계약)이라 실발송 불가. ViewEvent·viewed 전이로 근거 데이터는 완비, 대시보드 청구서 뱃지 「열람」으로 U1 인지 가능. 채널 계약 시 REM/NOTI 파이프라인에서 연결
+### A-1. Promise 모델·마이그레이션
+- `Promise`: invoice_id(FK·인덱스), kind enum(**PROMISE-1 4종**: `this_week` 이번 주 내 / `date_selected` 예정일 지정 / `paid_report` 이미 입금 / `inquiry` 문의·이의), promised_on(date — this_week는 결정 #1에 따라 산정, date_selected는 채무자 지정, 나머지 null), memo(text — inquiry 전용), answer(text — U1 답변, PROMISE-6), answered_at, created_at=접수시각
+- 검증: inquiry는 memo 필수(길이 상한 2,000), date_selected는 promised_on 필수(과거 날짜 허용? — 당일 가능, 어제 이전 차단), answer는 U1만 기록 가능(컨트롤러 가드)
 
-### A-2. 링크 UI 개봉 (SHARE-1/2/6 — 표면 ②)
-- 발행 상세(issued 계열): 링크 URL 표시 + **복사 버튼**(Stimulus — navigator.clipboard) + **재발급 버튼**(SHARE-2 수동 폐기·재발급 — 기존 링크 즉시 무효·신규 토큰·만기 유지, turbo_confirm)
-- 링크 만료 임박/만료 상태 표시(만기+60일 경과 시 「링크 만료」 + 재발급 안내)
-- SHARE-6 발송 방식: **링크 복사만 제공** (서비스 명의 알림톡 옵션은 REM·핵클 계약 후 — 결정 #2)
-- voided·만료·재발급 이전 링크 접근 → VIEW-6 안내 화면
+### A-2. 채무자 응답 플로우 (뷰어 ③ — VIEW-4 개봉·PROMISE-2)
+- 뷰어에 **액션 버튼 4종**(PROMISE-1 원문 문구): 「이번 주 내에 입금할게요」 / 「입금 예정일 지정」(native date input — 인앱 호환) / 「이미 입금했어요」 / 「문의·이의 있어요」(textarea)
+- **비가입·무입력**(PROMISE-2): 버튼 누르면 즉시 기록 — 개인정보·가입 요구 전무. 토큰 보유=응답 권한
+- 응답 후 완료 화면(문구는 P1 톤 — 「감사합니다. 발행인에게 전달했습니다」), 문의는 답변 등록 시 뷰어에서 확인(PROMISE-6 — 서비스 경유, 연락처 노출 없음 P2)
+- rate_limit(스팸 응답 방지 — 토큰당), noindex 유지
+- 상태 전이: this_week/date_selected 등록 시 invoice **issued/viewed→promised**(INV-4) · paid_report·inquiry는 상태 불변(PROMISE-7 — 마감은 U1만)
 
-### A-3. 뷰어 화면 (표면 ③ — VIEW-1/2/3/5/6/8)
-- **전용 레이아웃** `layouts/viewer.html.erb`: 앱 내비·푸터 없음(마케팅 무결성 VIEW-8·SURF-2), 흰 배경 문서형(DESIGN-4 — 문서 무결성, 색 최소), noindex(SURF-3 — /b/* robots 차단 포함)
-- **VIEW-2 상단**: 「받을돈을 통해 **[발행인 표시명]**님이 보낸 청구서입니다」
-- **VIEW-3 구성**: 청구번호·발행일·만기일·품목 표(설명·수량·단가·금액)·총액(부가세 포함/별도·원천징수 내역 — INV-2 분해 표기)·**입금 계좌 클릭 복사**(토스 송금 UX 벤치마크 — 큰 영역·복사 피드백)·**입금자명 안내**(PAY-3 「입금 시 입금자명을 '거래처명'으로」)
-- **VIEW-5 하단 고지**: 「본 청구서는 발행인이 직접 발행했습니다. 본 서비스는 채권 추심 업무를 수행하지 않습니다.」 (P5)
-- **VIEW-6 만료·폐기 화면**: 안내 문구 + 「발행인에게 연락해 주세요」 (③→① 링크 금지 SURF-4 — 링크 없음)
-- 모바일 우선(기본 글자 크기 상향 DESIGN-6, 터치 타깃)
+### A-3. U1 측 (표면 ②)
+- 청구서 상세: 약속 이력 타임라인(종류·약속일·접수시각) + 문의 답변 폼(PROMISE-6 — 답변 등록 303)
+- **DASH-2 오늘의 액션 첫 실데이터**: 「마감 대기」(paid_report 접수·미처리) + 「답변 대기」(inquiry 무답변) 카드 — 기존 빈 상태에서 조건부 표시
+
+### A-4. PROMISE-7 처리
+- 「이미 입금했어요」 접수: Promise(paid_report) 기록 → DASH-2 마감 대기 표시 → U1이 청구서 상세에서 확인. **수금 마감은 PAY에서 U1 확인으로만** — 이번엔 회신 기록+표시까지만
 
 ### 후속 제외 (명시)
-SHARE-4 알림 발송(채널 계약 후), SHARE-5 문구 분기(REM), VIEW-4 응답 버튼(F-PROMISE)·PDF, VIEW-7 수신 거부(REM), INV-7
+- PROMISE-3 시퀀스 재스케줄(D-1/D+1 리마인드) — REM·핵클 계약 후
+- PROMISE-4/7 U1 알림 발송 — 채널(알림톡) 미계약, SHARE-4와 동일 연기 (DASH-2 표시로 인지)
+- PROMISE-5 이행/미이행 거래처 카드 기록(CLIENT-3/4) — PAY 마감 데이터 필요
+- PDF, 반복 요청 스레드(1문의 1답변 구조)
 
 ## B. 관련 Rule ID
-SHARE-1/2/3(+4 연기), VIEW-1/2/3/5/6/8, INV-4(viewed 전이), PAY-3(입금자명 안내), SURF-2/3/4, DESIGN-4/6, P3/P5, TIME-1
+PROMISE-1/2/6/7, PROMISE-3(상태·약속일 저장까지만), VIEW-4/8(액션 추가 — 화이트리스트 내), INV-4(promised 전이), DASH-2(마감·답변 대기), P1(문구 톤)·P2·P3, TIME-1
 
 ## C. 결정 사항 (제안)
-1. **SHARE-4 알림 발송 연기** — 채널(NOTI-1 알림톡·핵클) 미계약. viewed 전이+대시보드 뱃지로 인지 확보, ViewEvent로 발송 근거 데이터 완비
-2. **SHARE-6**: 링크 복사만 제공 (서비스 발송은 REM 시점)
-3. **시스템 테스트 도입**: 뷰어 여정(랜딩 아님 — 발행→링크→뷰어 렌더·복사·열람 전이) capybara 첫 적용 (VIEW-1 QA의 자동화 가능분)
-4. **IP 기록**: ViewEvent에 ip 저장(알림·분석 근거) — 개인정보 최소 수집 원칙(SURF/SEC-3)과 정합 여부 확인 필요시 익명화
+1. **「이번 주」 약속일 산정**: 접수일 기준 **이번 주 금요일**(주말 지나면 다음 주 금요일) — REM-3 평일 기준과 정합
+2. **알림 발송(PROMISE-4/7) 연기**: SHARE-4 선례와 동일 — DASH-2 표시로 인지, 계약 시 연결
+3. **date_selected 과거 날짜**: 어제 이전 차단(당일 가능) — 유효 약속만
+4. **문의 답변**: 1문의 1답변(추가 문의는 새 버튼) — 단순 구조, 스레드는 필요 시 확장
 
 ## D. 리스크
-- 토큰 타이밍 공격 — secure_compare 적용하나 find_by(token:) 자체가 DB 색인 조회라 실익 제한적(256bit) — 리뷰 검증
-- 클립보드 복사는 비보안 컨텍스트(localhost http) 제약 — fallback(수동 선택) 제공
-- 인앱 브라우저 실기 QA는 수동(VIEW-1) — 자동화는 시스템 테스트로 한계 커버
+- 비인증 기록 경로의 스팸/오남용 — rate_limit + 토큰 엔트로피 방어, 리뷰 집중
+- promised 전이 후 재응답(약속 변경) — 최신 약속으로 갱신? 이력 보존? → 이력 보존+최신 반영(promised_on은 최신 약속 기준) — 리뷰 확인
+- 인앱 date input 동작 — 전 브라우저 허용 정책으로 네이티브 UI 위임

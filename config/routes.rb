@@ -16,6 +16,9 @@ Rails.application.routes.draw do
         patch :void              # 발행 계열 → 무효(INV-6)
         patch :regenerate_token  # 링크 재발급(SHARE-2 — 기존 링크 즉시 무효·유효기간 유지)
       end
+      # F-PAY — 입금 기록·마감(PAY-1 원클릭·PAY-2 부분입금 겸용 create). 청구서 하위 자원으로
+      # 소유권을 스코프하며 전이 처리는 Payments::RecordService가 담당한다.
+      resources :payments, only: :create
     end
     # F-PROMISE — 문의 답변 등록(PROMISE-6). 응답 자원의 상태 전이(무답변→답변·1문의 1답변)라
     # member 액션으로 정당화하며, 소유권은 App::PromisesController가 청구서 스코프로 격리한다.

@@ -89,6 +89,10 @@ en:
               blank: "계좌번호를 입력해 주세요."
             account_holder:
               blank: "예금주를 입력해 주세요."
+            base:
+              # 발행 시 0원 청구서 차단 — app/models/invoice.rb의
+              # total_amount_must_be_positive(on: :issue)와 짝을 이룬다.
+              total_amount_must_be_positive: "청구서 총액은 1원 이상이어야 합니다"
         invoice_item:
           attributes:
             description:
