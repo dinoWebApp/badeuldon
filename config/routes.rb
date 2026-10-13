@@ -17,6 +17,11 @@ Rails.application.routes.draw do
         patch :regenerate_token  # 링크 재발급(SHARE-2 — 기존 링크 즉시 무효·유효기간 유지)
       end
     end
+    # F-PROMISE — 문의 답변 등록(PROMISE-6). 응답 자원의 상태 전이(무답변→답변·1문의 1답변)라
+    # member 액션으로 정당화하며, 소유권은 App::PromisesController가 청구서 스코프로 격리한다.
+    resources :promises, only: [] do
+      member { patch :answer }
+    end
   end
 
   # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html
@@ -32,8 +37,12 @@ Rails.application.routes.draw do
   # ── 표면 ③ 청구서 뷰어(/b/:token) ───────────────
   # 비로그인 U2(VIEW-1·P3), 토큰으로만 조회(SHARE-1). noindex·robots 차단(SURF-3 —
   # NOINDEX_PATH_PREFIXES "/b/" + public/robots.txt), ③→① 링크 없음(SURF-4).
+  # F-PROMISE — 응답 접수는 비인증 POST(토큰=권한·PROMISE-2), 완료 화면은 GET으로 PRG 전환해
+  # 재제출·이중 접수를 막는다. 두 경로 모두 뷰어와 동일 토큰 가드(만료·폐기 404)를 공유한다.
   scope "/b" do
     get "/:token", to: "viewer#show", as: :viewer
+    post "/:token/promises", to: "viewer#create", as: :viewer_promises
+    get "/:token/promises/thanks", to: "viewer#promise_thanks", as: :viewer_promise_thanks
   end
 
   # ── 표면 ① 랜딩 ───────────────────────────────

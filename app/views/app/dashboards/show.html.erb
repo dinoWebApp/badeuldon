@@ -64,15 +64,54 @@
     </div>
   </section>
 
-  <%# ── DASH-2 오늘의 액션 — REM·PROMISE 이벤트 도메인 확정 전까지 빈 상태 유지 ── %>
+  <%# ── DASH-2 오늘의 액션 — 첫 실데이터(F-PROMISE): 마감 대기(입금 완료 회신·미마감 —
+      PROMISE-7)·답변 대기(무답변 문의 — PROMISE-6). REM 이벤트(발송 예정 등)는 F-REM
+      구현 전까지 비표시. 어느 쪽도 없을 때만 기존 빈 상태를 유지한다(거짓 0건 금지). %>
   <section aria-labelledby="dash-actions" class="mt-8">
     <h2 id="dash-actions" class="text-base font-bold text-stone-800">오늘의 액션</h2>
-    <article class="mt-3 rounded-2xl border border-dashed border-stone-300 bg-white/60 p-6 text-center sm:p-8">
-      <p class="text-base font-bold text-stone-800">오늘 할 일이 없습니다</p>
-      <p class="mt-2 text-sm leading-relaxed text-stone-500">
-        첫 청구서를 발행하면 오늘 발송 예정·약속일 도래 같은 처리할 일이 카드로 표시됩니다.
-      </p>
-    </article>
+    <% if @closure_awaiting_invoices.any? || @awaiting_answer_inquiries.any? %>
+      <div class="mt-3 grid gap-4 sm:grid-cols-2">
+        <% @closure_awaiting_invoices.each do |invoice| %>
+          <%# PROMISE-7 — 마감 대기. 마감 자체는 PAY에서 U1 확인으로만 이루어진다. %>
+          <article class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+            <h3 class="flex items-center gap-2 text-sm font-semibold text-stone-500">
+              <span class="h-2 w-2 rounded-full bg-emerald-700" aria-hidden="true"></span>
+              마감 대기
+            </h3>
+            <p class="mt-3 text-base font-bold text-stone-800">
+              <%= invoice.client.name %> · <span class="tabular-nums"><%= won(invoice.total_amount) %></span>
+            </p>
+            <p class="mt-2 text-sm leading-relaxed text-stone-500">
+              거래처가 「이미 입금했어요」라고 회신했습니다. 확인 후 마감해 주세요.
+            </p>
+            <%= link_to "청구서 확인", app_invoice_path(invoice),
+                  class: "mt-4 inline-flex min-h-11 items-center rounded-xl border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-600 transition hover:border-stone-400 hover:text-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+          </article>
+        <% end %>
+        <% @awaiting_answer_inquiries.each do |promise| %>
+          <%# PROMISE-6 — 답변 대기. 답변 등록은 청구서 상세의 응답 이력에서 한다. %>
+          <article class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+            <h3 class="flex items-center gap-2 text-sm font-semibold text-stone-500">
+              <span class="h-2 w-2 rounded-full bg-orange-500" aria-hidden="true"></span>
+              답변 대기
+            </h3>
+            <p class="mt-3 text-base font-bold text-stone-800"><%= promise.invoice.client.name %>의 문의</p>
+            <p class="mt-2 whitespace-pre-line text-sm leading-relaxed text-stone-500">
+              <%= truncate(promise.memo, length: 60) %>
+            </p>
+            <%= link_to "문의에 답변하기", app_invoice_path(promise.invoice),
+                  class: "mt-4 inline-flex min-h-11 items-center rounded-xl border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-600 transition hover:border-stone-400 hover:text-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+          </article>
+        <% end %>
+      </div>
+    <% else %>
+      <article class="mt-3 rounded-2xl border border-dashed border-stone-300 bg-white/60 p-6 text-center sm:p-8">
+        <p class="text-base font-bold text-stone-800">오늘 할 일이 없습니다</p>
+        <p class="mt-2 text-sm leading-relaxed text-stone-500">
+          첫 청구서를 발행하면 오늘 발송 예정·약속일 도래 같은 처리할 일이 카드로 표시됩니다.
+        </p>
+      </article>
+    <% end %>
   </section>
 
   <%# ── ONB-1 CTA — 청구서 0건이면 첫 발행, 이후에는 목록으로 자연 전환(준비 중 배지 제거) ── %>

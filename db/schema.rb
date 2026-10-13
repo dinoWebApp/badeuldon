@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_12_000005) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_13_000001) do
   create_table "clients", force: :cascade do |t|
     t.integer "user_id", null: false
     t.string "name", null: false
@@ -73,6 +73,18 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_12_000005) do
     t.index ["user_id"], name: "index_items_on_user_id"
   end
 
+  create_table "promises", force: :cascade do |t|
+    t.integer "invoice_id", null: false
+    t.integer "kind", null: false
+    t.date "promised_on"
+    t.text "memo"
+    t.text "answer"
+    t.datetime "answered_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["invoice_id"], name: "index_promises_on_invoice_id"
+  end
+
   create_table "sessions", force: :cascade do |t|
     t.integer "user_id", null: false
     t.string "ip_address"
@@ -112,6 +124,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_12_000005) do
   add_foreign_key "invoices", "clients"
   add_foreign_key "invoices", "users"
   add_foreign_key "items", "users"
+  add_foreign_key "promises", "invoices"
   add_foreign_key "sessions", "users"
   add_foreign_key "view_events", "invoices"
 end

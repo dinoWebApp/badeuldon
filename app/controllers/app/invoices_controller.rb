@@ -10,6 +10,9 @@ class App::InvoicesController < App::BaseController
   # SHARE-3 — 열람 이력 요약(최초·최근·횟수). 422 재렌더(issue·void·재발급 실패)에서도
   # show 템플릿이 동일한 @변수를 갖도록 함께 적재한다 — 대상 조회(set_*_invoice) 뒤에서 실행.
   before_action :set_view_events, only: %i[ show issue void regenerate_token ]
+  # F-PROMISE — 응답·약속 이력(최신 우선 — 청구서 약속 표시는 최신 응답 기준). 422 재렌더 대응은
+  # set_view_events와 동일 취지다.
+  before_action :set_promises, only: %i[ show issue void regenerate_token ]
 
   def index
     @invoices = Current.user.invoices.includes(:client).sorted_by_due  # DASH-4 정렬과 동일
@@ -111,6 +114,11 @@ class App::InvoicesController < App::BaseController
   # SHARE-3 — 열람 이력(시간순). show 템플릿의 최초·최근 열람·횟수 요약에 쓴다.
   def set_view_events
     @view_events = @invoice.view_events.order(:viewed_at, :id)
+  end
+
+  # F-PROMISE — 응답·약속 이력(최신 우선). 타임라인 첫 행이 최신 응답이며 약속 표시 기준이다.
+  def set_promises
+    @promises = @invoice.promises.order(created_at: :desc, id: :desc)
   end
 
   # INV-5 — 발행 후 본문 수정 불가: 수정·삭제·발행 진입은 초안만 조회한다(이외는 404).

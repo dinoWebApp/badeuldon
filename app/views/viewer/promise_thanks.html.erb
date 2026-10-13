@@ -1,0 +1,19 @@
+<% content_for :title, "응답이 접수되었습니다 — 받을돈" %>
+
+<%# F-PROMISE — 응답 접수 완료 화면(PRG GET — POST 재제출로 인한 이중 접수 방지).
+    문의 접수 시에도 동일 문구다. VIEW-8 화이트리스트 내 응답 흐름 안내이며 ③→① 링크는
+    없다(SURF-4). P1 톤 — 감사·전달 안내만 하고 요구는 일절 없다(PROMISE-2·P3). %>
+<div class="flex min-h-[60dvh] flex-col items-center justify-center text-center">
+  <p class="text-base font-extrabold tracking-tight text-emerald-900">받을돈</p>
+  <h1 class="mt-8 text-lg font-bold leading-relaxed text-stone-900">
+    감사합니다. 발행인에게 전달했습니다.
+  </h1>
+  <p class="mt-3 text-sm leading-relaxed text-stone-500">
+    접수하신 응답은 발행인에게 안전하게 전달되었습니다.
+  </p>
+  <div class="mt-8">
+    <%# ③→③ 복귀 링크 — 표면 내 이동이므로 SURF-4(③→① 금지)와 무관하다 %>
+    <%= link_to "청구서로 돌아가기", viewer_path(@invoice.token),
+          class: "inline-flex min-h-11 items-center rounded-xl border border-stone-300 bg-white px-6 text-sm font-semibold text-stone-600 shadow-sm transition hover:border-stone-400 hover:text-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-500" %>
+  </div>
+</div>

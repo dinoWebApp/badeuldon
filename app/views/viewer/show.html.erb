@@ -1,8 +1,8 @@
 <% content_for :title, "청구서 #{(@invoice.issue_number.presence || "안내")} — 받을돈" %>
 
 <%# 표면 ③ 청구서 뷰어(VIEW-2/3/5) — 표시 요소는 화이트리스트만(VIEW-8·SURF-2): 청구 내용·
-    입금 계좌 복사·고지문. 응답 액션(VIEW-4·F-PROMISE)과 PDF는 후속이며, ③→① 링크·가입
-    유도·마케팅 요소는 일절 없다(SURF-4). 원천징수 표기는 지급액 기준 안내(P1 톤). %>
+    입금 계좌 복사·응답 액션(VIEW-4·F-PROMISE)·답변 표시(PROMISE-6)·고지문. PDF는 후속이며,
+    ③→① 링크·가입 유도·마케팅 요소는 일절 없다(SURF-4). 원천징수 표기는 지급액 기준 안내(P1 톤). %>
 
 <%# VIEW-2 — 발행인 표기 + 받을돈 워드마크(링크 아님 — SURF-4) %>
 <header>
@@ -110,6 +110,85 @@
 <p class="mt-3 rounded-xl bg-stone-50 px-4 py-3 text-sm leading-relaxed text-stone-600 ring-1 ring-inset ring-stone-200">
   입금 시 입금자명을 '<strong class="font-bold text-stone-800"><%= @invoice.client.name %></strong>'으로 입력해 주세요.
 </p>
+
+<%# PROMISE-6 — 답변 등록된 문의(1문의 1답변). 서비스 경유 확인이며 발행인 연락처는
+    노출하지 않는다(P2). 무답변 문의는 표시하지 않는다(채무자가 보낸 내용이므로). %>
+<% if @answered_inquiries.any? %>
+  <section class="mt-4 space-y-3" aria-label="발행인 답변">
+    <% @answered_inquiries.each do |inquiry| %>
+      <article class="rounded-2xl border border-stone-200 bg-white p-5 sm:p-6">
+        <h2 class="text-sm font-bold text-stone-500">발행인 답변</h2>
+        <p class="mt-2 whitespace-pre-line text-[15px] leading-relaxed text-stone-800"><%= inquiry.answer %></p>
+        <p class="mt-4 border-t border-stone-100 pt-3 text-xs leading-relaxed text-stone-400">
+          <%= display_datetime(inquiry.answered_at) %> 답변 · 보낸 문의
+          <span class="whitespace-pre-line"><%= inquiry.memo %></span>
+        </p>
+      </article>
+    <% end %>
+  </section>
+<% end %>
+
+<%# VIEW-4 — 응답 액션(VIEW-8 화이트리스트 허용 요소 — PROMISE-1 원문 문구 4종). 가입·
+    개인정보 입력 없이 버튼 선택만으로 접수된다(PROMISE-2). 즉시 응답 2종은 button_to,
+    입력이 필요한 2종은 <details> 네이티브 접기로 JS 없이 카카오톡 인앱에서도 동작한다(VIEW-1).
+    date input은 네이티브 UI에 위임(min=오늘 — 어제 이전 차단의 1차 방어, 서버가 재검증). %>
+<section class="mt-4 rounded-2xl border border-stone-200 bg-white p-5 sm:p-6" aria-label="응답 보내기">
+  <h2 class="text-base font-bold text-stone-800">이 청구서에 응답하기</h2>
+  <p class="mt-1 text-xs leading-relaxed text-stone-400">
+    응답은 바로 발행인에게 전달되며, 가입이나 개인정보 입력은 필요하지 않습니다.
+  </p>
+
+  <%# 검증 실패 422 재렌더 — P1 톤 안내(모델 errors 문구). 입력값은 폼에 보존된다. %>
+  <% if @promise.errors.any? %>
+    <p class="mt-3 rounded-xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 ring-1 ring-inset ring-red-200" role="alert">
+      <%= @promise.errors.full_messages.first %>
+    </p>
+  <% end %>
+
+  <div class="mt-4 grid gap-2.5">
+    <%# PROMISE-1 「이번 주 내에 입금할게요」 — 선택 즉시 접수(약속일은 서버가 산정 — 결정 #1) %>
+    <%= button_to "이번 주 내에 입금할게요", viewer_promises_path(@invoice.token),
+          params: { promise: { kind: :this_week } },
+          class: "inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-xl bg-emerald-800 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+    <%# PROMISE-1 「이미 입금했어요」 — 입금 완료 회신(PROMISE-7 — 상태 변경 없이 발행인 전달) %>
+    <%= button_to "이미 입금했어요", viewer_promises_path(@invoice.token),
+          params: { promise: { kind: :paid_report } },
+          class: "inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-xl border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-600 transition hover:border-stone-400 hover:text-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-500" %>
+
+    <%# PROMISE-1 「입금 예정일 지정」 — 네이티브 date input(인앱 브라우저 호환) %>
+    <details class="group">
+      <summary class="inline-flex min-h-11 w-full cursor-pointer list-none items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-600 transition hover:border-stone-400 hover:text-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-500 [&::-webkit-details-marker]:hidden">
+        입금 예정일 지정
+        <span class="text-stone-400 group-open:hidden" aria-hidden="true">+</span>
+      </summary>
+      <%= form_with url: viewer_promises_path(@invoice.token), method: :post, scope: :promise, class: "mt-3 grid gap-2.5" do |form| %>
+        <%= form.hidden_field :kind, value: "date_selected" %>
+        <%= form.date_field :promised_on, value: @promise.promised_on, min: Date.current,
+              aria_label: "입금 예정일",
+              class: "block w-full rounded-xl border border-stone-300 bg-white px-3.5 py-2.5 text-stone-800 shadow-sm transition focus:outline-none focus:ring-2 focus:ring-emerald-700/30" %>
+        <%= form.submit "등록",
+              class: "inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-xl bg-emerald-800 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+      <% end %>
+    </details>
+
+    <%# PROMISE-1 「문의·이의 있어요」 — 자유 메모 → U1 전달(상한 2,000자) %>
+    <details class="group">
+      <summary class="inline-flex min-h-11 w-full cursor-pointer list-none items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-600 transition hover:border-stone-400 hover:text-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-500 [&::-webkit-details-marker]:hidden">
+        문의·이의 있어요
+        <span class="text-stone-400 group-open:hidden" aria-hidden="true">+</span>
+      </summary>
+      <%= form_with url: viewer_promises_path(@invoice.token), method: :post, scope: :promise, class: "mt-3 grid gap-2.5" do |form| %>
+        <%= form.hidden_field :kind, value: "inquiry" %>
+        <%= form.text_area :memo, value: @promise.memo, rows: 4, maxlength: Promise::MEMO_MAX_LENGTH,
+              placeholder: "궁금한 점이나 이의가 있다면 자유롭게 적어 주세요.",
+              aria_label: "문의 내용",
+              class: "block w-full rounded-xl border border-stone-300 bg-white px-3.5 py-2.5 text-stone-800 shadow-sm transition placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-emerald-700/30" %>
+        <%= form.submit "등록",
+              class: "inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-xl bg-emerald-800 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+      <% end %>
+    </details>
+  </div>
+</section>
 
 <%# VIEW-5 — 하단 고지(P5 — 채무자 오인 방지). ③→① 링크 없음(SURF-4). %>
 <footer class="mt-10 border-t border-stone-100 pt-6">

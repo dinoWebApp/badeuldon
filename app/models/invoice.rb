@@ -34,6 +34,8 @@ class Invoice < ApplicationRecord
   belongs_to :client
   has_many :items, class_name: "InvoiceItem", dependent: :destroy, inverse_of: :invoice
   has_many :view_events, dependent: :destroy  # SHARE-3 — 열람 이력(뷰어 ③). 청구서 파괴 시 연쇄 삭제
+  has_many :promises, dependent: :destroy  # F-PROMISE — 응답·약속 이력(뷰어 ③). 연쇄 삭제는
+  # 초안 삭제에서만 실질 발생한다(발행 계열은 삭제 불가 — 초안은 뷰어 진입이 없어 응답이 없다).
 
   # 초안 작성·수정 폼 — 품목 행 동적 편집(nested attributes). 완전 공백 행은 폼에서 폐기한다.
   accepts_nested_attributes_for :items, allow_destroy: true, reject_if: :all_blank
@@ -155,6 +157,15 @@ class Invoice < ApplicationRecord
   def mark_viewed!
     self.class.where(id: id, status: self.class.statuses.fetch(:issued))
         .update_all(status: self.class.statuses.fetch(:viewed), updated_at: Time.current) == 1
+  end
+
+  # INV-4 — 약속 접수 전이(issued|viewed→promised). mark_viewed!와 동일한 status 조건부 UPDATE로
+  # 원자화해 동시 응답에서도 정확히 1회 적용된다. paid_report·inquiry 접수는 호출되지 않고
+  # 상태를 바꾸지 않는다(PROMISE-7 — 수금 마감은 U1 확인으로만). 이미 promised 등으로
+  # 조건 불일치면 무변경(false) — 약속 재응답(이력 보존)도 흡수한다.
+  def mark_promised!
+    self.class.where(id: id, status: self.class.statuses.slice(:issued, :viewed).values)
+        .update_all(status: self.class.statuses.fetch(:promised), updated_at: Time.current) == 1
   end
 
   # 금액 산식(정수 원) — 폼 실시간 요약(invoice_form_controller.js)과 동일 산식을 유지하고

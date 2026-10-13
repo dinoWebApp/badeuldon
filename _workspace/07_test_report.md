@@ -1,143 +1,129 @@
-# 07_test_report.md — F-SHARE 열람 추적 + F-VIEW 뷰어 + 링크 UI 테스트 (Phase 7)
+# 07_test_report.md — F-PROMISE 응답(약속) 수집 Phase 7 테스트
 
-- **일자**: 2026-10-12
-- **작성자**: ViewerTester (badeuldon-test-patterns 준거)
-- **대상**: F-SHARE 열람 추적·F-VIEW 채무자 뷰어(표면 ③)·발행 상세 링크 UI + **저장소 첫 시스템 테스트(capybara) 도입**
-- **시나리오 기준**: `_workspace/03_implementation.md` §2·§4·§5, `_workspace/05_review.md` §3·§7·§8, PRD SHARE-1/2/3·VIEW-2/3/5/6/8·INV-4/6·PAY-3·SURF-1/3/4
-- **코드 수정**: **0건** (리뷰 APPROVED — 발견 이슈 전부 테스트 오류로 자체 수정, §4)
+- **일자**: 2026-10-13 · **테스터**: PromiseTester
+- **대상**: `_workspace/03_implementation.md`(Phase 6 수정 3건 포함) 구현 전체 — 응답 4종 접수, 금요일 산정(결정 #1), INV-4 전이, 비인증 경로 보안, PROMISE-6/7, DASH-2, rate_limit
+- **기준**: PRD v0.18.6 §6.7(175-178 버튼 원문 대조 확인)·§6.11·§6.9·§6.4, `_workspace/05_review.md` §Tester 9건
+- **코드 수정**: 0건(규칙 준수 — 실패는 전부 원인 분류 후 보고). 신규 테스트 파일 8종 + fixture 1종
 
----
+## Status: 코드 버그 1건 검출 → Developer 수정 완료 → **전 스위트 GREEN**
 
-## 1. 최종 결과
+- **BLOCKER 1(코드 버그)**: `ViewerController#create` 전 POST 경로 500 — Developer 수정(키워드 명시 추출) 랜딩 후 **재실행 전부 통과**(§6). 테스트 오류 4건은 자체 수정하여 해소(`answered?` 부재 메서드 2건·스코프 기대값 누락 1건·프로필 미완료 사용자 가드 간섭 1건)
 
-| 항목 | 결과 |
-|:---|:---|
-| `bin/rails test` 전체 회귀 | **256 runs, 1,548 assertions, 0 failures, 0 errors, 0 skips** ✅ (시드 2회 재실행 동일) |
-| `bin/rails test:system` | **3 runs, 17 assertions, 0 failures, 0 errors, 0 skips** ✅ (첫 도입) |
-| 기존 대비 | 228 runs(실패 2건) → 256 runs(실패 0건) — 신규 +28 케이스, 시스템 +3 케이스 |
-| `bin/rubocop` | **80 files inspected, no offenses** ✅ |
-| 코드 수정 | **0건** |
-| 외부 API 실호출 | 0건 (대상 로직에 핵클·토스 호출 없음 — stub 불필요) |
-| 테스트 DB 오염 | 없음 — 경합 테스트 자체 청소 확인(9개 DB 전수 `viewer-race` 잔존 0) |
+## 1. 실행 결과 요약 (최종 — 코드 수정 반영 후 재실행)
 
-### 신규·갱신 파일
+| 스위트 | runs | 통과 | 실패 | 오류 | 비고 |
+|---|---|---|---|---|---|
+| 전체 `bin/rails test` | **323** | **323** | **0** | **0** | 기존 258건 회귀 0 + 신규 65건 전부 통과 (1,913 assertions) |
+| 시스템 `bin/rails test:system` | **4** | **4** | **0** | **0** | 기존 3건 + 신규 응답 여정 1건 |
+| `bin/rubocop`(전체) | 92 files | — | — | — | **0 offenses** |
+| `bin/rails zeitwerk:check` | — | — | — | — | 통과 ("Otherwise, all is good!") |
 
-| 파일 | 내용 |
-|:---|:---|
-| `test/controllers/viewer_controller_test.rb` | **신규 14 케이스** — 토큰 매트릭스 5종+초안·최초/재열람 추적·device 판별·VIEW-6 404 본문 무차이·VIEW-8 앵커 0·noindex·원천징수 안내 |
-| `test/services/view_events/track_service_test.rb` | **신규 6 케이스** — 서비스 단위(first 플래그·재기록·비-issued 가드)·UA 판별 경계·조건부 UPDATE 계약·**2스레드 실시간 경합**(별도 클래스) |
-| `test/controllers/app/invoices_controller_test.rb` | **갱신 2건**(§2) + **신규 8 케이스** — 재발급 303·turbo_confirm·소유권·linkable 스코프·만료 임박/만료 분기·열람 이력 요약 |
-| `test/application_system_test_case.rb` · `test/system/viewer_test.rb` | **신규(첫 시스템 테스트)** 3 케이스 — 뷰어 여정·clipboard 복사·fallback·VIEW-6 여정·VIEW-8 DOM |
-| `test/fixtures/view_events.yml` | 신규 — delta_viewed 열람 이력 2건(최초 mobile·재열람 pc) |
-| `test/fixtures/invoices.yml` | `token_expires_at` 8건 KST 오프셋 명시(§4 #2·#3 — 기존 어설션 영향 0 사전 확인) |
+### 파일별 결과
 
----
+| 파일 | runs | 결과 |
+|---|---|---|
+| `test/models/promise_test.rb` (신규) | 22 | **22/22 PASS** — 금요일 산정 5분기+주말 금지+주입 덮어쓰기, date_selected 당일/어제/빈값, memo 0/2,000/2,001, kind별 정규화 4종, 1문의 1답변, 스코프 |
+| `test/services/promises/register_service_test.rb` (신규) | 13 | **13/13 PASS** — 4종 접수·INV-4 전이·PROMISE-7 상태 불변·paid/voided/연체 시도(설계 의도)·재응답·조건부 UPDATE 멱등·트랜잭션 롤백·위조 kind·과거 차단 |
+| `test/controllers/viewer_promises_test.rb` (신규) | 15 | **15/15 PASS** — 렌더 3건 + POST 12건(4종 등록 303·과거 422·위조 422·주입 무시·재응답·이중 제출) |
+| `test/controllers/app/promises_controller_test.rb` (신규) | 6 | **6/6 PASS** — 답변 303·뷰어 표시·재답변 422 flash.now(Phase 6 #2)·빈 답변 422·타인 문의 404·이력 최신 배지 렌더 |
+| `test/controllers/app/dashboards_actions_test.rb` (신규) | 5 | **5/5 PASS** — 마감 대기/답변 대기 카드·소멸 조건 2종·소유권 격리·빈 상태 회귀 |
+| `test/controllers/viewer_promises_rate_limit_test.rb` (신규) | 4 | **4/4 PASS** — 유효 토큰 11회째 429·토큰별 분리·무효 토큰 카운트(404 가드 선행)·GET 미적용 |
+| `test/system/viewer_promise_test.rb` (신규) | 1 | **1/1 PASS** — 버튼→감사 화면→③ 복귀 여정 + promised 전이·금요일 산정 실측 |
 
-## 2. 기존 실패 2건 갱신 (명세 이행분 — 03 §4)
+## 2. 코드 버그 — `ViewerController#create` 전 POST 500 (검출 → Developer 수정 완료 → 재검 PASS)
 
-| 기존 테스트 | 갱신 내용 | 결과 |
-|:---|:---|:---|
-| `상세는 …토큰을 노출하지 않는다`(어설션 :64) | → **「상세는 청구 정보·계좌·품목·금액 내역과 공유 링크 UI를 렌더한다 (INV-1·SHARE-1/6)」** — readonly input에 전체 URL(`viewer_url(token)`) 표시·복사 버튼(`data-action='clipboard#copy'`)·재발급 버튼(`turbo_confirm` 문구 포함) 어설션으로 대체 | ✅ |
-| `목록 상태 뱃지는 …`(어설션 :451) | 「대기 중」 count 2→**1**(delta_due_soon만 — delta_issued는 파생 연체로 주황) + **「열람」 count 1** 신설(viewed 뱃지 분리 — delta_viewed) | ✅ |
+**판정: 코드 버그(테스트 오류 아님). 코드 수정 금지 원칙에 따라 직접 수정하지 않고 Main에 Developer 수정 위임 보고 → Developer 수정(`viewer_controller.rb` — 키워드 명시 추출) 랜딩 후 재실행 전부 통과.**
 
----
+- **증상**: 수정 전 `RegisterService.new(invoice: @invoice, **promise_params)`가 실제 POST 전부에서 `ArgumentError (missing keyword: :kind)` → 500. 응답 접수 기능이 런타임에서 동작하지 않았다.
+- **원인(실측 확정)**: 프로젝트 런타임 **Ruby 4.0.7**에서 문자열 키 double-splat이 symbol 키워드에 바인딩되지 않는다. 최소 재현(바닐라 ruby): `def m(kind:); end; m(**{"kind"=>"x"})` → `ArgumentError`. `params.expect(promise: [...])`는 string-keyed Parameters를 반환하므로 kind가 전달되지 않는다. Ruby 3.x 자동 변환에 의존하던 코드로, 서비스 직접 호출(러너 실측)·정적 검토(리뷰)로는 검출되지 않았다.
+- **검출 경로**: Phase 7 신규 통합 테스트(컨트롤러 POST 계층) — 기존 스위트에 viewer#create POST 테스트가 없어 미검출이었다.
+- **수정 내용**: `kind: promise_params[:kind], promised_on: promise_params[:promised_on], memo: promise_params[:memo]` 명시 추출(스플랫 사이트는 앱 전체에서 이곳이 유일 — grep 실측). kind 누락 등 이례 입력도 기존 InvalidResponse(422) 계약으로 수렴 — 위조 kind 422 테스트가 회귀 가드.
+- **재검**: §6 재실행 목록 전부 PASS — viewer POST 12건·rate_limit 유효 토큰 2건·시스템 여정 1건 포함 전 스위트 0 failures/0 errors.
 
-## 3. 시나리오별 결과 (Rule ID → 검증)
+## 3. 시나리오별 결과 — 지시 시나리오 대응
 
-### 3.1 토큰 매트릭스 5종 + 초안 (VIEW-6 응답 통일) — 전부 통과
+### 응답 4종(뷰어 경로) — **PASS(POST 계층 포함)**
+| 시나리오 | 결과 | 근거 |
+|---|---|---|
+| this_week 등록 303·감사 화면·전이 | **PASS** — 303 PRG → 감사 화면(폼 0건) → promised 전이·이력 1건 | viewer_promises_test |
+| PROMISE-1 원문 버튼 문구 렌더 | **PASS** — PRD §6.7 175-178 원문 4종과 1자 일치(assert_select) | viewer_promises_test |
+| date_selected 당일·미래 | **PASS** — 10-16(당일)·10-30(미래) 303, 저장값 확인 | viewer_promises_test |
+| paid_report | **PASS** — 303 접수·상태 issued 불변·약속일 nil | viewer_promises_test |
+| inquiry memo 필수·빈값 422 | **PASS** — 빈값 422 + 안내 문구 + 잔재 0, 메모 정상 등록 303 | viewer_promises_test |
+| P3 개인정보 필드 부재 렌더 | **PASS** — password/email input 0건, 무가입 문구, 완료 화면 앵커 ③→③ 한정 | viewer_promises_test |
 
-| 시나리오 | 접근 | 결과 |
-|:--|:--|:--|
-| ① 정상 발행건 | 200·VIEW-2 헤더(발행인 표시명)·청구번호·품목·금액 분해·계좌 카드·PAY-3·VIEW-5 고지 | ✅ |
-| ② 만료 | `travel_to` 만료 경과 → 404 + VIEW-6 문구, **전이·이벤트 0건** | ✅ |
-| ③ 폐기(voided) | `void!` 후 이전 토큰 → 404 + VIEW-6, 이벤트 0건 | ✅ |
-| ④ 미존재 | 랜덤 43자 → 404 + VIEW-6, 이벤트 0건 | ✅ |
-| ⑤ 재발급 이전 | `regenerate_token!` 후 이전 토큰 → 404 + VIEW-6 | ✅ |
-| (보너스) 초안 | `token`·`token_expires_at` nil 단언 — 뷰어 진입 자체 불가 | ✅ |
+### 금요일 산정(travel_to, KST) — **5분기 전부 PASS**
+| 접수일 | 기대 | 실측 |
+|---|---|---|
+| 2026-10-12(월) | 10-16(금) | 10-16 ✓ |
+| 2026-10-14(수) | 10-16(금) | 10-16 ✓ |
+| 2026-10-16(금) | **당일 10-16** | 10-16 ✓ |
+| 2026-10-17(토) | 10-23(다음 주 금) | 10-23 ✓ |
+| 2026-10-18(일) | 10-23 | 10-23 ✓ |
 
-- **본문 무차이(누설 금지)**: ②③④⑤의 `<main>` 영역을 추출해 비교 — **uniq 1**(CSRF 메타 등 요청별 랜덤 요소 제외 기준, 05_review §3과 동일). 4건 모두 404.
-- **초안·무효 링크 미노출**: voided 상세 `h2 "청구서 링크"` 0건(INV-6).
+- 약속일 주말 금지(REM-3 정합)·클라이언트 주입값(1999-01-01) 서버 덮어쓰기 — 모델·서비스·컨트롤러 3계층 검증(컨트롤러 this_week POST 저장값 실측 포함).
 
-### 3.2 최초 열람·재열람 추적 (INV-4·SHARE-3) — 통과
-- **최초**: 200 + `issued→viewed` 전이 + 이벤트(`first=true`·device·ip 127.0.0.1·`viewed_at` = frozen KST — TIME-1)
-- **재열람**: 이벤트 2건(2번째 `first=false`·UA별 device)·**상태 유지·중복 전이 없음**
-- **viewed 상태 재방문**: fixtures 2건 + 신규 1건 = 3건, `first=false`, 상태 viewed 유지
-- **비-issued 가드(서비스 단위)**: paid 건에 TrackService 호출 → 이벤트는 기록, **상태는 paid 유지**(조건부 UPDATE 0행)
-- **조건부 UPDATE 계약**: `mark_viewed!` 1회차 true(1행) → 2회차 **false(0행)** — 동일 전이 정확히 1회(이슈 #2의 핵심 계약)
+### 과거 날짜 — 서버 재검증 — **PASS(3계층)**
+- 어제 지정(min 속성 우회 POST) → 422 + 「입금 예정일은 오늘 또는 그 이후」 + 상태·이력 무변화: POST 계층 실측 포함, 모델(어제 차단·당일 허용)·서비스(InvalidResponse·잔재 0) 계층 동일 확인.
 
-### 3.3 동시 첫 열람 경합 (이슈 #2 회귀 방지) — 통과
-- **2스레드 동시 TrackService 호출**(게이트로 동시 진입 유도, 스레드별 독립 커넥션) → 양쪽 `:ok`(예외 0)·최종 상태 **viewed**(전이 1회)·이벤트 1~2건(`first=true` 중복은 문서화된 허용 범위로 명시)·`first=true` 이벤트 반드시 존재
-- 트랜잭션 롤백이 불가한 실커밋 경합이므로 **별도 클래스**(`use_transactional_tests = false`)로 자체 시드·자체 청소(teardown에서 view_events→invoice_items→invoice→client→session→user FK 순 삭제)
-- **5회 반복 실행 안정**(1 runs 6 assertions × 5 전부 통과)
+### 전이(INV-4)
+| 시나리오 | 결과 |
+|---|---|
+| issued→promised(this_week) | **PASS**(서비스) |
+| viewed→promised(date_selected) | **PASS**(서비스) |
+| paid·voided 청구서 약속 시도 | **PASS — 설계 의도 확인**: 전이 없음(조건부 UPDATE 0행)·Promise 이력은 기록됨(이력 추가형 설계). 뷰어 진입 자체는 토큰 가드가 차단하므로 실제 도달 불가 경로다 |
+| 연체(저장 상태) 약속 시도 | **PASS — 리뷰 이슈 #4 재확인**: promised 전이 불가·이력 기록. F-REM 백로그 사안으로 현행 유지가 리뷰 확정과 일치 |
+| 동시 응답 원자성(전이 1회) | **PASS** — `mark_promised!` 2회 호출 시 2회째 false(0행 갱신), 이중 POST 시 전이 1회·이력 2건. 전이 단계 강제 실패 주입 시 기록까지 롤백(1트랜잭션 실측) |
+| 재약속 — 이력 2건·최신 표시 | **PASS** — fixture 2건 청구서에 제3의 응답 추가 → 이력 3건·`created_at desc, id desc` 첫 행이 최신, app 상세 「최신」 배지 첫 행 렌더 확인 |
 
-### 3.4 device 판별·시각 (SHARE-3·TIME-1) — 통과
-- 모바일 UA(iPhone 17.2)→`mobile`, 데스크톱 UA(Chrome 120)→`pc`, **UA 부재·빈값→pc**(서비스 단위)
-- `viewed_at` 주입 시각 그대로 기록 — `Time.zone.parse`와 정확 일치(UTC 시프트 없음)
-- 발행 상세 열람 이력 요약: 「최초 열람 2026-09-06 09:30」·「최근 열람 2026-09-20 18:05」·「2회」 — KST 표기, 이력 0건이면 요약 미렌더
+### PROMISE-7 — **PASS**
+- paid_report 접수 후 청구서 상태 불변(issued/promised 어느 쪽도) — 서비스 계층.
+- DASH-2 「마감 대기」 카드 표시(델타파트너스 · 330,000원 + 안내 문구 + 청구서 링크).
+- **표시 소멸 조건(설계 확인·기록)**: 카드 조건은 `unsettled ∩ paid_report` — 마감 확정(paid) 전까지 **카드가 지속되는 것이 정당**하다. 마감 자체는 PAY 도메인(후속)으로 U1 확인 경로만 존재하며, paid 전환 시 카드 소멸을 실측으로 확인(테스트: `update!(status: :paid)` → 카드 0건·답변 대기 카드는 유지). PRD ② U1 알림은 02 승인 해석대로 DASH-2 표시로 갈음.
 
-### 3.5 링크 UI·재발급 (SHARE-1/2/3·표면 ②) — 통과
-- **발행 상세 링크 영역**: 전체 URL readonly 표시·복사 버튼·재발급 버튼(`turbo_confirm` 문구 정확 일치·`_method=patch`)
-- **재발급 PATCH**: **303** + 새 토큰 43자·**`token_expires_at` 불변**(유효기간 유지)·상태 promised 유지·기존 ViewEvent 잔존 → 이전 토큰 404(VIEW-6)·신규 토큰 200
-- **소유권 격리**: 타 사용자(gamma) 재발급 PATCH → **404**·토큰 무변경
-- **linkable 스코프**: 초안·voided 재발급 PATCH → **404**(INV-6)
-- **만료 표기 3분기**: 만료 7일 이내 「만료 임박 — 2026-11-30까지 열람할 수 있습니다.」/ 경과 「링크 만료 — 유효기간(만기일 + 60일)이 지났습니다.」/ 정상 구간 표기 없음
+### PROMISE-6 — **5/5 PASS**
+- 답변 등록 303 + notice 「…거래처가…」(Phase 6 #3 용어) + answered_at KST 기록.
+- 뷰어 「발행인 답변」 표시(답변 본문 + 답변 시각) — 답변 직후 실측 + fixture 기준.
+- 재답변 차단 422 + **flash.now `#alert` 「문의에는 한 번만 답변할 수 있습니다」**(Phase 6 #2 — 기존 답변 값·시각 불변 확인).
+- 빈 답변 422 + `#alert` 「답변 내용을 입력해 주세요」 + answered_at 불변.
+- 타인 문의 답변 404(소유권 서브쿼리 격리 — 기록 무손상).
+- DASH-2 답변 대기 카드 → `answer!` 성공 후 카드 소멸.
 
-### 3.6 VIEW-8·SURF-3·PAY-3 — 통과
-- 뷰어 본문(정상·무효 모두) **`a[href]` 0개**·`nav` 0개·「로그인」 문구 0건(SURF-4 ③→① 차단)
-- noindex 메타 정상·무효 응답 모두 1건·content에 `noindex`(SURF-3) — robots.txt `/b/` 차단은 기존 `surf3_indexing_test` 회귀로 유지
-- 원천징수 건 뷰어: 「원천징수 (공급가액의 3.3%)」 −1,650원·**「입금하실 금액」 53,350원**·안내 문구(P1 지급액 관점)
+### 비인증 보안(Phase 6 #1 포함)
+| 시나리오 | 결과 |
+|---|---|
+| paid_report + promised_on 주입 | **PASS** — 저장값 nil(U1 타임라인 약속일 행 오염 원천 차단), memo 주입도 nil |
+| inquiry + promised_on 주입 | **PASS** — nil 저장·memo 보존 |
+| this_week 조작값(1999-01-01) | **PASS** — 서버 금요일로 덮어쓰기, memo 무시 |
+| answer·invoice_id 주입 | **PASS** — answer nil(U1 전용 파라미터 주입 불가)·invoice_id는 라우트 토큰으로만 결정 |
+| 위조 kind(“hacker”/“0”/“”/nil) | **PASS** — POST 계층 422 + 일반 문구(enum 정보 누출 없음), 서비스 계층 동일 확인 |
+| 무효 토큰 create·thanks | **PASS** — 열람과 동일 VIEW-6 404 |
 
-### 3.7 시스템 테스트 (첫 도입 — §5 환경 구성) — 3건 통과
-1. **뷰어 여정 E2E**: 발행 링크 접속 → VIEW-2 헤더·청구번호·품목·총액·PAY-3·VIEW-5 고지 표시 → **clipboard `writeText` 스텁으로 실제 전달값 단언**(「신한은행 110-234-567890 김델타」) + 「복사됨」 피드백 → **`a` 요소 0개**(VIEW-8)
-2. **클립보드 fallback**: `writeText` 거부 재현 → source 선택(`window.getSelection()` 값 단언) + 「선택됨 — 복사해 주세요」 라벨(05_review §8-b 3)
-3. **VIEW-6 여정**: 무효 토큰 → 안내 2문구·청구 내용 미노출·앵커 0개
+### rate_limit — 05_review 기법 결과
+- **기법**: 런타임 `Rails.cache` 교체는 무효(클래스 로드 시점 캡처) → **test 환경 스토어(NullStore)의 `#increment`만 MemoryStore로 위임**하는 런타임 주입으로 원래 rate_limit 선언을 그대로 통과. 사전 러너 실측으로 `ViewerController.config.cache_store.equal?(Rails.cache) == true` 확인(캡처 대상 = Rails.cache 동일 객체), 파일 수정 0건·setup 주입/teardown 복원.
+- **실측**: 무효 토큰 10회 404 후 **11회째 429**(404 가드보다 rate_limit 선행 확인), 유효 토큰 10건 후 **11회째 429 + 기록 10건**, 타 토큰은 자기 카운터로 차단 없음(토큰별 분리), GET show 12회 미적용(only: :create). 전부 PASS.
+- 기법 실패 시 스킵 사유 기록 요건 — **해당 없음(성공)**.
 
----
+### DASH-2 분기 — 기존 어설션 회귀 포함 **PASS**
+- 무액션(청구서 0건·타인 데이터만 존재) → 빈 상태 문구 유지(기존 어설션과 동일 결과).
+- 유액션 → 빈 상태 소멸·카드만 렌더. 소유권 — delta 소유 회신/문의가 gamma 대시보드에 비노출.
 
-## 4. 원인 분류 — 개발 중 실패 이력 (전부 테스트 오류, 코드 버그 0건)
+## 4. 회귀
 
-| # | 증상 | 원인 | 분류 |
-|:--|:---|:---|:---|
-| 1 | VIEW-5 고지문 `assert_select "p", text:` 불일치 | 고지 `<p>`는 두 문장을 `<br>`로 구분한 단락 — 정확 일치 어설션이 부적합, regex로 수정 | 테스트 오류 |
-| 2 | 열람 이력 표기 09:30 기대 ≠ 실제 18:30 | **fixture 무오프셋 datetime 문자열은 UTC로 저장**(KST 표기 9시간 시프트 — 실측 확인) → `viewed_at`에 `+0900` 명시 | 테스트 오류(설계 정정) |
-| 3 | 만료 임박 표기 불일치(기대 11-30 ≠ 실제 12-01) | #2와 동일 원인 — `token_expires_at` 무오프셋 저장 시 KST 다음 날이 됨. **`invoices.yml` 8건에 `+0900` 명시**(모델 발행값 = 만기일 end_of_day KST와 의미 일치). 기존 어설션은 `token_expires_at`을 발행 생성 경로(모델 생성값)에서만 비교해 영향 0 — 전수 grep 확인 | 테스트 오류(설계 정정) |
-| 4 | 타 사용자 재발급 테스트 TypeError | `assert_no_difference`는 수치 전용(토큰 String에 산술 시도) → before/after 캡처·`assert_equal`로 수정 | 테스트 오류 |
-| 5 | 경합 teardown FK 제약 실패 | `delete_all`은 `invoice_items` 연쇄 삭제를 우회 → teardown에 `invoice_items` 선삭제 추가 | 테스트 오류 |
+- 기존 258건: `promises.yml` 추가로 `fixtures :all`이 전 테스트에 Promise 행을 적재하지만 **기존 스위트 실패·오류 0건** — 충돌 소지 파일(뷰어 토큰 매트릭스·앱 상세·대시보드 빈 상태) 렌더 구조 사전 대조로 fixture 배치(delta_issued/overdue/paid/voided/draft는 응답 0건 유지) 설계.
+- 최종: `bin/rails test` **323 runs / 1,913 assertions / 0 failures / 0 errors / 0 skips**, `bin/rails test:system` **4 runs / 0 failures / 0 errors**.
+- `bin/rubocop` 전체 92 files **0 offenses**, `bin/rails zeitwerk:check` 통과(Developer 코드 수정 반영 후 전 게이트 재확인).
 
-추가 확인(이슈 없음): 05_review §8-a 5번 「422 재렌더 시 set_view_events 순서」는 재현 가능한 실패 경로가 void·재발급에 없음(스코프 before_action이 초안·무효를 404로 선차단)·issue 422의 초안은 이벤트 0건이 구조적으로 확정 — 기존 「4번째 발행 422」 회귀 테스트가 `render :show` 경로를 통과해 간접 검증됨.
+## 5. 원인 분류 총표
 
----
+| 분류 | 건수 | 내역 |
+|---|---|---|
+| 코드 버그 | **1종(15건 재현)** | viewer#create 키워드 스플랫(Ruby 4.0 문자열 키 미바인딩) — §2. Developer 수정 위임 → 수정 → 재검 PASS |
+| 테스트 오류 | 4건(자체 수정 해소) | `answered?` 부재 메서드 2건, 스코프 기대값이 비-답변 fixture 3건 누락 1건, beta(AUTH-1.3 미완료) 가드 간섭으로 404 검증 불가 → gamma 교체 1건 |
 
-## 5. 시스템 테스트 환경 구성 내역
+## 6. 재검 실행 이력(§2 수정 랜딩 후 — 전부 완료)
 
-| 항목 | 구성 |
-|:---|:---|
-| 케이스 베이스 | `test/application_system_test_case.rb` 신설 — `ActionDispatch::SystemTestCase` |
-| 드라이버 | `driven_by :selenium, using: :headless_chrome, screen_size: [430, 932]` — **모바일 뷰포트 고정**(VIEW-1 모바일 우선·DESIGN-6) |
-| 브라우저 | 로컬 **Google Chrome 154.0.8037.98**(macOS arm64) headless |
-| 드라이버 관리 | **Selenium Manager 자동**(selenium-webdriver 4.50.0) — chromedriver 별도 설치·PATH 설정 불필요, 최초 실행 시 `~/.cache/selenium` 캐시 생성 |
-| 앱 서버 | Puma 8.0.2 in-process(Capybara 기동, 127.0.0.1 랜덤 포트) |
-| 데이터 | 기존 fixtures 그대로(`fixtures :all`) — 별도 시드 불필요 |
-| 클립보드 | 권한 프롬프트 회피를 위해 `navigator.clipboard.writeText`를 `execute_script`로 스텁 — **실제 전달값을 `evaluate_script`로 단언**(권한 플래그·OS 설정 의존 제거) |
-| 헤드리스 실패 | 없음 — pty 환경 변수·가시 브라우저 대체 불필요, 통합 테스트 대체 없이 브라우저 E2E로 완주 |
-
----
-
-## 6. fixtures 설계 노트
-
-- **`view_events.yml` 신규**: delta_viewed에만 2건(최초 `first=true·mobile`·재열람 `first=false·pc`). issued 계열(delta_issued 등)은 **0건 기준**을 유지해 최초 열람(`first=true`)·만료·폐기 시 「이벤트 0건」을 검증. ip는 RFC 5737/10064 문서화 대역
-- **delta 소유 원칙 유지**: alpha·beta는 기존 테스트가 삭제를 단언하므로 이벤트를 붙이지 않음(전 Phase §6 계승)
-- **KST 오프셋 명시(TIME-1)**: fixture의 datetime 무오프셋 문자열은 UTC로 직렬화된다(실측 — §4 #2·#3). `token_expires_at`은 모델 발행값과 동일한 의미(만기일 end_of_day KST)로 8건 정정, `viewed_at` 2건 신규 작성 시 오프셋 포함. 헤더 주석에 사유 기록
-- **경합 테스트는 fixtures 미사용**: 커밋이 필요해 자체 시드(전용 이메일 사용자·거래처·발행건) + teardown FK 순서 삭제 — 전체 스위트와 DB 오염 없음(9개 DB 잔존 0 확인)
-
----
-
-## 7. Tester 완료 전 자체 점검
-
-- [x] 관련 Rule ID별 정상/경계/예외 커버 — SHARE-1(토큰 43자·정상 열람)·SHARE-2(만료 경계·재발급·유효기간 유지·만료 임박 7일 분기)·SHARE-3(최초/재열람·device·ip·viewed_at·이력 요약)·VIEW-2/3/5(문구·분해·고지)·VIEW-6(4종 404 본문 무차이·링크 없음)·VIEW-8(앵커 0·nav 0)·INV-4(전이 1회·초안 노출 불가)·INV-6(voided 폐기·재발급 거부·링크 미노출)·PAY-3(입금자명)·SURF-3(noindex)·SURF-4(③→① 없음)·TIME-1(travel_to·viewed_at·이력 KST)
-- [x] 외부 API 실호출 0건
-- [x] 미사용 정의 0건·`bin/rubocop` **no offenses**(80 files)·들여쓰기 2칸
-- [x] 전체 회귀 — `bin/rails test` **256 runs 0 failures**(시드 2회)·`bin/rails test:system` **3 runs 0 failures**
-- [x] 경합 테스트 5회 반복 안정·테스트 DB 잔존 0
-- [x] 실패 원인 분류 — §4(테스트 오류 5건 자체 수정, 코드 버그 0건)
-- [x] 05_review §8-a 1~8·§8-b 1~4 중점 영역 전부 커버(§8-a 5는 구조적 도달 불가 — §4 말미 근거 기록)
+1. `test/controllers/viewer_promises_test.rb` POST 12건 — **PASS**(4종 등록 303·과거 422·위조 422·주입 무시·재응답·이중 제출)
+2. `test/controllers/viewer_promises_rate_limit_test.rb` 유효 토큰 2건 — **PASS**(11회째 429·토큰별 분리)
+3. `test/system/viewer_promise_test.rb` — **PASS**(버튼→감사 화면 여정 + promised 전이·금요일 산정)
+4. 전체 `bin/rails test`(322 runs) + `bin/rails test:system`(4 runs) 재실행 — **0 failures / 0 errors 달성**
