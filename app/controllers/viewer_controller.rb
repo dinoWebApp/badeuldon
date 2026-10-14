@@ -5,6 +5,10 @@
 # 만료·폐기·미존재 토큰은 열람·응답·완료 화면 전 경로에서 동일한 VIEW-6 안내와 404로
 # 응답해 존재 여부를 구분하지 않는다.
 class ViewerController < ApplicationController
+  # VIEW-1 — 구형·인앱 브라우저 406 게이트 해제는 공용 concern으로 추출했다(카카오톡 인앱
+  # 실측·actionpack 8.1 제약 등 메커니즘 상세는 AllowAllBrowsers 주석).
+  include AllowAllBrowsers
+
   layout "viewer"
 
   # VIEW-1·P3 — 열람·응답·완료 화면 모두 어떤 로그인 요구도 없다(토큰 보유 = 권한).
@@ -17,7 +21,7 @@ class ViewerController < ApplicationController
 
   def show
     ViewEvents::TrackService.new(
-      invoice: @invoice, user_agent: request.user_agent, ip: request.remote_ip
+      invoice: @invoice, user_agent: request.user_agent, ip: viewer_client_ip
     ).call
     @answered_inquiries = @invoice.promises.inquiry.answered.order(:answered_at, :id)  # PROMISE-6
     @promise = @invoice.promises.build  # 응답 폼 베이스 — 검증 실패 422 재렌더 시 입력 보존
@@ -57,6 +61,13 @@ class ViewerController < ApplicationController
     render :expired, status: :not_found unless link_accessible?
   end
 
+  # CF Tunnel 경유 요청의 실방문자 IP(SHARE-3) — Cloudflare가 설정하는 CF-Connecting-IP를
+  # 우선 사용하고, 터널 외 직접 접근(헤더 없음) 시 remote_ip로 fallback한다. ViewEvent 기록 전용
+  # (전역 remote_ip 재계산은 후속 과제).
+  def viewer_client_ip
+    request.headers["CF-Connecting-IP"].presence || request.remote_ip
+  end
+
   def link_accessible?
     @invoice.present? && !@invoice.voided? &&
       @invoice.token_expires_at.present? && @invoice.token_expires_at > Time.current
@@ -65,12 +76,4 @@ class ViewerController < ApplicationController
   def promise_params
     params.expect(promise: [ :kind, :promised_on, :memo ])
   end
-
-  # VIEW-1·P3 — 뷰어는 정적 문서 페이지(모던 JS 불필요, 클립보드 수동 복사 fallback 존재)라
-  # 모든 브라우저·인앱 웹뷰를 허용한다. 카카오톡 인앱 실측(iOS 16.x + Safari/604.1)에서
-  # ApplicationController 상속 정책(:modern)이 406으로 차단했다. actionpack 8.1은
-  # versions: :all을 지원하지 않고(NoMethodError 실증) 상속 before_action은 익명 람다라
-  # skip_before_action으로도 해제할 수 없어 같은 이름의 인스턴스 메서드를 no-op으로
-  # 대체해 이 표면에서만 게이트를 무효화한다. 랜딩·앱·관리자의 :modern 정책은 불변.
-  def allow_browser(**); end
 end

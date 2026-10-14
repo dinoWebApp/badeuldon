@@ -1,5 +1,7 @@
 # 회원가입 — AUTH-1(이메일/비밀번호), 가입 즉시 활성화(이메일 인증 링크 없음)
 class RegistrationsController < ApplicationController
+  # VIEW-1 — 인증 진입 화면도 공개 표면: 구형·인앱 브라우저 허용(AllowAllBrowsers).
+  include AllowAllBrowsers
   allow_unauthenticated_access only: %i[ new create ]
   rate_limit to: 10, within: 3.minutes, only: :create,
              with: -> { redirect_to new_registration_path, alert: "너무 많은 요청이 있었습니다. 잠시 후 다시 시도해 주세요." }

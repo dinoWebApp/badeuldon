@@ -1,7 +1,11 @@
 {
-  "domain": null,
-  "currentPhase": null,
-  "pipelineType": null,
-  "phaseHistory": [],
-  "lastUpdated": "2026-10-13T11:30:00+09:00"
+  "domain": "운영 배포 설정 + 첫 배포 실행",
+  "currentPhase": "awaiting_approval",
+  "pipelineType": "full",
+  "phaseHistory": [
+    { "phase": "phase0_context", "status": "DONE" },
+    { "phase": "phase1_plan", "status": "DONE" },
+    { "phase": "approval_gate", "status": "IN_PROGRESS" }
+  ],
+  "lastUpdated": "2026-10-14T10:00:00+09:00"
 }

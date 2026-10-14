@@ -1,10 +1,11 @@
 require "test_helper"
 
 # 표면 ③ 청구서 뷰어(/b/:token) 통합 테스트 — 토큰 매트릭스 5종+초안·최초/재열람 추적
-# (SHARE-3·INV-4)·device 판별·VIEW-1 구형·인앱 브라우저 406 회귀·VIEW-6 응답 통일(무효 4종 본문
-# 무차이)·VIEW-8 화이트리스트·noindex(SURF-3). 시나리오 기준: _workspace/03_implementation.md §2·§4,
-# _workspace/05_review.md §3·§8-a. 시간 의존 검증(만료 경계·viewed_at)은 travel_to로
-# KST를 고정한다(TIME-1). 외부 API 호출 없음.
+# (SHARE-3·INV-4)·device 판별·CF-Connecting-IP 실방문자 IP 기록(SHARE-3)·VIEW-1 구형·인앱
+# 브라우저 406 회귀·VIEW-6 응답 통일(무효 4종 본문 무차이)·VIEW-8 화이트리스트·noindex(SURF-3).
+# 시나리오 기준: _workspace/03_implementation.md §2·§4, _workspace/05_review.md §3·§8-a·
+# Tester 중점 제안. 시간 의존 검증(만료 경계·viewed_at)은 travel_to로 KST를 고정한다(TIME-1).
+# 외부 API 호출 없음.
 class ViewerControllerTest < ActionDispatch::IntegrationTest
   fixtures :invoices, :view_events
 
@@ -103,6 +104,77 @@ class ViewerControllerTest < ActionDispatch::IntegrationTest
     assert_equal 3, events.size
     assert_not events.last.first?
     assert_equal "pc", events.last.device
+  end
+
+  # ── CF-Connecting-IP 실방문자 IP 기록(SHARE-3 — 05_review Tester 중점 제안) ──
+  # CF Tunnel 경유 요청은 remote_ip가 터널을 가리킬 수 있으므로(05_review §2) Cloudflare가
+  # 설정하는 CF-Connecting-IP를 우선 기록하고, 없으면 기존 remote_ip fallback을 유지한다.
+  # ip 컬럼은 string limit 45 — IPv6 최장 표기(39·45자)까지 수용한다.
+
+  test "CF-Connecting-IP 헤더가 있으면 실방문자 IP를 기록한다 (SHARE-3)" do
+    invoice = invoices(:delta_issued)
+
+    get viewer_path(invoice.token), headers: { "User-Agent" => DESKTOP_UA, "CF-Connecting-IP" => "203.0.113.7" }
+    assert_response :success
+
+    assert invoice.reload.viewed?                                  # INV-4 — 헤더가 있어도 issued→viewed 1회 전이
+    event = invoice.view_events.sole
+    assert event.first?
+    assert_equal "203.0.113.7", event.ip
+  end
+
+  test "CF-Connecting-IP가 없으면 remote_ip fallback을 유지한다 (SHARE-3)" do
+    invoice = invoices(:delta_issued)
+
+    get viewer_path(invoice.token), headers: { "User-Agent" => DESKTOP_UA, "REMOTE_ADDR" => "198.51.100.77" }
+    assert_response :success
+
+    # 기존 "127.0.0.1" 기본값 회귀(최초 열람 테스트)와 별개로 fallback 원천이 remote_ip임을 명시한다.
+    assert_equal "198.51.100.77", invoice.view_events.sole.ip
+  end
+
+  test "빈 CF-Connecting-IP 헤더는 fallback으로 수렴한다 (SHARE-3 — .presence 분기)" do
+    invoice = invoices(:delta_issued)
+
+    get viewer_path(invoice.token), headers: {
+      "User-Agent" => DESKTOP_UA, "CF-Connecting-IP" => "", "REMOTE_ADDR" => "198.51.100.77"
+    }
+    assert_response :success
+
+    assert_equal "198.51.100.77", invoice.view_events.sole.ip
+  end
+
+  test "IPv6 IP는 45자 컬럼 한계 내 그대로 기록된다 (SHARE-3)" do
+    invoice = invoices(:delta_issued)
+    full_form = "2001:0db8:85a3:0000:0000:8a2e:0370:7334"          # 39자 — IPv6 전체 표기
+    mapped_45 = "0000:0000:0000:0000:0000:ffff:255.255.255.255"    # 45자 — IPv4 매핑 최장 표기(컬럼 경계)
+    assert_equal 39, full_form.length
+    assert_equal 45, mapped_45.length
+
+    get viewer_path(invoice.token), headers: { "User-Agent" => DESKTOP_UA, "CF-Connecting-IP" => full_form }
+    assert_response :success
+    get viewer_path(invoice.token), headers: { "User-Agent" => DESKTOP_UA, "CF-Connecting-IP" => mapped_45 }
+    assert_response :success
+
+    events = invoice.view_events.order(:viewed_at, :id)
+    assert_equal full_form, events.first.ip
+    assert_equal mapped_45, events.last.ip
+    assert invoice.reload.viewed?                                  # INV-4 — 이중 접속이어도 전이는 1회
+  end
+
+  test "CF-Connecting-IP가 바뀐 재열람은 상태·first 플래그에 무영향이다 (INV-4·SHARE-3)" do
+    invoice = invoices(:delta_issued)
+
+    get viewer_path(invoice.token), headers: { "User-Agent" => MOBILE_UA, "CF-Connecting-IP" => "203.0.113.7" }
+    assert_response :success
+    get viewer_path(invoice.token), headers: { "User-Agent" => DESKTOP_UA, "CF-Connecting-IP" => "198.51.100.77" }
+    assert_response :success
+
+    assert invoice.reload.viewed?
+    events = invoice.view_events.order(:viewed_at, :id)
+    assert_equal 2, events.size
+    assert events.first.first?
+    assert_not events.last.first?
   end
 
   # ── device 판별(SHARE-3 — UA 대략 판별) ──

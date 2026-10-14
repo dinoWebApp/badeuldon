@@ -1,0 +1,5 @@
+# buildx 빌더용 buildkit 설정 — Kamal이 생성하는 빌더(kamal-local-docker-container)에 주입
+# 공유 레지스트리(100.98.162.61:5000)가 HTTP이므로 빌더의 push가 HTTPS 시도하지 않도록 허용
+# (Tailscale 망 내 암호화 전제 — AGENTS.md 배포 인프라 참조)
+[registry."100.98.162.61:5000"]
+http = true

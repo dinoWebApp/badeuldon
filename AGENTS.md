@@ -148,6 +148,25 @@ bin/jobs             # Solid Queue 잡 프로세스 (웹과 별도 실행)
 |------|----------|------|------|
 | 2026-10-08 | 초기 하네스 구성 | 전체 | 신규 구축 (HARNESS_CONVENTION v3.2.0 기준) |
 
+## 배포 인프라 (운영 — 2026-10-14 구성)
+
+**도메인**: `badeuldon.kr` — Cloudflare가 SSL 종단(터널 방식, SSL 모드 설정 불필요)
+
+```
+사용자 → https badeuldon.kr → Cloudflare ─터널→ cloudflared(서버 도커 컨테이너)
+  → http localhost:3000 → kamal-proxy(127.0.0.1:3000 바인딩·무중단 전환)
+  → badeuldon-web(Puma) / badeuldon-job(Solid Queue — §11.3 분리)
+ 공유 레지스트리(registry:3, 100.98.162.61:5000 — 서버 인프라, Tailscale 인터페이스에만 바인딩)
+```
+
+- **서버 접근**: Tailscale `100.98.162.61`, SSH `kgj`(키 인증) — 공개 포트 0 (관리면 Tailscale·서비스면 CF 터널만)
+- **SSL**: CF 종단 → 앱은 http 수신 — `production.rb`의 `assume_ssl`+`force_ssl` 필수. 실방문자 IP는 `CF-Connecting-IP` 헤더(ViewEvent 기록에 사용)
+- **레지스트리(서버 공유 인프라)**: `100.98.162.61:5000`(HTTP — Tailscale 망 내) — **어느 앱에도 속하지 않는 독립 컨테이널**로 서버에서 직접 운영(`--name registry`, `--restart unless-stopped`, kamal 라벨 없음). badeuldon Kamal은 push/pull 대상으로만 참조(accessory 아님). 이 서버에 올릴 다른 서비스도 같은 레지스트리를 `image:` 이름으로 구분해 사용. 양단 Docker `insecure-registries` 등록 필요(서버 `/etc/docker/daemon.json` · 배포 PC Docker Desktop)
+- **cloudflared 컨테이너**: `restart: unless-stopped` — Docker 재시작 시 자동 복귀
+- **운영 명령**: `bin/kamal setup`(최초) · `deploy`(무중단) · `rollback` · `logs -f` · `console` · `app details`
+- **데이터**: SQLite 도커 볼륨 `badeuldon_storage` — 서버 백업 필수(주기 dump, 추후 Litestream). 레지스트리 데이터는 호스트 바인드 `/home/kgj/registry/registry_data`(공유 — 앱별 구분 없음). `config/master.key`는 비밀번호 매니저 보관
+- **크로스 빌드**: arm64 Mac → amd64 서버(`builder: arch: amd64`) — 첫 빌드 느림, 이후 캐시
+
 ## 구현 진행 상황 (로드맵)
 
 - **완료**: Rails 8.1 스켈레이션 생성, ARCHITECTURE_CONVENTION v1.0.0, 하네스 구축 + E2E 검증, 표면 ① 랜딩 골격, F-AUTH 인증(OAuth 폐기·Q8), 랜딩 전체 + UI 품질 기준 + AUTH-1.3 프로필(v0.18.1), /app 대시보드 뼈대(v0.18.2), F-CLIENT(v0.18.3), F-INV 청구서(v0.18.4), F-SHARE+F-VIEW 뷰어 개봉(v0.18.5), F-PROMISE 응답 수집(v0.18.6), **F-PAY 입금 처리**(`2026-10-13`, PRD v0.18.7 — Payment 모델(CHECK 제약), 원클릭 마감(PAY-1·잔액 전액·입금일 기록), 부분입금(PAY-2·잔액 재계산·잔액 도달 마감), with_lock+재검증 멱등(동시 마감 방어), DASH-1 잔액 기준 재계산·DASH-2 마감 대기 소멸, 0원 청구서 발행 차단. 테스트 358+4건. 리뷰 APPROVED — 멱등·동시성 30/30 실측, WARNING 2 수정·1 기록). **🏁 MVP 수금 루프(발행→열람→응답→마감) 완결**

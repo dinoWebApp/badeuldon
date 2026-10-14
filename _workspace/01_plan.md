@@ -1,48 +1,73 @@
-# 01_plan.md — F-PAY 입금 처리 (MVP 마지막 조각)
+# 01_plan.md — 운영 배포 설정 + 첫 배포 (Cloudflare Tunnel · Tailscale · 로컬 레지스트리)
 
-- **일자**: 2026-10-13
-- **pipelineType**: Full — 신규 엔티티(Payment)·마감 플로우·DASH 재계산
-- **도메인**: F-PAY (§6.8) + INV-4(paid/partially_paid 전이) + DASH-1 재계산·DASH-2 소멸
+- **일자**: 2026-10-14
+- **pipelineType**: Full — 배포 설정·코드 보강(CF IP)·**실서버 배포 실행**(Phase 8) 포함
+- **도메인**: F-EXT(운영 인프라) — PRD 명세 변경 없음
 
-## A. 구현 범위
+## 인프라 현황 (Phase 0 실측)
 
-### A-1. Payment 모델·마이그레이션
-- `Payment`: invoice_id(FK·인덱스), amount(integer 원 >0), paid_on(date — 기본 오늘, 과거 허용·미래 차단), created_at
-- Invoice has_many :payments (dependent: :destroy — 연쇄 순서 주의)
-- 검증: amount > 0·상한(총액 잔액 초과 등록 **차단** — 결정 #3), paid_on 미래 차단·당일/과거 허용
+| 항목 | 값 |
+|:---|:---|
+| 서버 | 물리 서버 · Tailscale `100.98.162.61` · SSH `kgj`(키 인증 BatchMode 통과) · Docker 29.7.2 · daemon.json 없음 |
+| 터널 | cloudflared **도커 컨테이너**(`dreamy_lederberg`, Up) + 호스트 프로세스 병렬 → CF에서 HTTPS 종단, `localhost:3000`로 포워드 |
+| PC | Docker 27.3.1 · insecure-registries 미설정(추가 필요) |
+| 레지스트리 | 서버 로컬 accessory(Tailscale 인터페이스 바인딩) 방침 확정 |
 
-### A-2. 마감·부분입금 로직 (Service — 다중 쓰기·전이)
-- `Payments::RecordService`: Payment 생성(트랜잭션) + 합계에 따른 전이
-  - 합계 ≥ 총액 → **`mark_paid!`(원자 전이)** — PAY-1 원클릭 마감(잔액 0)·입금일 = 마감 Payment.paid_on 자동 기록
-  - 합계 < 총액 → `mark_partially_paid!`(미수 계열 → partially_paid) — PAY-2 잔액 자동 재계산
-- 원클릭 전액 마감(PAY-1): 상세 화면 「입금 확인하고 마감」 버튼 — 잔액 전액 Payment 1건으로 마감(날짜 기본 오늘)
-- 전이 가드: voided·draft·이미 paid 마감 불가(422) — INV-4 준수. overdue는 파생 판정이라 부분입금 경로 포함
-- **잔액 계산**: total_amount - Σ payments — DASH-1 미수 총액·연체 금액도 **잔액 기준 재계산**
+## A. 문서 현행화 (Phase 2 — 오케스트레이터)
 
-### A-3. 화면 (표면 ② — 청구서 상세)
-- 입금 섹션: 입금 이력 목록(금액·날짜)·잔액 표시(tabular)·
-  - 「입금 확인하고 마감」 버튼(turbo_confirm — PAY-1)
-  - 「부분입금 기록」 폼(금액·날짔 — PAY-2)
-- paid 상태: 「수금 완료」 배지(녹색 DESIGN-2)·입금 이력 확정 표시·추가 기록 차단
-- **DASH-2 마감 대기 소멸**: paid_report 있던 청구서 마감 시 「마감 대기」 카드에서 제거
-- 뷰어(③): 변경 없음 (마감 권한은 U1만 — PROMISE-7 구조 유지)
+**AGENTS.md에 「배포 인프라」 섹션 신설**: Tailscale 주소·SSH 사용자, CF Tunnel→3000 구조(SSL은 CF 종단·`assume_ssl`), 로컬 레지스트리 accessory, insecure-registries 양단 설정 위치, kamal 운영 명령(setup/deploy/rollback/logs/console), cloudflared 컨테이너 restart 정책, SQLite 볼륨 백업 노트. (PRD 갱신 불요 — 제품 명세 무관, 사유 기록)
 
-### 후속 제외 (명시)
-- **PAY-4 감사 알림 발송** — 채널(알림톡·핵클) 미계약, SHARE-4/PROMISE-4 선례 연기 (결정 #1)
-- PAY-6 수금 완료 증빙 PDF — VIEW-4 PDF와 함께 후속
-- PROMISE-5 이행/미이행 거래처 카드 기록 — CLIENT-3/4와 함께 (이행 판정 데이터는 이번부터 축적)
-- PAY-5 계좌조회 자동화 — **구현하지 않음이 규칙 준수** (미구현 확정)
+## B. 구현 (Phase 3 — Developer)
 
-## B. 관련 Rule ID
-PAY-1/2(+3 뷰어 기존·5 부구현), INV-4(paid·partially_paid), DASH-1(잔액 재계산)·DASH-2(마감 대기 소멸), PROMISE-7(마감은 U1만), DESIGN-2(완료 녹색), TIME-1, SEC(마감 멱등 — 이중 클릭 방지)
+1. **`config/deploy.yml` 전면 확정**:
+   - `servers.web/job.hosts: [100.98.162.61]`, `ssh.user: kgj`
+   - `proxy: { ssl: false, http_port: 3000, bind_ips: [127.0.0.1] }` — cloudflared만 도달, 무중단 전환 유지
+   - `registry: { server: 100.98.162.61:5000 }` + `accessories.registry`(image registry:3, port `"100.98.162.61:5000:5000"` Tailscale 바인딩, 데이터 볼륨)
+   - `image: badeuldon`, `env.secret: [RAILS_MASTER_KEY]`, `SOLID_QUEUE_IN_PUMA` 제거(job 분리 §11.3)
+2. **`config/environments/production.rb`**: `assume_ssl = true` 주석 해제(force_ssl true 확인)
+3. **CF-Connecting-IP 보강(최소 범위)**: `ViewerController`의 ViewEvent IP 기록을 `request.headers["CF-Connecting-IP"].presence || request.remote_ip`로 — 터널 경유 시 실방문자 IP 기록(SHARE-3 정합). 전역 remote_ip 재계산 미들웨어는 후속
 
-## C. 결정 사항 (제안)
-1. **PAY-4 감사 알림 연기** — 채널 계약 시 옵션(기본 켬)과 함께 추가
-2. **PAY-6 PDF 후속**
-3. **부분입금 한도**: 잔액 초과 등록 **차단**(422) — 초과 입금은 기록 불가, 정확한 마감만 허용
-4. **마감 입금일**: 마감 시점 등록 값(기본 오늘, 과거 지정 가능)
+## C. 검증 (Phase 4·5·7)
 
-## D. 리스크
-- 이중 클릭/동시 마감 — 원자 전이+잔액 재검증으로 멱등 보장(리뷰·테스트 집중)
-- 부분입금 반복 한계(잔액 0 도달) — 합계 전이 정확성
-- DASH-1 집계 변경으로 기존 카드 테스트 갱신 다수 (Phase 7)
+- Phase 4: rubocop·zeitwerk + **`bin/kamal config`**(YAML 파스·role/accessory 검증)
+- Phase 5: 설정 정합 리뷰(프록시 바인딩·볼륨·시크릿 경로)
+- Phase 7: CF IP 헤더 테스트(헤더 있음/없음 fallback 2분기 + 기존 회귀)
+
+## D. 배포 실행 (Phase 8 — 오케스트레이터 직접, 실서버 조작)
+
+1. **사전**: cloudflared 컨테이너 `docker update --restart unless-stopped` (Docker 재시작 후 터널 자동 복귀)
+2. **서버**: `/etc/docker/daemon.json`에 `insecure-registries: ["100.98.162.61:5000"]` 생성 → `systemctl restart docker` → 컨테이너 복귀·터널 확인
+3. **PC**: Docker Desktop insecure-registries 추가 — **사용자 GUI 조작 1회 필요**(Settings → Docker Engine에 `"100.98.162.61:5000"` 추가·Apply) — 설정 파일 직접 편집은 버전 호환 리스크로 피함
+4. **`bin/kamal setup`**: 레지스트리 기동 → 이미지 빌드(arm64→amd64 크로스) → push → 배포 → `db:prepare` → `/up` 헬스체크
+5. **도메인 확인**: `https://도메인` 랜딩·/up 200 실측 (터널→3000→kamal-proxy→app)
+
+## 결정 사항 (제안)
+
+1. cloudflared 컨테이너 재시작 정책 `unless-stopped` 설정 — Docker 재시작 생존 보장
+2. PC insecure 등록은 사용자 GUI(가이드 제공, 나는 검증만) — Docker Desktop 설정 파일 편집 회피
+3. CF-IP 보강은 ViewEvent 최소 범위 — 전역 프록시 대응은 후속
+4. **Phase 8 검증을 위한 도메인 명칭 공유 필요**
+
+## 리스크
+
+- 크로스 빌드(arm64 Mac→amd64) 첫 빌드 10~20분 소요 가능 — 이후 레이어 캐시로 단축
+- Docker 재시작 순간 터널 수 초 단절(호스트 cloudflared 프로세스가 병렬 실행 중이라 이중화 완충)
+- Kamal 초기 setup 실패 시 원인별 대응(레지스트리 연결→insecure 플래그, 빌드→아키텍처)
+
+## Phase 6 (런북 정정 — 리뷰 BLOCKER 반영)
+
+§D-4 수정 — 첫 배포 시퀀스 (레지스트리 chicken-and-egg 해소):
+1. cloudflared 컨테이너 `docker update --restart unless-stopped`
+2. 서버 `/etc/docker/daemon.json` 생성(insecure-registries) → `systemctl restart docker` → cloudflared 자동 복귀 확인
+3. **레지스트리 1회 수동 기동** (kamal 라벨 부여 — 이후 kamal setup이 인식·이관):
+   `docker run -d --restart unless-stopped --label service=badeuldon-registry --network kamal -p 100.98.162.61:5000:5000 -v /home/kgj/badeuldon-registry/registry_data:/var/lib/registry registry:3`
+4. PC Docker Desktop insecure-registries에 `"100.98.162.61:5000"` 추가 (사용자 GUI)
+5. `bin/kamal setup` → 도메인 확인
+
+## Phase 8 정정 2 (공유 레지스트리 — 사용자 요청)
+
+서버에 여러 서비스를 올리므로 레지스트리를 badeuldon accessory가 아닌 **서버 공유 인프라**로 분리:
+- deploy.yml `accessories:` 제거(kamal config 통과), `registry:` 섹션(push/pull 대상) 유지
+- 서버 기동 명령 변경 — kamal 라벨 제거·`--name registry`·데이터 경로 `/home/kgj/registry/registry_data`:
+  `docker run -d --name registry --restart unless-stopped -p 100.98.162.61:5000:5000 -v /home/kgj/registry/registry_data:/var/lib/registry registry:3`
+- 이후 다른 서비스도 `registry.server: 100.98.162.61:5000` + 고유 `image:` 이름으로 같은 레지스트리 사용

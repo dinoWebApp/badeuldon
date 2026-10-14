@@ -1,6 +1,8 @@
 # 비밀번호 재설정(AUTH-8) — 이메일로 1회성 만료 링크 발송(has_secure_password reset token, 15분).
 # 발송 서비스는 EXT 표 미확정 — Action Mailer 기본 발송(개발 환경 로그), 실발송 연결은 후속 작업.
 class PasswordsController < ApplicationController
+  # VIEW-1 — 인증 진입 화면도 공개 표면: 구형·인앱 브라우저 허용(AllowAllBrowsers).
+  include AllowAllBrowsers
   allow_unauthenticated_access
   before_action :set_user_by_token, only: %i[ edit update ]
   rate_limit to: 10, within: 3.minutes, only: :create,
