@@ -1,77 +1,58 @@
-# 03_implementation.md — 랜딩 4건 수정 구현 보고 [v2]
+# 03 구현 내역 — 로그인 사용자 랜딩→서비스 원클릭 복귀
 
-- **일자**: 2026-10-14
-- **담당**: Developer (LandingFixDeveloper)
-- **기준**: `_workspace/01_plan.md` v2 · PRD v0.19 (LP-1/2/4/5/10·Q6)
+- 날짜: 2026-10-15
+- 담당: LoginUxDeveloper
+- 기준: 오케스트레이터 구현 지시서(3건), `_workspace/01_plan.md`
+- 관련 규칙: SURF-4(①→② 진입), SURF-1(랜딩 비로그인 공개 유지), AUTH-1
 
-## 변경 파일 요약
+## 1. 변경 파일
 
-| 파일 | 건 | 변경 |
-|:---|:---|:---|
-| `app/views/landing/_hero.html.erb` | 1 | h1 헤드라인 교체 |
-| `app/views/landing/_closing.html.erb` | 1 | 최종 CTA h2 헤드라인 교체(LP-10 반복 구조 유지) |
-| `app/views/landing/index.html.erb` | 1 | `content_for :title`·`:description` 갱신 |
-| `app/views/landing/_pain.html.erb` | 3 | 오타 「보넸는데」→「보냈는데」 |
-| `app/views/landing/_features.html.erb` | 3 | 오타 「보넸는지」→「보냈는지」 |
-| `app/views/layouts/landing.html.erb` | 2 | 푸터 사업자 정보 4종 추가(LP-10) |
-| `app/views/landing/_message_samples.html.erb` | 4 | 카톡 버블형 UI 재구성(LP-5) |
-
-기존 테스트 파일 수정 없음(Phase 7 Tester 원칙). 신규 파일·마이그레이션 없음.
-
-## 1. 헤드라인 교체 (LP-1·Q6 번복)
-
-- `_hero.html.erb` h1: 「말하기 어려운 '돈 다오', 받을돈이 대신합니다」→ **「독촉하기 어려울 때,<br>받을돈이 대신합니다」**
-- `_closing.html.erb` h2: 동일 신규 문구로 갱신 — 히어로 메시지 반복 구조(LP-10)·CTA 링크(`new_registration_path` 2개) 유지
-- `index.html.erb`: `content_for :title` → 「받을돈 — 독촉하기 어려울 때, 받을돈이 대신합니다」. 메타 description 선두 문장도 구 헤드라인 어순(「말하기 어려운 독촉」)을 담고 있어 동일 신규 문구로 일관 갱신(후속 검증용 description 매칭 `/수금 루프/`는 유지)
-- `landing_controller.rb`·`layouts/_head.html.erb` 폴백 타이틀에는 구 문구 없음 — 확인 후 미변경
-
-## 2. 푸터 사업자 정보 (LP-10)
-
-`app/views/layouts/landing.html.erb` 푸터(랜딩 전용 레이아웃 — LP-10 하단 고정 크롬):
-
-- 법정 필수 4종만 표기: **상호: 벨로루프 | 대표: 김건준 | 사업자등록번호: 539-14-03399 | 주소: 경기도 김포시 김포한강8로 158, 6층 604-n112호(마산동)**
-- 생년월일·개업일 미노출(지시 준수)
-- 레이아웃: 브랜드+문의 채널 행과 사업자 정보 행을 `border-t`(구분선)로 분리, `text-xs text-stone-500` 작은 글씨, 항목 구분은 `text-stone-300` 파이프(장식 — `aria-hidden`)
-- 기존 문의 채널(카카오톡 채널 ‘받을돈’)·© 2026 받을돈 유지 — 기존 LP-10 테스트 단정 호환
-
-## 3. 오타 수정 (LP-2·LP-4)
-
-- `_pain.html.erb`: 「청구서를 **보넸는데**」→「**보냈는데**」(LP-2 공감 인용 ①)
-- `_features.html.erb`: 「**보넸는지**, 언제 봤는지 알립니다」→「**보냈는지**」(LP-4 이점 문장 ①)
-- 랜딩 파셜 10종 전수 확인(`보넸` grep: 상기 2건이 전부). 기타 오타·어색한 표현 추가 발견 없음
-- LP-2 인용의 「열어는 봤는지」는 PRD 지정 원문·테스트 단정 대상이라 원문 유지
-
-## 4. LP-5 발신 문구 버블형 UI 구조화
-
-`_message_samples.html.erb` 재작성:
-
-- **발신자**: 좌측 텍스트 원형 프로필 아이콘(「받」, `rounded-full bg-emerald-800`) + 발신자명 「받을돈」(REM-1 서비스 명의)
-- **버블**: 카톡 노란색 `bg-[#FEE500]` + `rounded-2xl` 라운딩 + 좌측 꼬리(`before` 회전 사각형 의사요소)
-- **버블 내부 개행 구분 3블록**: ① 인사말 「안녕하세요. 받을돈입니다.」 → ② 본문(청구 내역·안내 — 단계별 REM-2 톤 유지, `[ ]` 자리표기 존치) → ③ 링크 표시 `badeuldon.kr/b/[청구서 토큰]`
-- **수신 시간**: 버블 우측 하단 `text-[10px] text-stone-400` (오전 9:00~오후 2:00 — REM-3 발송 창 09~18시 내 예시값)
-- **배치**: 4단계 각각 별도 카드, sm 2열 그리드에서 D-1 → D+1 → D+7 → D+14 순 유지
-- **규칙 준수**: D+14 「이번 안내로 정기 리마인더를 마칩니다」 유지(Q2 법적 조치·내용증명 언급 없음, 「마지막 알림」 표현 없음), 링크는 표시 전용 텍스트(앵커 아님 — SURF-4 ① 표면 단일 진입 유지)
-
-## §4 실패 예상 테스트(구 헤드라인·구 문구 단정 — Tester 갱신 대상)
-
-`bin/rails test` 실측: **363 runs, 2208 assertions, 4 failures, 0 errors, 0 skips** — 실패 전부 아래 4건이며 예상 목록과 정확히 일치:
-
-| # | 테스트 (test/controllers/landing_controller_test.rb) | 단정 위치 | 원인 |
-|:---|:---|:---|:---|
-| 1 | `h1 헤드라인이 Q6 확정 문구와 일치한다 (LP-1)` | :17 | 구 문구 정규식 `/말하기 어려운 '돈 다오',\s*받을돈이 대신합니다/` → 실제 신규 문구 |
-| 2 | `표면 ①은 noindex 없이 content_for :title을 렌더한다 (SURF-3)` | :60 | 구 타이틀 정규식 → 실제 「받을돈 — 독촉하기 어려울 때, 받을돈이 대신합니다」 |
-| 3 | `LP-2 공감 인용 3종이 PRD 원문으로 노출된다 (LP-2)` | :82 | `/청구서를 보넸는데…/` → 실제 「보냈는데」 |
-| 4 | `LP-4 이점 문장 3종이 PRD 원문으로 노출된다 (LP-4)` | :97 | `/보넸는지, 언제 봤는지 알립니다/` → 실제 「보냈는지」 |
-
-※ PRD v0.19에서 해당 단정 대상 문구(LP-1 타이틀·LP-2·LP-4)가 이미 번복·수정되었으므로 테스트 기대값 갱신이 정합. LP-5 버블 구조·LP-10 사업자 정보 관련 신규 실패 없음(기존 단정 모두 통과).
-
-## 자체 점검 결과
-
-| 항목 | 결과 |
+| 파일 | 변경 |
 |:---|:---|
-| `bin/rubocop` | **101 files inspected, no offenses** (0 에러) |
-| `bin/rails zeitwerk:check` | **all is good** 통과 |
-| `bin/rails test` | 363 runs / 4 failures(위 §4 4건뿐) / 0 errors / 0 skips |
-| 마이그레이션 | 없음 — `db:migrate`·schema 불필요 |
-| 뷰어(③)·규칙 영향 | 없음 — 랜딩(①) 마크업만 변경, 마케팅 문구의 SURF-4 단일 진입·LP-12 금지어(보장/100%)·Q2 제약 회귀 테스트 전부 통과 |
-| 서버 기동·테스트 작성 | 지시대로 수행하지 않음 |
+| `app/views/layouts/landing.html.erb` | 헤더에 `authenticated?` 분기 추가 — 로그인 시 「대시보드로 가기」 링크(`app_root_path`) 표시 |
+| `app/controllers/registrations_controller.rb` | `before_action :redirect_if_authenticated, only: %i[new create]` + private 가드 메서드 추가 |
+| `app/controllers/sessions_controller.rb` | `before_action :redirect_if_authenticated, only: :new` + private 가드 메서드 추가 |
+
+## 2. 수정 내역 (지시 3건 대응)
+
+### 1) 랜딩 헤더 — `layouts/landing.html.erb`
+- `authenticated?` true → 헤더 우측에 「대시보드로 가기」(`app_root_path`). 디자인 톤은 히어로 주 CTA와 동일한 emerald 계열(배경 `emerald-800`·hover `emerald-900`·포커스 링 `emerald-700`).
+- false → 기존 그대로(워드마크만 노출, 링크 없음). 비로그인 ①→② 진입은 히어로 가입 CTA 단일(SURF-4) 유지.
+- 레이아웃 상단 주석을 조건부 표시에 맞게 갱신.
+- **불변 유지 확인**: 히어로 주 CTA(`_hero.html.erb`의 「무료로 시작하기」→`new_registration_path`)는 건드리지 않음. 로그인 사용자가 클릭하면 2)번 가드가 `/app`으로 되돌림.
+
+### 2) 가입 화면 리다이렉트 — `RegistrationsController`
+- `new`·`create` 모두 `redirect_to app_root_url, status: :see_other` (303).
+- 구현: 액션 초입 분기 대신 `before_action :redirect_if_authenticated, only: %i[new create]` — 액션 본문은 그대로 유지(10줄 이내 규칙).
+- `before_action`을 `rate_limit` 선언 **앞에** 배치해 로그인 사용자의 `create` 요청이 rate limit 카운트를 소모하지 않도록 함.
+- private 가드: `redirect_to app_root_url, status: :see_other if authenticated?`
+
+### 3) 로그인 화면 리다이렉트 — `SessionsController`
+- `new`만 가드. `create`는 불변(재로그인 시도 정상 처리) — `only: :new`.
+- 가드 메서드·배치는 2)와 동일 패턴.
+
+## 3. 구현 판단 사항 (지시서 대비 실제 코드 차이)
+
+- 지시서의 `logged_in?` 헬퍼는 코드베이스에 존재하지 않음 → Authentication concern의 기존 `helper_method :authenticated?`를 사용(두 번째 컨벤션 생성 방지). `authenticated?`는 `resume_session`을 반환하므로 쿠키는 있으나 세션이 만료·파기된 경우 falsy → 비로그인 UI 정상 노출.
+- 지시서는 헤더에 기존 「무료로 시작하기」·「로그인」 링크가 있다고 기술했으나 실제 헤더는 워드마크만 노출(SURF-4 주석 확인) → 비로그인 분기는 현상 유지, 링크를 새로 추가하지 않음(추가 시 SURF-4 단일 진입 위반이므로).
+- 리다이렉트 대상은 지시서대로 `app_root_url` 사용(`after_authentication_url`의 기존 패턴과 일치), 헤더 링크는 `app_root_path`.
+
+## 4. 자체 점검 결과
+
+- `bin/rubocop`: **0 위반** (101 files inspected, no offenses)
+- `bin/rails zeitwerk:check`: **통과** (test/mailers/previews 경고는 기존 상태, 무관)
+- `bin/rails test`: **366 runs, 2296 assertions, 0 failures, 0 errors, 0 skips**
+
+### 실패 예상 테스트
+- **없음 (실측 0 실패)**. 예상 근거: 랜딩·인증 화면 관련 기존 테스트는 전부 비로그인 컨텍스트다.
+  - `LandingControllerTest` — 모두 `get root_url` 비로그인 호출. 「a 요소는 가입 진입이 유일」(SURF-4) 테스트도 비로그인 렌더 기준이라 신규 링크가 렌더되지 않아 통과.
+  - `SessionsControllerTest` / `RegistrationsControllerTest` — `GET /session/new`, `GET /registration/new` 및 각종 `post` 모두 비로그인. 로그인 상태에서 인증 화면 접근 케이스는 기존 테스트에 없음 → 갱신 대상 0건.
+- 테스트 작성은 지시상 금지(수정 없음).
+
+## 5. Rule ID 매핑
+
+| 변경 | 근거 |
+|:---|:---|
+| 헤더 로그인 분기 | UX 결함 수정 지시 — SURF-4는 비로그인 진입 규칙으로 유지(비로그인 시 링크 없음) |
+| 가입·로그인 화면 303 리다이렉트 | UX 결함 수정 지시 — 로그인 사용자 /app 원클릭 복귀 |
+| 랜딩 비로그인 접근 유지 | SURF-1 (변경 없음) |

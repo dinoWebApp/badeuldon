@@ -6,10 +6,15 @@
 
   <body class="min-h-dvh">
     <%# 표면 ① 랜딩 전용 레이아웃(SURF-6 — 앱 자원·내비 미포함).
-        상단 바는 워드마크만 노출하고 링크를 두지 않는다 — ①→② 진입은 가입 CTA 단일(SURF-4). %>
+        비로그인 상단 바는 워드마크만 노출하고 링크를 두지 않는다 — ①→② 진입은 가입 CTA 단일(SURF-4).
+        로그인 사용자에게는 서비스 복귀용 대시보드 링크만 노출한다. %>
     <header class="sticky top-0 z-10 border-b border-stone-200/80 bg-cream/90 backdrop-blur">
       <div class="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
         <span class="text-lg font-extrabold tracking-tight text-emerald-900">받을돈</span>
+        <% if authenticated? %>
+          <%= link_to "대시보드로 가기", app_root_path,
+                class: "rounded-lg bg-emerald-800 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+        <% end %>
       </div>
     </header>
 
