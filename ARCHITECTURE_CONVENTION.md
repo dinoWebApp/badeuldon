@@ -1,7 +1,7 @@
 # Architecture Convention — Ruby on Rails 풀스택 아키텍처 구성 규약
 
-**버전**: 1.0.0
-**최종 수정일**: 2026-09-21
+**버전**: 1.1.0
+**최종 수정일**: 2026-10-14
 **문서 기준**: https://guides.rubyonrails.org/ 공식 문서 (Rails 8.1)
 
 ---
@@ -1231,7 +1231,156 @@ Puma는 멀티스레드로 동작한다:
 2. 요청 간 공유가 필요한 값은 `Current` 속성(요청 스코프) 또는 세션에
 3. 무상태 Service/Query 객체는 재사용 안 해도 되게 생성 비용을 최소화한다 — 스레드 안전은 무상태로 보장한다
 
----
+## 12. 배포 아키텍처 — Kamal + Cloudflare Tunnel + Tailscale (2026-10-14 확정)
+
+사내 Rails 프로젝트의 표준 배포 토폴로지다. 관리면(SSH·배포)은 **Tailscale 사설망**, 서비스면(사용자 트래픽)은 **Cloudflare Tunnel**로 공개 노출 포트 0을 유지한다.
+
+### 12.1 토폴로지
+
+```
+사용자 → https <도메인> → Cloudflare(SSL 종단) ─터널→ cloudflared(서버, 호스트 네트워크)
+  → http localhost:<포트> → kamal-proxy(127.0.0.1:<포트> 바인딩·무중단 전환)
+  → <service>-web(Puma) / <service>-job(Solid Queue — 별도 role)
+  공유 레지스트리(registry:3, Tailscale 인터페이스에만 바인딩)
+```
+
+### 12.2 Kamal 구성 표준 (config/deploy.yml)
+
+```yaml
+servers:
+  web:
+    - <Tailscale IP>
+  job:                        # §11.3 — 웹과 잡 분리
+    hosts:
+      - <Tailscale IP>
+    cmd: bin/jobs
+
+ssh:
+  user: <서버 사용자명>
+
+proxy:
+  ssl: false                  # SSL은 Cloudflare가 종단 — 프록시는 HTTP
+  run:
+    http_port: <포트>          # cloudflared가 가리키는 포트와 일치
+    bind_ips: [ 127.0.0.1 ]   # 오직 로컬 cloudflared만 도달 (공개·LAN 직접 접근 차단)
+
+registry:
+  server: <Tailscale IP>:5000 # 공유 레지스트리 — 여러 앱이 image: 이름으로 구분共用
+  username: <더미>             # registry:3 무인증 — Kamal 검증 충족용
+  password:
+    - KAMAL_REGISTRY_PASSWORD # .kamal/secrets 참조(더미값)
+
+env:
+  secret:
+    - RAILS_MASTER_KEY
+  # SOLID_QUEUE_IN_PUMA 제거 — job role로 분리(§11.3)
+
+builder:
+  arch: amd64                 # arm64 Mac → amd64 서버 크로스 빌드
+
+volumes:
+  - "<service>_storage:/rails/storage"   # SQLite + Active Storage 영속 볼륨
+
+asset_path: /rails/public/assets          # 버전 간 에셋 브리징(404 방지)
+```
+
+### 12.3 SSL 전략
+
+| 계층 | 담당 | 설정 |
+|:---|:---|:---|
+| Cloudflare → 사용자 | CF가 SSL 종단 | 터널이므로 CF 대시보드 SSL 모드 설정 불필요 |
+| cloudflared → kamal-proxy | HTTP(로컬 루프백) | CF 터널 서비스 URL: `http://localhost:<포트>` (**https 아님**) |
+| 앱(Rails) | `assume_ssl` + `force_ssl` | `production.rb`에 **둘 다 true 필수** — 리다이렉트 루프 방지 |
+
+실방문자 IP는 `CF-Connecting-IP` 헤더로 식별한다 (`request.headers["CF-Connecting-IP"].presence || request.remote_ip`).
+
+### 12.4 공유 레지스트리 (서버 인프라)
+
+어느 앱에도 속하지 않는 독립 컨테이너로 서버에서 직접 운영한다:
+
+```bash
+# 최초 1회 (Kamal accessory가 아님 — 공유 인프라)
+docker run -d --name registry --restart unless-stopped \\
+  -p <Tailscale IP>:5000:5000 \\
+  -v /home/<user>/registry/registry_data:/var/lib/registry registry:3
+```
+
+- **양단 Docker insecure-registries 등록 필수** (레지스트리가 HTTP이므로 — Tailscale 망 내 암호화 전제):
+  - 서버: `/etc/docker/daemon.json` → `{ "insecure-registries": ["<Tailscale IP>:5000"] }` → `systemctl restart docker`
+  - 배포 PC: Docker Desktop → Settings → Docker Engine → `insecure-registries` 배열에 추가
+- 다른 서비스 추가 시: 같은 레지스트리 주소 + 고유 `image:` 이름만 지정하면 됨
+
+### 12.5 buildx 빌더 (arm64 → amd64 크로스 빌드)
+
+Kamal이 생성하는 buildx 컨테이너 빌더(`kamal-local-docker-container`)는 **Docker Desktop의 insecure-registries를 상속받지 않는다**. HTTP 레지스트리에 push하려면 별도 buildkit 설정이 필요:
+
+```toml
+# config/buildkitd.toml (프로젝트에 커밋)
+[registry."<Tailscale IP>:5000"]
+http = true
+```
+
+```bash
+# 빌더 1회 재성성 (이후 Kamal이 자동 재사용)
+docker buildx create --name kamal-local-docker-container \\
+  --driver docker-container --buildkitd-config config/buildkitd.toml
+```
+
+### 12.6 cloudflared (터널)
+
+- **호스트 네트워크 필수**: bridge망 컨테이너로 실행하면 `localhost:<포트>`가 컨테이너 자신을 가리켜 502
+- 컨테이너로 운영: `--network host --restart unless-stopped`
+- CF 터널 서비스 URL: `http://localhost:<포트>` (https 아님 — TLS 핸드셰이크 실패로 502)
+- 터널 토큰: 프로세스 목록·로그에 노출 가능 — 주기적 로테이션 권장
+
+### 12.7 브라우저 정책
+
+| 표면 | 정책 | 이유 |
+|:---|:---|:---|
+| 공개(랜딩·인증·뷰어 등) | `AllowAllBrowsers` concern | 마케팅 도달·P3(채무자 무가입)·VIEW-1(인앱 필수) — 구형/인앱 UA도 차단 없이 |
+| 관리형(/app, /admin) | `allow_browser :modern` | Turbo/모던 JS 전제 — U1·운영자는 최신 브라우저 가정 |
+
+공개 표면 concern (`app/controllers/concerns/allow_all_browsers.rb`):
+```ruby
+module AllowAllBrowsers
+  private
+
+  def allow_browser(**) = nil  # :modern 게이트 무효화 — 공개 진입 표면 전 브라우저 허용
+end
+```
+
+### 12.8 배포 운영 규칙
+
+| 규칙 | 내용 |
+|:---|:---|
+| **배포 전 커밋 필수** | Kamal 버전 태그 = git HEAD SHA. 미커밋 변경은 새 버전으로 취급되지 않아 **이전 이미지 재배포**됨 |
+| 최초 배포 | `bin/kamal setup` — 서버 Docker 확인·네트워크·프록시 기동·빌드·push·배포·DB 준비 |
+| 이후 배포 | `bin/kamal deploy` — 무중단(새 컨테이너 기동→헬스체크→프록시 전환) |
+| 롤백 | `bin/kamal rollback [버전]` — 레지스트리 과거 태그에서 pull·재기동 (코드만 롤백, DB 마이그레이션은 안 됨) |
+| 전체 생존 | 레지스트리·cloudflared·앱 전부 `--restart unless-stopped` — 서버 재부팅 시 자동 복귀 |
+| 이미지 관리 | 서버: Kamal `retain_versions`(기본 5) 자동 prune · 레지스트리: 주기적 `docker exec registry registry garbage-collect /etc/docker/config.yml` |
+| 데이터 백업 | SQLite 볼륨 + 레지스트리 바인드 디렉터리 주기 dump · `config/master.key` 비밀번호 매니저 보관 |
+
+### 12.9 배포 전 체크리스트
+
+- [ ] `bin/ci` 통과 (RuboCop 0에러 + Brakeman 0경고 + 테스트)
+- [ ] **git commit 완료** (미커밋 변경은 배포에 반영되지 않음)
+- [ ] `bin/kamal config` 통과 (YAML 파스·role·registry 검증)
+- [ ] Tailscale 연결 확인 (배포 PC → 서버 SSH)
+- [ ] 서버 레지스트리·cloudflared 가동 상태 확인 (`docker ps`)
+
+### 12.10 운영 명령
+
+```bash
+bin/kamal setup       # 최초 1회
+bin/kamal deploy      # 무중단 배포 (이후 매번)
+bin/kamal rollback    # 이전 버전 복귀
+bin/kamal logs -f     # 앱 로그 실시간
+bin/kamal console     # 서버 rails console
+bin/kamal app details # 컨테이너 상태
+bin/kamal deploy -r job  # 잡 컨테이너만 재배포
+```
+ 
 
 > **이 문서는 사내 모든 Rails 풀스택 프로젝트의 아키텍처 구성 기준입니다.**
 > 프로젝트별 편차가 필요한 경우, 이 문서의 원칙 범위 내에서 AGENTS.md에 예외 사항을 명시하세요.
@@ -1239,4 +1388,4 @@ Puma는 멀티스레드로 동작한다:
 > **변경 이력:**
 > | 날짜 | 버전 | 변경 내용 |
 > |------|------|----------|
-> | 2026-09-21 | 1.0.0 | 최초 제정 — Rails 8.1 + ERB + Hotwire + Bundler + RuboCop/Brakeman 품질 게이트 풀스택 아키텍처 컨벤션 |
+> | 2026-10-14 | 1.1.0 | **§12 배포 아키텍처 신설** — Kamal + Cloudflare Tunnel + Tailscale 표준 토폴로지(공유 레지스트리·buildx 크로스 빌드·SSL 전략·브라우저 정책·운영 규칙·체크리스트) |

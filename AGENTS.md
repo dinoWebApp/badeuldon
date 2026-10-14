@@ -148,7 +148,7 @@ bin/jobs             # Solid Queue 잡 프로세스 (웹과 별도 실행)
 |------|----------|------|------|
 | 2026-10-08 | 초기 하네스 구성 | 전체 | 신규 구축 (HARNESS_CONVENTION v3.2.0 기준) |
 
-## 배포 인프라 (운영 — 2026-10-14 구성)
+## 배포 인프라 (운영 — 2026-10-14 구성 · **첫 배포 완료 7f9be0e**)
 
 **도메인**: `badeuldon.kr` — Cloudflare가 SSL 종단(터널 방식, SSL 모드 설정 불필요)
 
@@ -174,3 +174,11 @@ bin/jobs             # Solid Queue 잡 프로세스 (웹과 별도 실행)
 - **진행 중**: 없음
 - **예정**: F-REM(핵클 계약 선행 — SHARE-4·PROMISE-4/7·PAY-4 알림 발송, SHARE-5 문구 분기, VIEW-7 수신거부, PROMISE-3 재스케줄, overdue 저장화) → F-DASH 나머지(DASH-5/6 리포트) → F-PLAN(토스 계약 — 한도 구독 전환·with_lock) → F-ADMIN → F-LEGAL/REF/TAX → CLIENT-3/4(지급 성적표 — Payment 이행 데이터 축적 중)·PROMISE-5 → INV-7 반복·PDF(VIEW-4·PAY-6) → 부분입금 오기록 정책 → LP-11 콘텐츠 허브·블로그. 기술 부채: Pretendard 셀프호스팅, 이메일 서비스, ko locale errors.format, 관리자 계정, LP-3 실화면, 푸터 약관, 후기, Stimulus 분리·CSS 분할, focus-visible, F-PLAN with_lock, ViewEvent 하드닝, 봇 UA 필터, IP·로그 문서화, device 판별, 인앱 실기 QA
 - **작업 재개 가이드**: `.omp/progress.json`의 `currentPhase` 확인 → `awaiting_approval`이면 플랜 재보고 후 승인 대기, 그 외에는 다음 Phase부터 재개. 산출물은 `_workspace/`.
+
+### 운영 배포 운영 노트 (2026-10-14 실측)
+
+- **배포 전 커밋 필수** — Kamal 버전 태그 = git HEAD SHA, 미커밋 변경은 이전 이미지 재배포됨
+- **buildx 빌더**: `config/buildkitd.toml`(HTTP 레지스트리 허용)을 넣은 `kamal-local-docker-container` 빌더 재생성으로 해결 — 빌더 삭제 시 이 파일로 재생성 필요
+- **cloudflared**: 호스트 네트워크 단일 복제(컨테이너) — bridge망 복제는 localhost 불일치로 502. CF 대시보드 서비스 URL은 `http://localhost:3000`(https 아님)
+- **공개 표면 브라우저**: `AllowAllBrowsers` concern(랜딩·인증 3종·뷰어) — /app·/admin만 `:modern`
+- 후속: 터널 토큰 로테이션 권장(프로세스 목록 노출 이력) · HSTS는 CF 엣지 설정 권장
