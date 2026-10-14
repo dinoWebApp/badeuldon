@@ -1,7 +1,12 @@
 {
-  "domain": null,
-  "currentPhase": null,
-  "pipelineType": null,
-  "phaseHistory": [],
-  "lastUpdated": "2026-10-14T16:00:00+09:00"
+  "domain": "F-LP 헤드라인·푸터·오타·LP-5 포맷 수정",
+  "currentPhase": "phase2_docs",
+  "pipelineType": "standard",
+  "phaseHistory": [
+    { "phase": "phase0_context", "status": "DONE" },
+    { "phase": "phase1_plan", "status": "DONE" },
+    { "phase": "approval_gate", "status": "DONE" },
+    { "phase": "phase2_docs", "status": "IN_PROGRESS" }
+  ],
+  "lastUpdated": "2026-10-14T18:00:00+09:00"
 }

@@ -1,50 +1,64 @@
-# 07_test_report.md — CF-Connecting-IP 기록 테스트 (Phase 7)
+# 07_test_report.md — 랜딩 4건 수정 테스트 보고
 
 - **일자**: 2026-10-14
-- **테스터**: CfIpTester
-- **대상**: `viewer_controller.rb` `viewer_client_ip`(CF-Connecting-IP 우선·presence·remote_ip fallback) + 호출부 `ViewEvents::TrackService` ip 전달
-- **시나리오 기준**: `_workspace/05_review.md` Tester 중점 제안 4분기 + INV-4 회귀
-- **테스트 파일**: `test/controllers/viewer_controller_test.rb`(기존 파일에 섹션 확장 — 신규 5케이스, 기존 어설션 무손상)
+- **담당**: Tester (LandingFixTester)
+- **대상**: PRD v0.19 LP-1/2/4/5/10·LP-12 — 랜딩 4건 갱신(구 문구 → 신규) + 신규 단정(사업자·버블)
+- **기준**: `_workspace/03_implementation.md` §4 실패 4건 · `_workspace/05_review.md` Tester 제안 1~5
+- **변경 파일**: `test/controllers/landing_controller_test.rb` (기존 4건 갱신 + 신규 테스트 3건) — **코드 수정 0건(규칙 준수)**
 
-## 결과 요약
+## 1. 실행 결과
 
 | 항목 | 결과 |
 |:---|:---|
-| 대상 파일 실행 (`bin/rails test test/controllers/viewer_controller_test.rb`) | **21 runs, 152 assertions, 0 failures, 0 errors, 0 skips** (기존 16 + 신규 5) |
-| 전체 회귀 (`bin/rails test`) | **363 runs, 2216 assertions, 0 failures, 0 errors, 0 skips** (기존 358 + 신규 5) |
-| `bin/rubocop` | **100 files inspected, no offenses** (0에러) |
-| 코드 버그 | **0건** — 실패·에러 전무, 원인 분류 대상 없음 |
-| 외부 API 실호출 | 0건 (뷰어 통합 테스트, stub 불요 경로) |
+| `bin/rails test test/controllers/landing_controller_test.rb` | **21 runs, 255 assertions, 0 failures, 0 errors, 0 skips** |
+| 전체 회귀 `bin/rails test` | **366 runs, 2296 assertions, 0 failures, 0 errors, 0 skips** (구현 보고 실측 363/4실패 → 갱신 후 0실패, 신규 3건 추가로 +3 runs) |
+| `bin/rubocop` (전체 101 files) | **no offenses — 0에류** |
 
-## 신규 케이스 상세
+※ 외부 API 실호출 0건(랜딩은 정적 마크업 — 외부 의존 없음, 규칙 재확인). 테스트 소스 미사용 정의 0건.
 
-| # | 테스트 | 검증 내용 | 결과 |
-|:--|:---|:---|:---|
-| 1 | CF-Connecting-IP 헤더가 있으면 실방문자 IP를 기록한다 (SHARE-3) | `CF-Connecting-IP: 203.0.113.7` → `ViewEvent.ip == "203.0.113.7"`, `first?` true, `issued→viewed` 전이(헤더 유무와 무관) | ✅ |
-| 2 | CF-Connecting-IP가 없으면 remote_ip fallback을 유지한다 (SHARE-3) | 헤더 없음 + `REMOTE_ADDR=198.51.100.77` → `ip == "198.51.100.77"` — fallback 원천이 remote_ip임을 명시 | ✅ |
-| 3 | 빈 CF-Connecting-IP 헤더는 fallback으로 수렴한다 (SHARE-3 — .presence 분기) | `CF-Connecting-IP: ""` → `.presence` nil → remote_ip 기록 | ✅ |
-| 4 | IPv6 IP는 45자 컬럼 한계 내 그대로 기록된다 (SHARE-3) | 39자 전체 표기 `2001:0db8:85a3:0000:0000:8a2e:0370:7334`·45자 IPv4 매핑 최장 표기 `0000:0000:0000:0000:0000:ffff:255.255.255.255`(string limit 45 경계) 모두 변형 없이 기록 | ✅ |
-| 5 | CF-Connecting-IP가 바뀐 재열람은 상태·first 플래그에 무영향이다 (INV-4·SHARE-3) | 서로 다른 IP로 이중 접속 → 상태 `viewed` 유지, 이벤트 2건, `first` 최초 1건만 true — IP 교체가 트랜잭션·전이에 무영향 | ✅ |
+## 2. 기존 4건 갱신 (구현 보고 §4 실패 → 해소)
 
-### fallback(제안 2분기) 중복 명시
+| # | 테스트 (landing_controller_test.rb) | 변경 | 결과 |
+|:---|:---|:---|:---|
+| 1 | `h1 헤드라인이 Q6 확정 문구와 일치한다 (LP-1)` :17 | `/말하기 어려운 '돈 다오',\s*…/` → **`/독촉하기 어려울 때,\s*받을돈이 대신합니다/`** (`<br>` 개행 대응 `\s*` — 리뷰 제안 패턴) | ✅ PASS |
+| 2 | `표면 ①은 noindex 없이 content_for :title을 렌더한다 (SURF-3)` :60 | title 단정 → **`/받을돈 — 독촉하기 어려울 때, 받을돈이 대신합니다/`** | ✅ PASS |
+| 3 | `LP-2 공감 인용 3종…` :82 | `/청구서를 보넸는데…/` → **`/청구서를 보냈는데 열어는 봤는지 알 수 없다/`** (PRD v0.19 원문) | ✅ PASS |
+| 4 | `LP-4 이점 문장 3종…` :97 | `/보넸는지…/` → **`/보냈는지, 언제 봤는지 알립니다/`** (PRD v0.19 원문) | ✅ PASS |
 
-기존 테스트 **「최초 열람은 viewed 전이와 first 이벤트를 기록한다 (INV-4·SHARE-3)」**가 헤더 없는 요청에서 `event.ip == "127.0.0.1"`을 이미 단정 — 리뷰어 권고(수정 없이 유지)대로 **무변경 유지하고 회귀로 확인**했다(본 실행에서 통과). 신규 #2는 기본값 `127.0.0.1` 단정과 중복을 피하기 위해 `REMOTE_ADDR`를 별도 값으로 주입해 fallback이 우연한 상수가 아니라 `request.remote_ip`에서 온다는 점까지 검증한 것이다. 전이 무관성(제안 5분기)도 기존 재열람 테스트 + 신규 #1·#5로 이중 확인.
+원인 분류: 4건 모두 **테스트 오류(기대값 노후화)** — PRD v0.19 Q6 번복·오타 수정에 따른 단정 갱신이며 코드 버그 아님(리뷰 APPROVED 판정과 일치).
 
-## 구현 정합성 근거
+## 3. 신규 단정 (리뷰 제안 반영 — 3건 추가)
 
-- `viewer_client_ip`는 `request.headers["CF-Connecting-IP"].presence || request.remote_ip` — 테스트는 이 3분기(우선·빈값·부재)를 정확히 매핑.
-- `view_events.ip`는 `string limit: 45`(`db/schema.rb:125`)·presence 필수(`ViewEvent`) — #4가 상한 경계, 전 케이스가 presence 충족.
-- TrackService 무변경: 이벤트 기록과 `mark_viewed!`가 동일 트랜잭션 — #1·#5에서 기록+전이 동시 성립으로 회귀 확인.
+### 3.1 `LP-5 버블이 카톡 UI 구조(발신자·#FEE500·개행 3블록·수신 시간)를 따른다 (LP-5, REM-1/3)`
 
-## 품질 자체 점검
+버블 컨테이너(`div[class*='FEE500']`) 4개를 실제 DOM에서 순회하며 단정:
 
-- [x] 제안 4분기 + INV-4 회귀 모두 커버 (정상 #1·2 / 경계 #3·4 / 회귀 #1·5)
-- [x] 외부 API 실호출 0건
-- [x] 미사용 정의 0건 · `bin/rubocop` no offenses · 들여쓰기 2칸
-- [x] 기존 어설션 무손상(기존 16케이스 전부 통과) · 전체 회귀 363 runs 통과
-- [x] 실패 0건 → 원인 분류(코드 버그 vs 테스트 오류) 해당 없음
+- **#FEE500**: `bg-[#FEE500]` 클래스 정확 포함(배경) ×4 — 카톡 노란색
+- **개행 구조**: 버블 내 `<p>` 3블록 분리 — ① 인사 `/^안녕하세요\. 받을돈입니다\./` ② 본문 `[발행인 표시명]` 자리표기 ③ 링크 `badeuldon.kr/b/[청구서 토큰]` (한 줄 나열 금지 검증)
+- **발신자명(REM-1)**: 버블 형제 `<p>` 중 「받을돈」 존재 — 개인 번호·이름 아님(P2)
+- **수신 시간(REM-3)**: `(오전|오후) H:MM` 형식 파싱 후 **09~18시 창 내** 단정(예시 4종 전부 통과)
+- **SURF-4 회귀**: 버블 내 `<a>` 0건 — 링크 표시 전용 텍스트(앵커 아님)
 
-## 비고
+### 3.2 `LP-10 푸터에 사업자 정보 4종이 노출된다 (LP-10)`
 
-- `bin/rails test`는 358 → **363** runs(신규 5건 증분만, 소거 0).
-- 테스트 소스 외 프로덕션 코드 변경 없음 — 본 Phase는 테스트 전용.
+`css_select("footer")` 텍스트 기준 4종 **각각** 렌더 확인: 상호: 벨로루프 · 대표: 김건준 · 사업자등록번호: 539-14-03399 · 주소: 경기도 김포시 김포한강8로 158, 6층 604-n112호(마산동) + **「생년월일」·「개업일」 부재** 단정(지시 준수).
+
+### 3.3 `LP-10 최종 CTA는 신규 헤드라인을 반복 노출한다 (LP-10, LP-1)`
+
+히어로 `h1`과 closing `h2`가 동일 신규 문구(`/독촉하기 어려울 때,\s*받을돈이 대신합니다/`) 반복 노출 — LP-10 구조 검증.
+
+### 3.4 기존 테스트 보강 (리뷰 제안 1·4)
+
+- `LP-12 금지 표현` : **「마지막 알림」 부재** 추가(기존 100%·보장 유지) — PROMISE-3 모순 표현 회귀 방지
+- `랜딩 메타 description` : 선두 문장이 신규 헤드라인(`\A독촉하기 어려울 때, 받을돈이 대신합니다\.`)으로 갱신됨 단정 추가 — 기존 `/수금 루프/` 검증 유지
+
+## 4. 회귀 확인 (리뷰 제안 4~5)
+
+- **SURF-4 단일 진입**: `표면 ①의 a 요소는 가입 진입이 유일하다` — 버블 링크가 텍스트로 전환되어도 전체 `a` href = `new_registration_path` 유지 ✅
+- **Q2·REM-12**: `LP-5 D+14…법적 조치를 언급하지 않는다` — 법적 조치·내용증명·채권·마지막 알림 부재 유지 ✅
+- 구 헤드라인 「말하기 어려운 '돈 다오'」·오타 「보넸」은 `test/`·`app/views/` 전체에서 잔존 0건(grep 확인)
+
+## 5. 결론
+
+- 실패 0건 — 코드 버그 0건, 테스트 오류(기대값 노후화) 4건 갱신으로 해소
+- `bin/ci` 선행 조건(RuboCop 0에류 + 테스트 통과) 충족 상태 — 오케스트레이터 최종 확인 권장

@@ -1,130 +1,50 @@
-# 07_test_report.md — F-PAY 입금 처리 Phase 7 (테스트)
+# 07_test_report.md — CF-Connecting-IP 기록 테스트 (Phase 7)
 
-- **일자**: 2026-10-13 · **작성**: PaymentTester
-- **대상**: F-PAY 입금 처리(원클릭 마감·부분입금·DASH 잔액 재계산) + Phase 6 수정 2건
-- **입력**: `_workspace/03_implementation.md`(§2 멱등 방어 7곳·§4 회귀 2건·Phase 6 수정 이력), `_workspace/05_review.md`(Tester 중점 7건), PRD v0.18.7 PAY-1/2·INV-4·DASH-1/2
-- **방법**: minitest + fixtures. 금전 마감의 멱등·동시성은 **HTTP 계층(컨트롤러 통합) + 실스레드 2세션**에서 재현(직전 파이프라인의 스플랫 버그 교훈 반영 — 서비스 직접 호출만으로 불충분). 외부 API 실호출 0건(대상 도메인에 핵클·토스페이먼츠 경로 없음 — PAY-5 준수 확인 포함). 코드 수정 없음.
+- **일자**: 2026-10-14
+- **테스터**: CfIpTester
+- **대상**: `viewer_controller.rb` `viewer_client_ip`(CF-Connecting-IP 우선·presence·remote_ip fallback) + 호출부 `ViewEvents::TrackService` ip 전달
+- **시나리오 기준**: `_workspace/05_review.md` Tester 중점 제안 4분기 + INV-4 회귀
+- **테스트 파일**: `test/controllers/viewer_controller_test.rb`(기존 파일에 섹션 확장 — 신규 5케이스, 기존 어설션 무손상)
 
 ## 결과 요약
 
 | 항목 | 결과 |
 |:---|:---|
-| 신규 테스트 | **35건 추가 · 35 PASS / 0 FAIL** (4개 파일) |
-| 전체 회귀 `bin/rails test` | **358 runs, 2195 assertions, 0 failures, 0 errors** — 기존 323건 무수정 통과 |
-| 시스템 `bin/rails test:system` | **4 runs, 25 assertions, 0 failures, 0 errors** |
-| `bin/rubocop` | **100 files, no offenses** |
-| 코드 버그 발견 | **0건** — 개발 중 실패 4건은 전부 테스트 오류(아래 원인 분류) |
-| 코드 수정 | 없음 (규칙 준수) |
+| 대상 파일 실행 (`bin/rails test test/controllers/viewer_controller_test.rb`) | **21 runs, 152 assertions, 0 failures, 0 errors, 0 skips** (기존 16 + 신규 5) |
+| 전체 회귀 (`bin/rails test`) | **363 runs, 2216 assertions, 0 failures, 0 errors, 0 skips** (기존 358 + 신규 5) |
+| `bin/rubocop` | **100 files inspected, no offenses** (0에러) |
+| 코드 버그 | **0건** — 실패·에러 전무, 원인 분류 대상 없음 |
+| 외부 API 실호출 | 0건 (뷰어 통합 테스트, stub 불요 경로) |
 
-## 신규 테스트 파일
+## 신규 케이스 상세
 
-| 파일 | 건수 | 계층 |
-|:---|:---|:---|
-| `test/models/payment_test.rb` | 7 | 모델 — 금액·입금일 검증·DB CHECK 이중 방어 |
-| `test/controllers/app/payments_controller_test.rb` | 22 | 통합 — 원클릭·부분입금·상태 매트릭스·Phase 6·회귀·소유권 |
-| `test/controllers/app/dashboards_payments_test.rb` | 4 | 통합 — DASH-1/2 잔액 재계산(HTTP 마감 경로) |
-| `test/integration/payments_concurrency_test.rb` | 2 | 통합 — 실스레드 동시성(`use_transactional_tests = false`) |
+| # | 테스트 | 검증 내용 | 결과 |
+|:--|:---|:---|:---|
+| 1 | CF-Connecting-IP 헤더가 있으면 실방문자 IP를 기록한다 (SHARE-3) | `CF-Connecting-IP: 203.0.113.7` → `ViewEvent.ip == "203.0.113.7"`, `first?` true, `issued→viewed` 전이(헤더 유무와 무관) | ✅ |
+| 2 | CF-Connecting-IP가 없으면 remote_ip fallback을 유지한다 (SHARE-3) | 헤더 없음 + `REMOTE_ADDR=198.51.100.77` → `ip == "198.51.100.77"` — fallback 원천이 remote_ip임을 명시 | ✅ |
+| 3 | 빈 CF-Connecting-IP 헤더는 fallback으로 수렴한다 (SHARE-3 — .presence 분기) | `CF-Connecting-IP: ""` → `.presence` nil → remote_ip 기록 | ✅ |
+| 4 | IPv6 IP는 45자 컬럼 한계 내 그대로 기록된다 (SHARE-3) | 39자 전체 표기 `2001:0db8:85a3:0000:0000:8a2e:0370:7334`·45자 IPv4 매핑 최장 표기 `0000:0000:0000:0000:0000:ffff:255.255.255.255`(string limit 45 경계) 모두 변형 없이 기록 | ✅ |
+| 5 | CF-Connecting-IP가 바뀐 재열람은 상태·first 플래그에 무영향이다 (INV-4·SHARE-3) | 서로 다른 IP로 이중 접속 → 상태 `viewed` 유지, 이벤트 2건, `first` 최초 1건만 true — IP 교체가 트랜잭션·전이에 무영향 | ✅ |
 
-`payments.yml` fixture는 **작성하지 않음** — 부분입금 반영 수치를 어설션하는 기존 DASH-1 카드 테스트(총액 기준)와의 정합을 유지하기 위함이며, 입금 데이터는 각 테스트가 서비스/HTTP 경유로 직접 시드한다(생성 경로 자체가 검증 대상).
+### fallback(제안 2분기) 중복 명시
 
-## 시나리오별 결과 (Rule ID 매핑)
+기존 테스트 **「최초 열람은 viewed 전이와 first 이벤트를 기록한다 (INV-4·SHARE-3)」**가 헤더 없는 요청에서 `event.ip == "127.0.0.1"`을 이미 단정 — 리뷰어 권고(수정 없이 유지)대로 **무변경 유지하고 회귀로 확인**했다(본 실행에서 통과). 신규 #2는 기본값 `127.0.0.1` 단정과 중복을 피하기 위해 `REMOTE_ADDR`를 별도 값으로 주입해 fallback이 우연한 상수가 아니라 `request.remote_ip`에서 온다는 점까지 검증한 것이다. 전이 무관성(제안 5분기)도 기존 재열람 테스트 + 신규 #1·#5로 이중 확인.
 
-### 원클릭 마감 (PAY-1) — HTTP
-| 시나리오 | 결과 |
-|:---|:---|
-| 금액 필드 없는 제출(amount 키 부재) → 303 · paid 전이 · 잔액 전액 1건(220,000원) · 입금일 2026-10-12 기록 · 확정 배너·뱃지 · 폼 미노출 | PASS |
-| 이중 클릭 재현(동일 요청 2회 연속) → 2회째 422 「이미 수금이 마감된 청구서입니다」 · Payment 1건 유지 · 이중 기록 0원 | PASS |
-| paid 본 재등록 → 422 + 확정 배너 렌더 · 폼 미노출 | PASS |
+## 구현 정합성 근거
 
-### 부분입금 (PAY-2) — HTTP
-| 시나리오 | 결과 |
-|:---|:---|
-| 금액·날짜 지정 → 303 · partially_paid · notice 「남은 잔액은 35,000원입니다」 · 잔액 표기·입금 이력·부분입금 뱃지 | PASS |
-| 2회 부분입금 누적(100,000+120,000) → 잔액 도달 시 paid · Payment 2건 · 배너에 마지막 입금일 표기 · 폼 소멸 | PASS |
-| 잔액 초과(잔액+1원) → 422 「입금 금액이 남은 잔액(120,000원)보다 큽니다…」 · 미기록 · 상태·잔액 불변 | PASS |
-| 0·음수·쉼표("10,000")·소수("1.5") → 422 수치 안내 · 미기록 · 상태 불변 | PASS |
-| 빈 문자열("") → 422 「입금 금액을 입력해 주세요」 — **전액 승격 없음**(Phase 6 검증 — amount nil 원클릭과 명확히 분리) | PASS |
-| 미래 날짜 → 422 · **원클릭·부분입금 양쪽 폼에 오류 문구 2곳 표시**(Phase 6 #1 — DOM 위치까지 검증) | PASS |
-| 과거 날짜 → 허용 · 지정일 그대로 기록 · 이력 표기 | PASS |
+- `viewer_client_ip`는 `request.headers["CF-Connecting-IP"].presence || request.remote_ip` — 테스트는 이 3분기(우선·빈값·부재)를 정확히 매핑.
+- `view_events.ip`는 `string limit: 45`(`db/schema.rb:125`)·presence 필수(`ViewEvent`) — #4가 상한 경계, 전 케이스가 presence 충족.
+- TrackService 무변경: 이벤트 기록과 `mark_viewed!`가 동일 트랜잭션 — #1·#5에서 기록+전이 동시 성립으로 회귀 확인.
 
-### Phase 6 수정 2건 — HTTP
-| 시나리오 | 결과 |
-|:---|:---|
-| #2 품목 단가 0원 **초안 저장 허용**(303 · total 0 · draft 유지) | PASS |
-| #2 0원 초안 **발행 422** 「청구서 총액은 1원 이상이어야 합니다」 · DB draft 유지 · 토큰 미발급 | PASS |
-| #2 단가 1원 발행 통과(303 · issued · total 1) → 원클릭 마감 303 · Payment 1원 | PASS |
-| #1 부분입금 폼 paid_on 오류 표시 — 오류 문구 count 2 + 부분입금 폼 영역 이후 위치 렌더 | PASS |
+## 품질 자체 점검
 
-### 상태 매트릭스 (INV-4 — PAY 진입) — HTTP
-| 현재 상태 | 원클릭 → paid | 부분입금 진입 | 결과 |
-|:---|:---|:---|:---|
-| issued · viewed · **overdue(enum)** · promised · partially_paid | ✓(전액 1건 · 잔액 0) | ✓ | PASS (5상태 루프) |
-| draft | 422 「입금을 기록할 수 없는 상태의 청구서입니다」 | 동일 422 | PASS |
-| voided | 422 동일 문구 | 동일 422 | PASS |
-| paid | 422 「이미 수금이 마감된 청구서입니다」 | 동일 422 | PASS |
-| 초안 상세 | 입금 섹션 미노출 | — | PASS |
-| 무효 상세 | 섹션 유지 · 폼 미노출(P4 이력 조회) | — | PASS |
+- [x] 제안 4분기 + INV-4 회귀 모두 커버 (정상 #1·2 / 경계 #3·4 / 회귀 #1·5)
+- [x] 외부 API 실호출 0건
+- [x] 미사용 정의 0건 · `bin/rubocop` no offenses · 들여쓰기 2칸
+- [x] 기존 어설션 무손상(기존 16케이스 전부 통과) · 전체 회귀 363 runs 통과
+- [x] 실패 0건 → 원인 분류(코드 버그 vs 테스트 오류) 해당 없음
 
-overdue enum fixture 직접 세팅 상태에서의 마감 통과 — `PAYABLE_STATUSES` 포함 확인(리뷰 전이 매트릭스와 일치).
+## 비고
 
-### 동시성 (SEC 멱등 — 실스레드 HTTP 2세션)
-| 시나리오 | 결과 |
-|:---|:---|
-| 동시 원클릭 2건 → **정확히 [303, 422]** · 승자 전액 1건 · 패자 「이미 수금이 마감된」 · Payment 1건 · 잔액 0 | PASS (3회 반복 재현) |
-| 동시 부분입금 초과 유도(2×40,000 / 총액 55,000) → **[303, 422]** · 패자 안내가 **잠금 하 재계산 잔액(15,000원)** 기준 · Payment 1건(40,000) · partially_paid | PASS (3회 반복 재현) |
-
-**결정적 근거**: Rails 8.1.4 SQLite 어댑터는 `begin_db_transaction`이 **BEGIN IMMEDIATE**(`sqlite3/database_statements.rb:33`)로 트랜잭션 시작 시점에 쓰기 잠금을 획득한다 — `with_lock` 진입이 잠금 순서로 직렬화되므로 실스레드 테스트가 결정적(불안정 없음). 러너 사전 실측 3회 + 본 테스트 3회 전부 동일 결과. `use_transactional_tests = false` 필수(트랜잭션 롤백 테스트의 미커밋 데이터는 스레드 커넥션이 볼 수 없음) — teardown에서 생성 유저 연쇄 삭제로 잔여 데이터 0건 보장.
-
-### DASH 재계산 (DASH-1/2) — HTTP 마감 경유
-기준 fixtures 미수 총액 946,000원 · 연체 2건 385,000원 · 7일 내 만기 1건(2026-10-12 기준).
-
-| 시나리오 | 결과 |
-|:---|:---|
-| 부분입금 100,000원(파생 연체 건) → 미수 총액 846,000원 · **연체 금액 285,000원** · 건수 2건 불변 | PASS |
-| 원클릭 마감(7일 내 만기 건 66,000원) → 미수 880,000원 · **7일 내 만기 0건** · DASH-4 목록 제외 + 미수 건 재편입 | PASS |
-| 마감 대기(paid_report) 청구서를 **HTTP 원클릭 마감** → DASH-2 마감 대기 카드 소멸 · 미수 616,000원 (기존 테스트는 직접 status 세팅 방식 — 본 테스트가 실제 U1 확인 플로우로 보강) | PASS |
-| 무효 처리(입금 이력 20,000원 보유) → 모집단 제외로 입금액도 미수 집계에 **차감 불포함**(891,000원 — 차감 비대칭 없음 검증) · 연체 금액 무영향 | PASS |
-
-### 소유권·인증 — HTTP
-| 시나리오 | 결과 |
-|:---|:---|
-| 타인 invoice_id로 payments POST → 404 · 미기록 · 상태 불변 | PASS |
-| 비인증 POST → 로그인 리다이렉트 · 미기록 | PASS |
-
-### 모델 (Payment — 금액 무결성 표 재현)
-| 시나리오 | 결과 |
-|:---|:---|
-| 양의 정수 유효 · 빈 값·0·음수·소수·쉼표·상한 10억+1 → 각 안내 문구로 거부 | PASS |
-| 입금일 당일·과거 유효 · 미래 거부(TIME-1 — travel_to KST) · 빈 값 거부 | PASS |
-| **모델 검증 우회 원시 INSERT(amount=0) → DB CHECK `payments_amount_positive` 위반** | PASS |
-
-## 회귀 결과 (03 §4 — 기존 스위트 전체)
-
-- **기존 323건 무수정 통과** — `bin/rails test` 358 runs 0 failures(358 = 323 기존 + 35 신규). 기존 테스트 파일 수정 0건.
-- **§4 회귀 #1(issue!/void! 자동 저장)**: 발행 422(PLAN-1 한도) 재렌더에서 「Payments is invalid」 부재 + 템플릿 완결 렌더, 입금 이력 보유 청구서의 void! 303 성공·이력 보존(P4)·토큰 폐기 — 컬렉션 분리형 폼 객체 구조 회귀 폐쇄 확인.
-- **§4 회귀 #2(answer 재렌더)**: 재답변 422 재렌더에서 「Passed nil」 부재 + 입금 이력 정상 렌더 — `load_invoice_show` 입금 변수 포함 확인.
-- **test:system** 4건 통과(뷰어 무가입 플로우 P3·PROMISE-1 포함) — F-PAY는 표면 ② 전용이므로 시스템 테스트 신규 추가 없음.
-
-## 실패 이력과 원인 분류 (개발 중 4건 — 전부 테스트 오류)
-
-| # | 현상 | 원인 분류 | 조치 |
-|:---|:---|:---|:---|
-| 1 | `Payment.insert(...)` ArgumentError | **테스트 오류** — Ruby 4.0 키워드 인자가 위치 해시로 전달되지 않음 | 해시를 명시적으로 감싸 해결. 모델·CHECK 동작 자체는 정상 |
-| 2 | 부분입금 후 뱃지 「부분입금」 기대 실패 | **테스트 오류** — delta_issued는 기준일에 만기 경과로 **파생 연체 뱃지가 우선**(헬퍼 `overdue?` 분기 — 결정 #2 의도된 동작) | 만기 미경과 청구서(delta_viewed)로 대상 교체해 뱃지 검증. 파생 연체 우선 표기는 코드 버그 아님 |
-| 3 | 발행 422 재렌더 h1이 「청구서 초안」이 아님 | **테스트 오류** — issue! 실패 시 in-memory 객체에 채번이 남아 재렌더 표기에 반영되는 프레젠테이션 특성(DB는 draft·채번 미저장 확인) | 어설션을 템플릿 완결성 검증으로 교체. 하단 참고 관찰 기록 |
-| 4 | 동시성 테스트 양쪽 302 | **테스트 오류** — Cookie 헤더값에 `session_id=` 접두사 누락으로 앱이 쿠키를 파싱하지 못해 비인증 리다이렉트 | 세션 jar 직접 주입(signed 값 그대로)으로 교체 — 3회 반복 PASS. 앱 인증 로직 정상 |
-
-## 참고 관찰 (코드 수정 대상 없음 — 기록 목적)
-
-1. **issue! 422 재렌더 시 h1 표기**: 발행 실패(예: 월 한도) 후 재렌더 화면의 h1에 in-memory 채번(BD-YYYYMMDD-NNN)이 표시된다(DB에는 미저장 — 초안 상태 유지는 정상). 기능·데이터 무결성 영향 없음, 재렌더 시 자연스러운 초안 표기라 판단해 현행 유지. 제품 판단 대상이면 후속 이슈로.
-2. **부분입금 후 파생 연체 표기 유지**: 만기 경과 건은 partially_paid 전이 후에도 뱃지·상세에 「연체」 표기가 우선된다(결정 #2 파생 판정). 연체 표기는 잔액 회수 동기 제공 목적과 정합 — 위반 없음.
-
-## 자체 점검
-
-- [x] 관련 Rule ID별 정상/경계/예외 커버 — PAY-1/2·INV-4·DASH-1/2·SEC(멱등)·TIME-1·P4·PROMISE-7·PAY-5(자동화 코드 부재 확인)·Phase 6 #1/#2
-- [x] 외부 API 실호출 0건 — 대상 도메인에 외부 호출 경로 없음(stub 불요)
-- [x] 테스트 소스 미사용 정의 0건 · `bin/rubocop` 100 files no offenses · 들여쓰기 2칸
-- [x] 기존 테스트 전체 회귀(`bin/rails test` 358 runs) + `bin/rails test:system` 통과
-- [x] 발송 도메인(REM-3/12·SEC-5 발송) 해당 없음 — F-PAY는 발송 로직 무관, 발송 규칙 미검증(범위 외 명시)
-- [x] fixtures 표준 세트 유지 — payments.yml 불추가 사유 기록(상단)
-- [x] 임시 검증 스크립트(동시성 사전 실측 프로브) 작성·실행 후 삭제 완료
+- `bin/rails test`는 358 → **363** runs(신규 5건 증분만, 소거 0).
+- 테스트 소스 외 프로덕션 코드 변경 없음 — 본 Phase는 테스트 전용.

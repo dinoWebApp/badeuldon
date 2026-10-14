@@ -3,6 +3,7 @@ require "test_helper"
 # 표면 ① 랜딩 루트 — 컨트롤러 통합 테스트(정적 페이지, 시스템 테스트 불요)
 # 검증 근거: PRD §7 SURF-1/3/4/6, LP-1, LP-12 / _workspace/05_review.md 재리뷰 §4
 # AUTH-1 정책 반전(카카오 CTA 폐기 → 이메일/비밀번호 가입 CTA 활성화) 반영 — Phase 7 갱신
+# PRD v0.19 Q6 헤드라인 번복·LP-5 버블 UI·LP-10 사업자 정보 반영 — 2026-10-14 갱신
 class LandingControllerTest < ActionDispatch::IntegrationTest
   test "GET /는 비로그인 200으로 landing/index 히어로를 렌더한다 (SURF-1, LP-1)" do
     get root_url
@@ -13,8 +14,8 @@ class LandingControllerTest < ActionDispatch::IntegrationTest
 
   test "h1 헤드라인이 Q6 확정 문구와 일치한다 (LP-1)" do
     get root_url
-    # <br> 개행과 작은따옴표 포함 정확 매칭 — 리뷰 05_review.md 제시 정규식
-    assert_select "h1", text: /말하기 어려운 '돈 다오',\s*받을돈이 대신합니다/
+    # <br> 개행 포함 매칭 — Q6 번복 확정 문구(2026-10-14, 리뷰 05_review.md 제시 정규식)
+    assert_select "h1", text: /독촉하기 어려울 때,\s*받을돈이 대신합니다/
   end
 
   test "LP-1 구성요소 4종이 모두 노출된다 (LP-1)" do
@@ -57,13 +58,15 @@ class LandingControllerTest < ActionDispatch::IntegrationTest
     # 역방향: 색인 허용 표면 — noindex 부재
     assert_no_match(/noindex/, response.body)
     # content_for :title이 레이아웃 title 태그로 전달됨(Badeuldon 폴백 미사용)
-    assert_select "title", text: /받을돈 — 말하기 어려운 '돈 다오', 받을돈이 대신합니다/
+    assert_select "title", text: /받을돈 — 독촉하기 어려울 때, 받을돈이 대신합니다/
   end
 
   test "LP-12 금지 표현이 응답에 없다 (LP-12)" do
     get root_url
     assert_no_match(/100%/, response.body)
     assert_no_match(/보장/, response.body)
+    # 리뷰 제안 회귀 — PROMISE-3(약속일 리마인드)와 모순되는 '마지막 알림' 표현도 금지
+    assert_no_match(/마지막 알림/, response.body)
   end
 
   test "랜딩 메타 description이 렌더된다 (SURF-3 — 색인 허용 표면)" do
@@ -72,6 +75,8 @@ class LandingControllerTest < ActionDispatch::IntegrationTest
       assert_equal 1, metas.size
       # 레이아웃 기본값이 아닌 랜딩 전용 description(content_for 전달 확인)
       assert_match(/수금 루프/, metas.first["content"])
+      # 리뷰 제안 — description 선두 문장도 신규 헤드라인(Q6)으로 일관 갱신 확인
+      assert_match(/\A독촉하기 어려울 때, 받을돈이 대신합니다\./, metas.first["content"])
     end
   end
 
@@ -79,7 +84,7 @@ class LandingControllerTest < ActionDispatch::IntegrationTest
     get root_url
     # figure 내 인용 3종(LP-6 VIEW-5 고지문 blockquote와 구분)
     assert_select "figure blockquote", count: 3
-    assert_select "figure blockquote", text: /청구서를 보넸는데 열어는 봤는지 알 수 없다/
+    assert_select "figure blockquote", text: /청구서를 보냈는데 열어는 봤는지 알 수 없다/
     assert_select "figure blockquote", text: /만기가 지나도 독촉 문자를 못 쓰겠다/
     assert_select "figure blockquote", text: /독촉했다가 다음 프로젝트를 잃을까 겁난다/
   end
@@ -94,7 +99,7 @@ class LandingControllerTest < ActionDispatch::IntegrationTest
 
   test "LP-4 이점 문장 3종이 PRD 원문으로 노출된다 (LP-4)" do
     get root_url
-    assert_select "p", text: /보넸는지, 언제 봤는지 알립니다/
+    assert_select "p", text: /보냈는지, 언제 봤는지 알립니다/
     assert_select "p", text: /발신자는 ‘받을돈’, 문구는 4단계 톤/
     assert_select "p", text: /입금 예정일, 거래처가 클릭으로 답합니다/
   end
@@ -117,6 +122,37 @@ class LandingControllerTest < ActionDispatch::IntegrationTest
       d14 = paragraphs.find { |p| p.text.include?("정기 리마인더를 마칩니다") }
       assert d14, "D+14 최종 안내 문구가 노출되어야 한다"
       assert_no_match(/법적|내용증명|채권/, d14.text)
+    end
+  end
+
+  test "LP-5 버블이 카톡 UI 구조(발신자·#FEE500·개행 3블록·수신 시간)를 따른다 (LP-5, REM-1/3)" do
+    get root_url
+    # 리뷰 제안 회귀 — 버블 컨테이너는 4단계 각 1개, 총 4개(bg + 꼬리 before:bg가 동일 클래스 속성)
+    assert_select "div[class*='FEE500']" do |bubbles|
+      assert_equal 4, bubbles.size, "카톡 버블은 4단계마다 1개씩 총 4개여야 한다"
+      bubbles.each do |bubble|
+        # 카톡 노란색 — 배경 클래스 정확 일치(#FEE500)
+        assert_includes bubble["class"], "bg-[#FEE500]"
+        # 개행 구조 — 인사말 → 본문 → 링크 3블록 분리(한 줄 나열 금지)
+        blocks = bubble.css("p")
+        assert_equal 3, blocks.size
+        assert_match(/\A안녕하세요\. 받을돈입니다\./, blocks[0].text)
+        assert_match(/\[발행인 표시명\]/, blocks[1].text)
+        assert_match(%r{badeuldon\.kr/b/\[청구서 토큰\]}, blocks[2].text)
+        # 링크는 표시 전용 텍스트 — 버블 내 앵커 금지(SURF-4)
+        assert_empty bubble.css("a")
+        # 발신자명 — REM-1 서비스 명의(개인 번호·이름 노출 아님)
+        siblings = bubble.parent.xpath("./p")
+        sender = siblings.find { |p| p.text == "받을돈" }
+        assert sender, "버블 위에 발신자명 '받을돈'이 있어야 한다 (REM-1)"
+        # 수신 시간 — REM-3 발송 창(09~18시) 내 표기
+        time_text = siblings.find { |p| p.text.match?(/\A(오전|오후) \d{1,2}:\d{2}\z/) }&.text
+        assert time_text, "버블 하단에 수신 시간이 있어야 한다 (REM-3)"
+        meridiem, hour = time_text.match(/\A(오전|오후) (\d{1,2}):/).captures
+        hour = hour.to_i
+        hour += 12 if meridiem == "오후" && hour < 12
+        assert hour.between?(9, 18), "수신 시간은 발송 창(09~18시) 안이어야 한다: #{time_text}"
+      end
     end
   end
 
@@ -161,5 +197,27 @@ class LandingControllerTest < ActionDispatch::IntegrationTest
     get root_url
     assert_select "footer", text: /카카오톡 채널 ‘받을돈’/
     assert_select "footer", text: /© 2026 받을돈/
+  end
+
+  test "LP-10 푸터에 사업자 정보 4종이 노출된다 (LP-10)" do
+    get root_url
+    footer = css_select("footer").first
+    assert footer, "랜딩 레이아웃 푸터가 렌더되어야 한다"
+    text = footer.text
+    # 법정 필수 4종 — 각각 렌더 확인(파이프 구분자는 장식)
+    assert_match(/상호: 벨로루프/, text)
+    assert_match(/대표: 김건준/, text)
+    assert_match(/사업자등록번호: 539-14-03399/, text)
+    assert_match(/주소: 경기도 김포시 김포한강8로 158, 6층 604-n112호\(마산동\)/, text)
+    # 사업자 정보에 생년월일·개업일은 미노출(지시 기준)
+    assert_no_match(/생년월일/, text)
+    assert_no_match(/개업일/, text)
+  end
+
+  test "LP-10 최종 CTA는 신규 헤드라인을 반복 노출한다 (LP-10, LP-1)" do
+    get root_url
+    # 히어로 h1과 동일 문구를 closing h2에서 반복 — <br> 개행 포함 매칭
+    assert_select "h1", text: /독촉하기 어려울 때,\s*받을돈이 대신합니다/
+    assert_select "h2", text: /독촉하기 어려울 때,\s*받을돈이 대신합니다/
   end
 end
