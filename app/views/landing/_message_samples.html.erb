@@ -14,14 +14,63 @@
     </p>
 
     <% samples = [
-         { stage: "D-1", label: "예고", time: "오전 9:00",
-           body: "[발행인 표시명]님이 보낸 청구서 ‘[청구서명]’(결제 금액 [금액]원)의 결제 예정일이 내일 [만기일]입니다. 미리 안내드리며, 확인 부탁드립니다." },
-         { stage: "D+1", label: "확인", time: "오전 10:00",
-           body: "예정일이 지난 ‘[청구서명]’의 입금이 아직 확인되지 않았습니다. 이미 입금하셨다면 링크에서 알려주시면 [발행인 표시명]님께 전달드리겠습니다. 사정이 있으시면 입금 예정일을 알려주세요." },
-         { stage: "D+7", label: "재요청", time: "오전 11:00",
-           body: "‘[청구서명]’ 결제가 일주일 지연되고 있습니다. 일정 조정이 필요하시다면 링크에서 입금 예정일을 제안해 주세요. [발행인 표시명]님께 바로 전달드리겠습니다." },
-         { stage: "D+14", label: "최종 안내", time: "오후 2:00",
-           body: "‘[청구서명]’이 만기 후 2주가 되었습니다. 이번 안내로 정기 리마인더를 마칩니다. 입금 예정일이나 입금 완료 알림을 링크에 남겨주시면 [발행인 표시명]님께 전달드리겠습니다." }
+         { stage: "D-1", label: "예고", time: "오전 9:00", button: "청구서 확인하기",
+           body: <<~BODY.chomp
+             [발행인 표시명]님께서 보내신
+             청구서를 안내드립니다.
+
+             ▸ 청구 내용: [청구서명]
+             ▸ 결제 금액: [금액]원
+             ▸ 결제 예정일: [만기일] (내일)
+
+             일정에 참고하시어
+             확인 부탁드립니다.
+             감사합니다.
+           BODY
+         },
+         { stage: "D+1", label: "확인", time: "오전 10:00", button: "입금 완료·예정일 알리기",
+           body: <<~BODY.chomp
+             어제가 결제 예정일이었던
+             ‘[청구서명]’의 입금이
+             아직 확인되지 않았습니다.
+
+             이미 입금하셨다면
+             아래 버튼으로 알려주세요.
+             [발행인 표시명]님께 바로 전달됩니다.
+
+             사정으로 일정이 어려우시다면
+             입금 예정일을 함께 남겨주세요.
+           BODY
+         },
+         { stage: "D+7", label: "재요청", time: "오전 11:00", button: "입금 예정일 제안하기",
+           body: <<~BODY.chomp
+             ‘[청구서명]’의 결제가
+             결제 예정일로부터 일주일
+             지연되고 있습니다.
+
+             혹시 일정 조정이 필요하시다면
+             가능한 입금 예정일을
+             아래에서 제안해 주세요.
+
+             [발행인 표시명]님께
+             전달드리겠습니다.
+           BODY
+         },
+         { stage: "D+14", label: "최종 안내", time: "오후 2:00", button: "청구서 확인하기",
+           body: <<~BODY.chomp
+             ‘[청구서명]’이 결제 예정일로부터
+             2주가 경과하였습니다.
+
+             이번 안내로
+             정기 리마인더를 마무리하겠습니다.
+
+             입금 예정일이나 완료 소식을
+             남겨주시면
+             [발행인 표시명]님께 전달드리겠습니다.
+
+             그동안의 확인에 감사드립니다.
+           BODY
+         }
        ] %>
     <div class="mt-10 grid gap-4 sm:grid-cols-2 sm:gap-6">
       <% samples.each do |sample| %>
@@ -37,15 +86,22 @@
             <div class="min-w-0 flex-1">
               <p class="text-xs font-semibold text-stone-500">받을돈</p>
 
-              <%# LP-5 카톡 버블 — 노란색(#FEE500) 배경·라운딩·좌측 꼬리(before 회전 사각형) %>
+              <%# LP-5 카톡 버블 — 노란색(#FEE500) 배경·라운딩·좌측 꼬리(before 회전 사각형).
+                  본문은 개행(whitespace-pre-line) — 알림톡 템플릿 등록 본문과 동일 구조.
+                  하단 링크는 실제 알림톡 버튼 컴포넌트 표현(표시 전용 — SURF-4 앵커 금지). %>
               <div class="relative mt-1.5 w-fit max-w-full rounded-2xl rounded-tl-sm bg-[#FEE500] px-4 py-3 before:absolute before:-left-1 before:top-3 before:h-2.5 before:w-2.5 before:rotate-45 before:bg-[#FEE500] before:content-['']">
                 <p class="text-sm font-medium leading-relaxed text-stone-900">안녕하세요. 받을돈입니다.</p>
-                <p class="mt-1.5 text-sm leading-relaxed text-stone-900"><%= sample[:body] %></p>
-                <p class="mt-1.5 break-all text-xs leading-relaxed text-stone-700">badeuldon.kr/b/[청구서 토큰]</p>
+                <p class="mt-1.5 whitespace-pre-line text-sm font-medium leading-relaxed text-stone-900"><%= sample[:body] %></p>
+                <div class="mt-2.5 border-t border-black/15 pt-2 text-center">
+                  <span class="inline-flex items-center gap-1.5 text-[13px] font-bold text-stone-900">
+                    <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5"/></svg>
+                    <%= sample[:button] %>
+                  </span>
+                </div>
               </div>
 
-              <%# 수신 시간 — 버블 우측 하단 작은 표시(REM-3 발송 창 09~18시 내 예시) %>
-              <p class="mt-1 pr-1 text-right text-[10px] text-stone-400"><%= sample[:time] %></p>
+              <%# 수신 시간 — 수신 버블 스타일(좌측 정렬). REM-3 발송 창 09~18시 내 예시 %>
+              <p class="mt-1 pl-1 text-[10px] text-stone-400"><%= sample[:time] %></p>
             </div>
           </div>
         </div>

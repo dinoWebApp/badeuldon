@@ -118,18 +118,18 @@ class LandingControllerTest < ActionDispatch::IntegrationTest
 
   test "LP-5 D+14 문구는 시퀀스 종결 안내이며 법적 조치를 언급하지 않는다 (리뷰 이슈 #2, Q2)" do
     get root_url
-    # Phase 6 채택 문구 — 정기 시퀀스(REM-12)의 종결 지칭
-    assert_select "p", text: /이번 안내로 정기 리마인더를 마칩니다/
+    # Phase 6 채택 문구 — 정기 시퀀스(REM-12)의 종결 지칭(사용자 개정문 — 마무리 표현)
+    assert_select "p", text: /이번 안내로 정기 리마인더를 마무리하겠습니다/
     # 리뷰 이슈 #2 회귀 — PROMISE-3(약속일 리마인드)와 모순되는 '마지막 알림' 표현 부재
     assert_no_match(/마지막 알림/, response.body)
     assert_select "p" do |paragraphs|
-      d14 = paragraphs.find { |p| p.text.include?("정기 리마인더를 마칩니다") }
+      d14 = paragraphs.find { |p| p.text.include?("정기 리마인더를 마무리하겠습니다") }
       assert d14, "D+14 최종 안내 문구가 노출되어야 한다"
       assert_no_match(/법적|내용증명|채권/, d14.text)
     end
   end
 
-  test "LP-5 버블이 카톡 UI 구조(발신자·#FEE500·개행 3블록·수신 시간)를 따른다 (LP-5, REM-1/3)" do
+  test "LP-5 버블이 카톡 UI 구조(발신자·#FEE500·개행 본문·버튼 컴포넌트)를 따른다 (LP-5, REM-1/3)" do
     get root_url
     # 리뷰 제안 회귀 — 버블 컨테이너는 4단계 각 1개, 총 4개(bg + 꼬리 before:bg가 동일 클래스 속성)
     assert_select "div[class*='FEE500']" do |bubbles|
@@ -137,13 +137,17 @@ class LandingControllerTest < ActionDispatch::IntegrationTest
       bubbles.each do |bubble|
         # 카톡 노란색 — 배경 클래스 정확 일치(#FEE500)
         assert_includes bubble["class"], "bg-[#FEE500]"
-        # 개행 구조 — 인사말 → 본문 → 링크 3블록 분리(한 줄 나열 금지)
+        # 개행 구조 — 인사말 p → 개행 본문 p(whitespace-pre-line) 2블록(한 줄 나열 금지)
         blocks = bubble.css("p")
-        assert_equal 3, blocks.size
+        assert_equal 2, blocks.size
         assert_match(/\A안녕하세요\. 받을돈입니다\./, blocks[0].text)
         assert_match(/\[발행인 표시명\]/, blocks[1].text)
-        assert_match(%r{badeuldon\.kr/b/\[청구서 토큰\]}, blocks[2].text)
-        # 링크는 표시 전용 텍스트 — 버블 내 앵커 금지(SURF-4)
+        assert_includes blocks[1].text, "\n", "본문은 알림톡 템플릿처럼 개행되어야 한다"
+        # 링크는 버튼 컴포넌트로 표현 — URL 텍스트 노출 금지(사용자 개정)
+        button = bubble.css("div[class*='border-t'] span").map(&:text).join
+        assert_match(/청구서 확인하기|입금 완료·예정일 알리기|입금 예정일 제안하기/, button)
+        assert_no_match(%r{badeuldon\.kr/b/}, bubble.text)
+        # 버튼은 표시 전용 — 버블 내 앵커 금지(SURF-4)
         assert_empty bubble.css("a")
         # 발신자명 — REM-1 서비스 명의(개인 번호·이름 노출 아님)
         siblings = bubble.parent.xpath("./p")
