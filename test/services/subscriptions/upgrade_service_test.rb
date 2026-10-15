@@ -8,7 +8,7 @@ require_relative "../../test_helpers/fake_portone_client"
 class Subscriptions::UpgradeServiceTest < ActiveSupport::TestCase
   setup do
     @user = users(:gamma)
-    @billing_channel_key = Rails.application.credentials.dig(:portone, :channel_key_billing) || "test-channel-billing"
+    @billing_channel_key = "test-channel-billing" # 주입값 — 로컬 credentials 유무와 무관하게 밀봉
   end
 
   # ── start_trial (체험 시작 — PLAN-2) ──
@@ -71,7 +71,7 @@ class Subscriptions::UpgradeServiceTest < ActiveSupport::TestCase
 
     travel_to(Time.zone.parse("2026-10-15 09:00")) do
       Subscriptions::UpgradeService.new(user: @user, action: :register_card,
-                                        issue_token: "issue_card_1", client: fake).call
+                                        issue_token: "issue_card_1", channel_key: @billing_channel_key, client: fake).call
 
       subscription = @user.subscription.reload
       assert_predicate subscription, :plus?
@@ -108,7 +108,7 @@ class Subscriptions::UpgradeServiceTest < ActiveSupport::TestCase
 
     error = assert_raises(Subscriptions::UpgradeService::UpgradeError) do
       Subscriptions::UpgradeService.new(user: @user, action: :register_card,
-                                        issue_token: "issue_bad", client: fake).call
+                                        issue_token: "issue_bad", channel_key: @billing_channel_key, client: fake).call
     end
 
     assert_match(/카드 등록에 실패했습니다/, error.message)
@@ -199,7 +199,7 @@ class Subscriptions::UpgradeServiceTest < ActiveSupport::TestCase
     )
 
     travel_to(Time.zone.parse("2026-11-01 06:05")) do
-      Subscriptions::UpgradeService.new(user: @user, action: :renew, client: fake).call
+      Subscriptions::UpgradeService.new(user: @user, action: :renew, channel_key: @billing_channel_key, client: fake).call
 
       order = @user.orders.sole
       assert_predicate order, :paid?
@@ -234,7 +234,7 @@ class Subscriptions::UpgradeServiceTest < ActiveSupport::TestCase
 
     error = assert_raises(Subscriptions::UpgradeService::UpgradeError) do
       travel_to(Time.zone.parse("2026-11-01 06:05")) do
-        Subscriptions::UpgradeService.new(user: @user, action: :renew, client: fake).call
+        Subscriptions::UpgradeService.new(user: @user, action: :renew, channel_key: @billing_channel_key, client: fake).call
       end
     end
 
@@ -258,7 +258,7 @@ class Subscriptions::UpgradeServiceTest < ActiveSupport::TestCase
 
     error = assert_raises(Subscriptions::UpgradeService::UpgradeError) do
       travel_to(Time.zone.parse("2026-11-01 06:05")) do
-        Subscriptions::UpgradeService.new(user: @user, action: :renew, client: fake).call
+        Subscriptions::UpgradeService.new(user: @user, action: :renew, channel_key: @billing_channel_key, client: fake).call
       end
     end
 
@@ -281,7 +281,7 @@ class Subscriptions::UpgradeServiceTest < ActiveSupport::TestCase
     )
 
     travel_to(Time.zone.parse("2026-11-01 06:05")) do
-      Subscriptions::UpgradeService.new(user: @user, action: :renew, client: fake).call
+      Subscriptions::UpgradeService.new(user: @user, action: :renew, channel_key: @billing_channel_key, client: fake).call
 
       assert_equal 1, @user.orders.count                     # 새 주문 누적 없음
       assert_predicate leftover.reload, :paid?
@@ -295,7 +295,7 @@ class Subscriptions::UpgradeServiceTest < ActiveSupport::TestCase
                                current_period_end: 10.days.from_now)
     fake = FakePortOneClient.new
 
-    Subscriptions::UpgradeService.new(user: @user, action: :renew, client: fake).call
+    Subscriptions::UpgradeService.new(user: @user, action: :renew, channel_key: @billing_channel_key, client: fake).call
 
     assert_empty fake.calls[:charge_billing_key]
     assert_empty @user.orders
@@ -345,7 +345,7 @@ class Subscriptions::UpgradeServiceTest < ActiveSupport::TestCase
                                current_period_end: 1.day.ago)
     fake = FakePortOneClient.new
 
-    Subscriptions::UpgradeService.new(user: @user, action: :renew, client: fake).call
+    Subscriptions::UpgradeService.new(user: @user, action: :renew, channel_key: @billing_channel_key, client: fake).call
 
     assert_empty fake.calls[:charge_billing_key]             # 차감 시도 없음
     assert_predicate @user.subscription.reload, :expired?
@@ -357,7 +357,7 @@ class Subscriptions::UpgradeServiceTest < ActiveSupport::TestCase
                                current_period_end: 1.day.ago)
     fake = FakePortOneClient.new
 
-    Subscriptions::UpgradeService.new(user: @user, action: :renew, client: fake).call
+    Subscriptions::UpgradeService.new(user: @user, action: :renew, channel_key: @billing_channel_key, client: fake).call
 
     assert_empty fake.calls[:charge_billing_key]
     assert_predicate @user.subscription.reload, :expired?

@@ -12,12 +12,13 @@ module Subscriptions
     class UpgradeError < StandardError; end
 
     def initialize(user:, action:, issue_token: nil, order: nil, payment: nil,
-                   client: PortOne::ClientService.new)
+                   channel_key: nil, client: PortOne::ClientService.new)
       @user = user
       @action = action.to_sym
       @issue_token = issue_token
       @order = order
       @payment = payment || {}
+      @channel_key = channel_key
       @client = client
     end
 
@@ -160,8 +161,9 @@ module Subscriptions
     end
 
     # 정기결제 채널 키 — 빌링키 발급·차감을 INIBillTst(정기결제 테스트 채널)로 라우팅한다.
+    # 주입값 우선(테스트 밀봉), 없으면 credentials 기본값(운영).
     def portone_channel_key_billing
-      Rails.application.credentials.dig(:portone, :channel_key_billing)
+      @channel_key || Rails.application.credentials.dig(:portone, :channel_key_billing)
     end
 
     def renewal_due?(subscription)
