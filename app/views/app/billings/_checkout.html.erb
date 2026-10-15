@@ -22,10 +22,18 @@
     <p class="text-xl font-extrabold tabular-nums text-stone-900"><%= won(order.amount) %></p>
   </div>
 
-  <button type="button" data-action="portone-payment#pay"
-          class="mt-4 inline-flex min-h-11 cursor-pointer items-center justify-center rounded-xl bg-emerald-800 px-6 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900">
-    결제하기
-  </button>
+  <% if @portone_customer_phone.present? %>
+    <button type="button" data-action="portone-payment#pay"
+            class="mt-4 inline-flex min-h-11 cursor-pointer items-center justify-center rounded-xl bg-emerald-800 px-6 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900">
+      결제하기
+    </button>
+  <% else %>
+    <%# KG이니시스가 customer.phoneNumber를 필수로 요구 — 연락처 등록 후 결제 가능 %>
+    <p class="mt-4 rounded-xl bg-amber-50 p-3 text-sm leading-relaxed text-stone-700" role="status">
+      결제에는 연락처가 필요합니다.
+      <%= link_to "프로필에서 연락처를 등록", edit_app_profile_path, class: "font-bold text-emerald-800 underline underline-offset-2 hover:text-emerald-900" %>해 주세요.
+    </p>
+  <% end %>
   <p class="mt-3 text-xs leading-relaxed text-stone-500">
     결제 승인은 KG이니시스(포트원 경유)가 처리하며, 승인 결과는 서버에서 재확인한 뒤 패스가 발급됩니다.
   </p>
