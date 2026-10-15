@@ -25,7 +25,8 @@
       <%= yield %>
     </main>
 
-    <%# LP-10 푸터 — 랜딩 하단 고정 크롬. 문의 채널 + 사업자 정보(법정 필수 4종: 상호·대표·사업자등록번호·주소) %>
+    <%# LP-10 푸터 — 랜딩 하단 고정 크롬. 문의 채널 + 법적 고지 링크(PG 심사 요건) +
+        사업자 정보(법정 필수 4종: 상호·대표·사업자등록번호·주소 + 유선번호) %>
     <footer class="border-t border-stone-200 bg-cream">
       <div class="mx-auto max-w-6xl px-4 py-10 sm:px-6">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -37,11 +38,18 @@
           </div>
           <p class="text-xs text-stone-500">© 2026 받을돈</p>
         </div>
-        <%# 사업자 정보 — 법정 필수 4종만 표기(생년월일·개업일 미노출) %>
+        <%# 법적 고지 링크 — 이용약관·개인정보처리방침·환불 정책(/terms·/privacy·/refund) %>
+        <nav class="mt-6 flex flex-wrap gap-x-5 gap-y-2 text-xs font-semibold text-stone-600" aria-label="법적 고지">
+          <%= link_to "이용약관", terms_path, class: "transition hover:text-emerald-800" %>
+          <%= link_to "개인정보처리방침", privacy_path, class: "transition hover:text-emerald-800" %>
+          <%= link_to "환불 정책", refund_path, class: "transition hover:text-emerald-800" %>
+        </nav>
+        <%# 사업자 정보 — 법정 필수 4종만 표기(생년월일·개업일 미노출) + 유선번호 %>
         <p class="mt-6 border-t border-stone-200 pt-4 text-xs leading-relaxed text-stone-500">
           상호: 벨로루프 <span class="mx-1.5 text-stone-300" aria-hidden="true">|</span> 대표: 김건준
           <span class="mx-1.5 text-stone-300" aria-hidden="true">|</span> 사업자등록번호: 539-14-03399
           <span class="mx-1.5 text-stone-300" aria-hidden="true">|</span> 주소: 경기도 김포시 김포한강8로 158, 6층 604-n112호(마산동)
+          <span class="mx-1.5 text-stone-300" aria-hidden="true">|</span> 유선번호: 010-6599-5620
         </p>
       </div>
     </footer>

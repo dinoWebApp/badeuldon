@@ -1,0 +1,178 @@
+<%# 공개 법적 고지 — 이용약관(15조). 표준 SaaS 약관 양식 기준, P5 규제 경계(추심 아님)·PLAN-1/2/4 요금·
+    PLAN-6 환불 불가(제8조)를 원문 수준으로 반영. 정적 마크업 — DB 쿼리·모델 호출 없음.
+    목차 앵커 + 조 번호 가독형 문서, 랜딩 동일 크롬(landing 레이아웃). %>
+<% content_for :title, "이용약관 — 받을돈" %>
+<% content_for :description, "받을돈 서비스 이용약관. 프리랜서 수금 자동화 서비스의 이용 조건, 회원·채무자 정의, 요금 및 환불 정책을 안내합니다." %>
+
+<section class="bg-cream">
+  <div class="mx-auto max-w-3xl px-4 py-14 sm:px-6 sm:py-20">
+    <p class="text-sm font-bold text-emerald-700">이용약관</p>
+    <h1 class="mt-2 text-3xl font-bold tracking-tight text-stone-900">받을돈 서비스 이용약관</h1>
+    <p class="mt-3 text-xs leading-relaxed text-stone-500">
+      마지막 수정일: 2026년 10월 15일 · 시행일: 2026년 10월 15일 · 상호: 벨로루프
+    </p>
+
+    <%# 목차 — 조 번호 앵커 %>
+    <nav class="mt-8 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm" aria-label="약관 목차">
+      <p class="text-xs font-bold text-stone-500">목차</p>
+      <ol class="mt-3 grid gap-x-6 gap-y-1.5 text-sm text-stone-600 sm:grid-cols-2">
+        <% [
+          ["제1조", "(목적)"], ["제2조", "(정의)"], ["제3조", "(서비스의 제공 및 변경)"],
+          ["제4조", "(회원가입 및 계정)"], ["제5조", "(서비스의 이용)"], ["제6조", "(회원의 의무)"],
+          ["제7조", "(요금 및 구독)"], ["제8조", "(환불)"], ["제9조", "(책임의 한계)"],
+          ["제10조", "(지적재산권)"], ["제11조", "(계정 해지 및 서비스 중단)"], ["제12조", "(개인정보 보호)"],
+          ["제13조", "(분쟁의 해결)"], ["제14조", "(통지)"], ["제15조", "(부칙)"]
+        ].each do |no, title| %>
+          <li>
+            <%= link_to "#article-#{no.delete('^0-9')}", class: "transition hover:text-emerald-800" do %>
+              <span class="font-bold text-stone-800"><%= no %></span> <%= title %>
+            <% end %>
+          </li>
+        <% end %>
+      </ol>
+    </nav>
+
+    <article class="mt-6 space-y-10 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm sm:p-10">
+      <section id="article-1">
+        <h2 class="text-lg font-bold text-stone-900">제1조 (목적)</h2>
+        <p class="mt-3 text-sm leading-relaxed text-stone-600">
+          이 약관은 벨로루프(이하 "회사")가 제공하는 프리랜서 수금 자동화 서비스 "받을돈"(이하 "서비스")의 이용 조건과 절차,
+          회사와 회원의 권리·의무 및 책임 사항, 그 밖에 필요한 사항을 규정함을 목적으로 합니다.
+        </p>
+      </section>
+
+      <section id="article-2">
+        <h2 class="text-lg font-bold text-stone-900">제2조 (정의)</h2>
+        <ol class="mt-3 list-decimal space-y-2 pl-5 text-sm leading-relaxed text-stone-600">
+          <li>"서비스"란 회사가 제공하는 청구서 발행, 공유 링크 생성, 열람 추적, 자동 리마인더 발송, 응답(입금 약속) 수집 등 수금 절차를 지원하는 기능 전체를 말합니다. 웹사이트 및 관련 응용프로그램을 포함합니다.</li>
+          <li>"회원"이란 이 약관에 동의하고 회사와 서비스 이용계약을 체결하여 계정을 만들어 서비스를 이용하는 자를 말합니다.</li>
+          <li>"채무자"란 회원이 발행한 청구서를 공유 링크로 열람하는 자로서, 서비스에 가입하지 않는 자를 말합니다.</li>
+          <li>"이용계약"이란 서비스 이용과 관련하여 회사와 회원 간에 체결되는 계약을 말합니다.</li>
+          <li>이 약관에서 정하지 아니한 사항은 관계 법령과 회사가 별도로 고지하는 이용정책에 따릅니다.</li>
+        </ol>
+      </section>
+
+      <section id="article-3">
+        <h2 class="text-lg font-bold text-stone-900">제3조 (서비스의 제공 및 변경)</h2>
+        <ol class="mt-3 list-decimal space-y-2 pl-5 text-sm leading-relaxed text-stone-600">
+          <li>서비스는 연중무휴 제공을 원칙으로 합니다. 다만 회사는 시스템 점검 등 업무상·기술상의 사유로 서비스를 일시 중단할 수 있으며, 사전에 서비스 내 공지로 안내합니다.</li>
+          <li>회사는 서비스의 내용을 추가·변경할 수 있으며, 중요한 변경은 사전에 공지합니다.</li>
+          <li>서비스는 이용 중인 요금제(제7조)에 따라 제공되는 기능의 범위가 다릅니다.</li>
+        </ol>
+      </section>
+
+      <section id="article-4">
+        <h2 class="text-lg font-bold text-stone-900">제4조 (회원가입 및 계정)</h2>
+        <ol class="mt-3 list-decimal space-y-2 pl-5 text-sm leading-relaxed text-stone-600">
+          <li>이용계약은 서비스 가입 화면에서 이메일과 비밀번호로 계정을 만들고 이 약관에 동의함으로써 체결됩니다.</li>
+          <li>회원은 타인의 정보를 도용하여 계정을 만들 수 없습니다. 위반 시 이용계약이 해지될 수 있습니다.</li>
+          <li>계정과 비밀번호의 관리 책임은 회원에게 있으며, 제3자에게 양도·대여할 수 없습니다.</li>
+          <li>회원은 프로필 정보(표시명·사업자 유형 등)를 언제든 서비스 내 설정 화면에서 수정할 수 있습니다.</li>
+        </ol>
+      </section>
+
+      <section id="article-5">
+        <h2 class="text-lg font-bold text-stone-900">제5조 (서비스의 이용)</h2>
+        <ol class="mt-3 list-decimal space-y-2 pl-5 text-sm leading-relaxed text-stone-600">
+          <li>회원은 서비스에서 청구서를 작성·발행하고, 추측이 불가능한 고유 주소의 공유 링크를 통해 채무자에게 청구 내용을 전달할 수 있습니다.</li>
+          <li>자동 리마인더는 평일 오전 9시부터 오후 6시(한국 표준시) 사이에만 발송되며, 청구 건당 최대 5통(대체 SMS 포함)까지만 발송됩니다. 시퀀스는 최종 단계 도달 시 자동으로 종료됩니다.</li>
+          <li>리마인더 등 모든 발신은 서비스(받을돈 카카오채널) 명의로 이루어지며, 회원의 개인 전화번호·이름은 채무자에게 노출되지 않습니다.</li>
+          <li>채무자가 링크에서 "이미 입금했어요" 등의 응답을 보내면 회원에게 알림이 전달되며, 실제 입금 확인과 수금 마감은 회원의 확인으로 처리됩니다.</li>
+        </ol>
+      </section>
+
+      <section id="article-6">
+        <h2 class="text-lg font-bold text-stone-900">제6조 (회원의 의무)</h2>
+        <ol class="mt-3 list-decimal space-y-2 pl-5 text-sm leading-relaxed text-stone-600">
+          <li>회원은 회원 자신이 정당하게 보유한 채권에 한하여 서비스를 이용해야 하며, 타인의 채권이나 정당한 권원 없는 채권에 대한 청구서를 발행할 수 없습니다.</li>
+          <li>본 서비스는 채권 추심 업무를 수행하지 않습니다. 서비스는 청구·안내 목적의 메시지 발송과 수금 절차 편의 제공만을 수행합니다.</li>
+          <li>회원이 입력하는 거래처(채무자)의 정보는 청구서 발행·리마인더 발송 목적으로만 사용되며, 그 입력의 적법성과 목적 외 사용 금지에 관한 책임은 회원에게 있습니다.</li>
+          <li>회원은 관계 법령, 이 약관, 서비스 이용정책을 준수해야 하며, 타인의 권리를 침해하거나 불법적인 목적으로 서비스를 이용할 수 없습니다.</li>
+        </ol>
+      </section>
+
+      <section id="article-7">
+        <h2 class="text-lg font-bold text-stone-900">제7조 (요금 및 구독)</h2>
+        <ol class="mt-3 list-decimal space-y-2 pl-5 text-sm leading-relaxed text-stone-600">
+          <li>무료 요금제(Free)는 월 청구 3건·거래처 5개까지 이용할 수 있으며, 자동 리마인더는 제공되지 않고 수동 발송만 가능합니다.</li>
+          <li>유료 구독(Plus)은 월 9,900원(부가세 포함)이며, 신규 가입 시 첫 14일 동안 무료 체험을 제공합니다. 무료 체험 기간 내에 해지하면 요금이 청구되지 않습니다.</li>
+          <li>수금 패스는 구독 없이 건별로 이용하는 이용권으로, 10건 4,000원(부가세 포함)이며 구매일로부터 90일간 유효합니다.</li>
+          <li>유료 구독은 신용카드 정기결제로 자동 갱신되며, 해지 시 남은 이용 기간까지 서비스를 이용할 수 있고 기간 종료 후 자동 결제가 중단됩니다.</li>
+          <li>요금은 부가세 포함 금액이며, 가격 정책 변경은 적용 30일 전부터 서비스 내 공지로 안내합니다.</li>
+        </ol>
+      </section>
+
+      <section id="article-8">
+        <h2 class="text-lg font-bold text-stone-900">제8조 (환불)</h2>
+        <ol class="mt-3 list-decimal space-y-2 pl-5 text-sm leading-relaxed text-stone-600">
+          <li>이용권(구독·수금 패스)은 구매 즉시 이용이 개시되는 디지털 콘텐츠로서 이용 기간의 경과 여부와 관계없이 환불이 제한됩니다.</li>
+          <li>다만 전자상거래 등에서의 소비자보호에 관한 법률이 정하는 바에 따라 이용을 개시하기 전에는 구매 후 7일 이내에 청약철회를 할 수 있습니다.</li>
+          <li>서비스 장애 등 회사의 귀책 사유로 이용이 불가능한 경우 전액 환불합니다.</li>
+          <li>환불의 세부 기준과 절차는 <%= link_to "환불 정책", refund_path, class: "font-semibold text-emerald-800 underline-offset-2 hover:underline" %>에서 확인할 수 있습니다.</li>
+        </ol>
+      </section>
+
+      <section id="article-9">
+        <h2 class="text-lg font-bold text-stone-900">제9조 (책임의 한계)</h2>
+        <ol class="mt-3 list-decimal space-y-2 pl-5 text-sm leading-relaxed text-stone-600">
+          <li>회사는 천재지변, 통신사업자·메시지 발송 대행사·결제대행사 등 제3자의 귀책 사유, 회원의 계정 관리 소홀로 인한 손해에 대하여 책임을 지지 않습니다.</li>
+          <li>서비스는 수금 절차의 편의를 지원하는 도구이며, 회원과 채무자 사이의 실제 채권·채무 관계의 유효성이나 입금 결과를 보증하지 않습니다. 수금과 관련된 권리·의무는 회원과 채무자 사이에 귀속됩니다.</li>
+          <li>알림톡·SMS 발송은 이동통신사 및 발송 대행사의 사정에 따라 지연되거나 도달하지 않을 수 있습니다.</li>
+          <li>회사는 무료로 제공되는 서비스와 관련하여 고의 또는 중대한 과실이 없는 한 책임을 지지 않습니다.</li>
+        </ol>
+      </section>
+
+      <section id="article-10">
+        <h2 class="text-lg font-bold text-stone-900">제10조 (지적재산권)</h2>
+        <ol class="mt-3 list-decimal space-y-2 pl-5 text-sm leading-relaxed text-stone-600">
+          <li>서비스의 디자인, 텍스트, 상표, 소프트웨어 등 서비스를 구성하는 권리는 회사에 귀속됩니다.</li>
+          <li>회원이 작성한 청구서 데이터와 입력한 거래처 정보의 권리는 회원에게 있으며, 회사는 서비스 제공 목적 범위 내에서만 이를 처리합니다.</li>
+          <li>회원은 서비스를 이용하여 얻은 콘텐츠를 회사의 사전 동의 없이 영리 목적으로 복제·전송·배포할 수 없습니다.</li>
+        </ol>
+      </section>
+
+      <section id="article-11">
+        <h2 class="text-lg font-bold text-stone-900">제11조 (계정 해지 및 서비스 중단)</h2>
+        <ol class="mt-3 list-decimal space-y-2 pl-5 text-sm leading-relaxed text-stone-600">
+          <li>회원은 언제든 서비스 내 설정 화면에서 탈퇴할 수 있으며, 탈퇴 즉시 계정 데이터가 삭제되고 발행 중인 청구 링크가 전부 폐기되며 진행 중인 자동 시퀀스가 중단됩니다.</li>
+          <li>탈퇴 시 유료 구독은 남은 이용 기간 종료 후 자동 결제가 중단됩니다.</li>
+          <li>회원이 이 약관을 위반한 경우 회사는 사전 통지 후 해당 회원의 서비스 이용을 제한하거나 이용계약을 해지할 수 있습니다.</li>
+        </ol>
+      </section>
+
+      <section id="article-12">
+        <h2 class="text-lg font-bold text-stone-900">제12조 (개인정보 보호)</h2>
+        <p class="mt-3 text-sm leading-relaxed text-stone-600">
+          회사는 개인정보보호에 관한 법률 등 관계 법령에 따라 회원과 채무자의 개인정보를 보호합니다.
+          처리하는 개인정보의 항목·목적·보유 기간, 이용자의 권리 등 세부 사항은
+          <%= link_to "개인정보처리방침", privacy_path, class: "font-semibold text-emerald-800 underline-offset-2 hover:underline" %>에서 확인할 수 있습니다.
+        </p>
+      </section>
+
+      <section id="article-13">
+        <h2 class="text-lg font-bold text-stone-900">제13조 (분쟁의 해결)</h2>
+        <ol class="mt-3 list-decimal space-y-2 pl-5 text-sm leading-relaxed text-stone-600">
+          <li>서비스 이용과 관련하여 발생한 분쟁에는 대한민국 법령이 적용됩니다.</li>
+          <li>회사와 회원은 분쟁이 발생하면 우선 협의로 해결하기 위해 노력하며, 협의가 이루어지지 않는 경우 민사소송법 등 관계 법령이 정하는 관할 법원에 소를 제기할 수 있습니다.</li>
+        </ol>
+      </section>
+
+      <section id="article-14">
+        <h2 class="text-lg font-bold text-stone-900">제14조 (통지)</h2>
+        <ol class="mt-3 list-decimal space-y-2 pl-5 text-sm leading-relaxed text-stone-600">
+          <li>회사가 회원에게 통지하는 경우 가입 이메일 또는 서비스 내 공지(팝업·배너·공지사항)로 합니다.</li>
+          <li>이 약관 및 요금 등 중요한 내용의 변경은 적용일 30일 전부터 공지하며, 변경 후 서비스를 계속 이용하면 변경에 동의한 것으로 봅니다.</li>
+          <li>서비스 문의는 카카오톡 채널 '받을돈' 및 유선번호 010-6599-5620으로 할 수 있습니다.</li>
+        </ol>
+      </section>
+
+      <section id="article-15">
+        <h2 class="text-lg font-bold text-stone-900">제15조 (부칙)</h2>
+        <ol class="mt-3 list-decimal space-y-2 pl-5 text-sm leading-relaxed text-stone-600">
+          <li>이 약관은 2026년 10월 15일부터 시행합니다.</li>
+          <li>개정된 약관은 별도의 명시가 없는 한 그 시행일부터 체결되는 이용계약에 즉시 적용됩니다.</li>
+        </ol>
+      </section>
+    </article>
+  </div>
+</section>

@@ -4,6 +4,8 @@ require "test_helper"
 # 검증 근거: PRD §7 SURF-1/3/4/6, LP-1, LP-12 / _workspace/05_review.md 재리뷰 §4
 # AUTH-1 정책 반전(카카오 CTA 폐기 → 이메일/비밀번호 가입 CTA 활성화) 반영 — Phase 7 갱신
 # PRD v0.19 Q6 헤드라인 번복·LP-5 버블 UI·LP-10 사업자 정보 반영 — 2026-10-14 갱신
+# PG 심사 요건 — 푸터 법적 고지 링크(/terms·/privacy·/refund) 허용 반영 — 2026-10-15 갱신
+# 법적 고지 링크는 ② 진입이 아니므로 SURF-4 위반이 아니다. ② 진입 링크는 가입 CTA 단일 유지.
 class LandingControllerTest < ActionDispatch::IntegrationTest
   test "GET /는 비로그인 200으로 landing/index 히어로를 렌더한다 (SURF-1, LP-1)" do
     get root_url
@@ -35,12 +37,14 @@ class LandingControllerTest < ActionDispatch::IntegrationTest
     assert_select "a[href=?]", new_registration_path, text: /무료로 시작하기/, count: 2
   end
 
-  test "표면 ①의 a 요소는 가입 진입이 유일하다 (SURF-4 단일 진입점)" do
+  test "표면 ①의 a 요소는 ② 진입이 가입뿐이다 (SURF-4 단일 진입점 — 법적 고지 링크 제외)" do
     get root_url
+    # PG 심사 요건(2026-10-15) — 푸터 법적 고지 3종 링크는 ② 진입이 아니므로 허용된다.
+    legal_hrefs = [ terms_path, privacy_path, refund_path ]
     assert_select "a" do |anchors|
       assert anchors.any?, "랜딩에 가입 CTA 링크가 존재해야 한다"
-      assert anchors.all? { |anchor| anchor["href"] == new_registration_path },
-        "①→② 진입은 가입 링크만 허용된다 — 로그인·재설정 등 타 링크 금지"
+      assert anchors.all? { |anchor| anchor["href"] == new_registration_path || anchor["href"].in?(legal_hrefs) },
+        "② 진입 링크는 가입 링크만 허용된다 — 로그인·재설정 등 타 진입 금지(법적 고지 3종 제외)"
     end
     # 로그인·재설정 직접 진입 없음(인증 화면 상호 링크만 존재)
     assert_select "a[href=?]", new_session_path, count: 0

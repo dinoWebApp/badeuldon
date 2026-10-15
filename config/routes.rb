@@ -64,6 +64,12 @@ Rails.application.routes.draw do
     get "/:token/promises/thanks", to: "viewer#promise_thanks", as: :viewer_promise_thanks
   end
 
+  # ── 표면 ① 공개 정적 페이지 — 법적 고지(PG 심사 요건) ──────────
+  # 랜딩과 동일 공개 크롬(landing 레이아웃), 비인증(SURF-1). NOINDEX_PATH_PREFIXES 미포함 — 색인 허용(SURF-3).
+  get "/terms" => "pages#terms", as: :terms
+  get "/refund" => "pages#refund", as: :refund
+  get "/privacy" => "pages#privacy", as: :privacy
+
   # ── 표면 ① 랜딩 ───────────────────────────────
   # 비로그인 공개(SURF-1) — 색인 허용(SURF-3), ①→② 진입은 가입 CTA 단일(SURF-4)
   root "landing#index"

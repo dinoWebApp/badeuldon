@@ -169,10 +169,10 @@ bin/jobs             # Solid Queue 잡 프로세스 (웹과 별도 실행)
 
 ## 구현 진행 상황 (로드맵)
 
-- **완료**: Rails 8.1 스켈레이션 생성, ARCHITECTURE_CONVENTION v1.0.0, 하네스 구축 + E2E 검증, 표면 ① 랜딩 골격, F-AUTH 인증(OAuth 폐기·Q8), 랜딩 전체 + UI 품질 기준 + AUTH-1.3 프로필(v0.18.1), /app 대시보드 뼈대(v0.18.2), F-CLIENT(v0.18.3), F-INV 청구서(v0.18.4), F-SHARE+F-VIEW 뷰어 개봉(v0.18.5), F-PROMISE 응답 수집(v0.18.6), **F-PAY 입금 처리**(`2026-10-13`, PRD v0.18.7 — Payment 모델(CHECK 제약), 원클릭 마감(PAY-1·잔액 전액·입금일 기록), 부분입금(PAY-2·잔액 재계산·잔액 도달 마감), with_lock+재검증 멱등(동시 마감 방어), DASH-1 잔액 기준 재계산·DASH-2 마감 대기 소멸, 0원 청구서 발행 차단. 테스트 358+4건. 리뷰 APPROVED — 멱등·동시성 30/30 실측, WARNING 2 수정·1 기록). **🏁 MVP 수금 루프(발행→열람→응답→마감) 완결**
-- **구현됨 상세**: `_workspace_prev/`(F-PROMISE)·`_workspace/`(F-PAY) 산출물 참조
+- **완료**: Rails 8.1 스켈레이션, 하네스 구축 + E2E 검증, F-AUTH 인증(OAuth 폐기·Q8), 랜딩 전체 + UI 품질 기준 + AUTH-1.3 프로필(v0.18.1), /app 대시보드 뼈대(v0.18.2), F-CLIENT(v0.18.3), F-INV 청구서(v0.18.4), F-SHARE+F-VIEW 뷰어 개봉(v0.18.5), F-PROMISE 응답 수집(v0.18.6), F-PAY 입금·MVP 수금 루프 완결(v0.18.7), 랜딩 헤드라인 교체·푸터 사업자·LP-5 버블 UI(v0.19), 로그인 UX(원클릭 복귀), **F-PLAN 구독·과금**(`2026-10-15`, PRD v0.20 — Subscription(체험→활성→해지→만료·빌링키·1人1구독)·Order·PaymentPass(10건·90일·with_lock), TossPayments 래퍼(테스트 키·stub 가능·모호실패 pending 유지·웹훅 회복), 한도 전환(Free 5/3→Plus 무제한·수금 패스 소비), 자동 갱신 Job(with_lock·멱등키), 웹훅 POST /webhooks/toss(get_payment 재조회), /app/billing UI·사이드바. 테스트 484건. 리뷰 BLOCKER 1+CRITICAL 6 수정)
+- **구현됨 상세**: `_workspace_prev/`(로그인 UX)·`_workspace/`(F-PLAN) 산출물 참조
 - **진행 중**: 없음
-- **예정**: F-REM(핵클 계약 선행 — SHARE-4·PROMISE-4/7·PAY-4 알림 발송, SHARE-5 문구 분기, VIEW-7 수신거부, PROMISE-3 재스케줄, overdue 저장화) → F-DASH 나머지(DASH-5/6 리포트) → F-PLAN(토스 계약 — 한도 구독 전환·with_lock) → F-ADMIN → F-LEGAL/REF/TAX → CLIENT-3/4(지급 성적표 — Payment 이행 데이터 축적 중)·PROMISE-5 → INV-7 반복·PDF(VIEW-4·PAY-6) → 부분입금 오기록 정책 → LP-11 콘텐츠 허브·블로그. 기술 부채: Pretendard 셀프호스팅, 이메일 서비스, ko locale errors.format, 관리자 계정, LP-3 실화면, 푸터 약관, 후기, Stimulus 분리·CSS 분할, focus-visible, F-PLAN with_lock, ViewEvent 하드닝, 봇 UA 필터, IP·로그 문서화, device 판별, 인앱 실기 QA
+- **예정**: F-REM(핵클 계약 — SHARE-4·PROMISE-4/7·PAY-4 알림, SHARE-5 문구 분기, VIEW-7 수신거부, PROMISE-3 재스케줄, overdue 저장화) → F-DASH 나머지(DASH-5/6) → F-ADMIN → F-LEGAL/REF/TAX → CLIENT-3/4·PROMISE-5 → INV-7·PDF → 부분입금 오기록 정책 → LP-11 콘텐츠 허브·블로그. 기술 부채: dunning(결제 실패 재시도), 환불 처리(토스 콘솔 수동), 웹훅 data 필드 [INFERENCE] 라이브 실측 필요, Pretendard 셀프호스팅, 이메일 서비스, ko locale, 관리자 계정, 약관·개인정보 문서, 후기, Stimulus 분리, ViewEvent 하드닝, 봇 UA 필터, 인앱 실기 QA
 - **작업 재개 가이드**: `.omp/progress.json`의 `currentPhase` 확인 → `awaiting_approval`이면 플랜 재보고 후 승인 대기, 그 외에는 다음 Phase부터 재개. 산출물은 `_workspace/`.
 
 ### 운영 배포 운영 노트 (2026-10-14 실측)
