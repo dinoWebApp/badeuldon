@@ -1,7 +1,7 @@
 module App
   # 표면 ②(/app) 공통 뷰 헬퍼 — 사이드바 내비 구성·대시보드 카드 데이터·입력 필드 공통 클래스.
   module BaseHelper
-    # 사이드바 메뉴 — 대시보드·청구서(INV)·거래처(CLIENT-1)·품목(CLIENT-2)·설정 활성.
+    # 사이드바 메뉴 — 대시보드·청구서(INV)·거래처(CLIENT-1)·품목(CLIENT-2)·요금제(F-PLAN)·설정 활성.
     # 활성 판정은 요청 경로 기준. 미구현 메뉴는 링크 없이 구조만 안내한다(플랜 결정 #2).
     def app_nav_items
       [
@@ -9,6 +9,7 @@ module App
         { label: "청구서", path: app_invoices_path, active: request.path.start_with?(app_invoices_path), disabled: false },
         { label: "거래처", path: app_clients_path, active: request.path.start_with?(app_clients_path), disabled: false },
         { label: "품목", path: app_items_path, active: request.path.start_with?(app_items_path), disabled: false },
+        { label: "요금제", path: app_billing_path, active: request.path.start_with?(app_billing_path), disabled: false },
         { label: "설정", path: edit_app_profile_path, active: request.path.start_with?(app_profile_path), disabled: false }
       ]
     end

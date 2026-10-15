@@ -25,7 +25,23 @@ Rails.application.routes.draw do
     resources :promises, only: [] do
       member { patch :answer }
     end
+
+    # ── F-PLAN 구독·과금(PLAN-1~5) ──
+    resource :billing, only: :show           # 요금제 페이지(/app/billing)
+    resource :subscription, only: %i[ create update ] do
+      # 카드 인증 위젯 successUrl(토스가 GET 리다이렉트) — authKey 수신 전용(이슈 #5).
+      # GET은 CSRF 검증 대상이 아니므로 해지 같은 상태 변경을 이 경로에 두지 않는다.
+      get :card_callback, to: "subscriptions#update"
+      # 해지 — PATCH 전용(CSRF 토큰 검증 대상 — 이슈 #5)
+      patch :cancel
+    end
+    resources :orders, only: :create do
+      collection { get :callback }           # 수금 패스 결제 위젯 성공/실패 리다이렉트 수신
+    end
   end
+
+  # ── 토스페이먼츠 웹훅(PLAN-5) — 토스 서버 → 우리 서버(비인증 서버 간 호출) ──
+  post "/webhooks/toss", to: "webhooks/toss#create"
 
   # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html
 

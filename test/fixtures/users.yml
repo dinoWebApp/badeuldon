@@ -32,3 +32,18 @@ delta:
   account_number: "110-234-567890"
   account_holder: "김델타"
   phone: "010-5555-1111"
+
+<%# epsilon — F-PLAN 구독 테스트 전용(profile 완료 — /app 진입 가드 통과).
+    청구서·거래처 없음. 구독 행은 subscriptions.yml(epsilon_plus_active)에서 제공하며,
+    fixture 적재는 콜백을 우회하므로 after_create 자동 생성과 충돌하지 않는다.
+    alpha·beta·gamma·delta는 구독 행 없는 폴백(Free 상수) 판정을 기존 테스트가 전제하므로
+    구독 fixture를 붙이지 않는다 — Plus 생명주기 상태는 테스트 내 create_subscription!로 만든다. %>
+epsilon:
+  email: epsilon@example.com
+  password_digest: <%= password_digest %>
+  display_name: "엡실론컨설팅"
+  business_type: business
+  bank_name: "우리은행"
+  account_number: "1002-345-678901"
+  account_holder: "김엡실론"
+  phone: "010-2222-3333"

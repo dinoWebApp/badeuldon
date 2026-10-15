@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_13_000002) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_15_000002) do
   create_table "clients", force: :cascade do |t|
     t.integer "user_id", null: false
     t.string "name", null: false
@@ -73,6 +73,34 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_13_000002) do
     t.index ["user_id"], name: "index_items_on_user_id"
   end
 
+  create_table "orders", force: :cascade do |t|
+    t.integer "user_id", null: false
+    t.integer "product", null: false
+    t.integer "amount", null: false
+    t.integer "status", default: 0, null: false
+    t.string "toss_order_id", null: false
+    t.string "toss_payment_key"
+    t.string "toss_billing_key"
+    t.datetime "paid_at"
+    t.json "metadata"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["toss_order_id"], name: "index_orders_on_toss_order_id", unique: true
+    t.index ["toss_payment_key"], name: "index_orders_on_toss_payment_key"
+    t.index ["user_id"], name: "index_orders_on_user_id"
+  end
+
+  create_table "payment_passes", force: :cascade do |t|
+    t.integer "user_id", null: false
+    t.integer "total_uses", default: 10, null: false
+    t.integer "remaining_uses", default: 10, null: false
+    t.datetime "expires_at", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["user_id"], name: "index_payment_passes_on_user_id"
+    t.check_constraint "remaining_uses >= 0", name: "payment_passes_remaining_uses_non_negative"
+  end
+
   create_table "payments", force: :cascade do |t|
     t.integer "invoice_id", null: false
     t.integer "amount", null: false
@@ -102,6 +130,22 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_13_000002) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["user_id"], name: "index_sessions_on_user_id"
+  end
+
+  create_table "subscriptions", force: :cascade do |t|
+    t.integer "user_id", null: false
+    t.integer "plan", default: 0, null: false
+    t.integer "status", default: 1, null: false
+    t.datetime "trial_ends_at"
+    t.datetime "current_period_start"
+    t.datetime "current_period_end"
+    t.string "toss_customer_key"
+    t.string "toss_billing_key"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.boolean "used_trial", default: false, null: false
+    t.index ["toss_customer_key"], name: "idx_subscriptions_on_toss_customer_key_uniq", unique: true, where: "toss_customer_key IS NOT NULL"
+    t.index ["user_id"], name: "index_subscriptions_on_user_id", unique: true
   end
 
   create_table "users", force: :cascade do |t|
@@ -134,8 +178,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_13_000002) do
   add_foreign_key "invoices", "clients"
   add_foreign_key "invoices", "users"
   add_foreign_key "items", "users"
+  add_foreign_key "orders", "users", on_delete: :cascade
+  add_foreign_key "payment_passes", "users", on_delete: :cascade
   add_foreign_key "payments", "invoices"
   add_foreign_key "promises", "invoices"
   add_foreign_key "sessions", "users"
+  add_foreign_key "subscriptions", "users", on_delete: :cascade
   add_foreign_key "view_events", "invoices"
 end

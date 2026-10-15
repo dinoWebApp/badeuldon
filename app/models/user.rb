@@ -7,7 +7,11 @@ class User < ApplicationRecord
   # invoices.client_id 외래 키 위반(ActiveRecord::InvalidForeignKey)을 방지한다. 순서 변경 금지.
   has_many :invoices, dependent: :destroy # INV — 탈퇴 시 청구서 데이터 삭제(AUTH-1.5)
   has_many :clients, dependent: :destroy  # CLIENT-1 — 탈퇴 시 거래처 데이터 삭제(AUTH-1.5)
-  has_many :items, dependent: :destroy    # CLIENT-2 — 탈퇴 시 품목 데이터 삭제(AUTH-1.5)
+  has_many :items, dependent: :destroy    # CLIENT-2 — 탈퇴 시 품목 라이브러리 삭제(AUTH-1.5)
+  # F-PLAN — 구독(1인 1행)·주문·수금 패스. 자식 참조가 없어 연쇄 순서 영향이 없다.
+  has_one :subscription, dependent: :destroy
+  has_many :orders, dependent: :destroy
+  has_many :payment_passes, dependent: :destroy
 
   # AUTH-1.3 사업자 유형 — 사업자(business)·프리랜서(freelancer, 3.3% 원천징수 해당).
   # 미선택 허용: 가입 시점엔 결정하지 않고, 프로필 설정(:profile 컨텍스트)에서 필수가 된다.
@@ -27,4 +31,34 @@ class User < ApplicationRecord
   normalizes :email, with: ->(e) { e.strip.downcase }
   # AUTH-1.3 — 표시명 앞뒤 공백 제거
   normalizes :display_name, with: ->(d) { d.strip }
+
+  # F-PLAN(PLAN-1) — 가입 시 Free 구독 행을 보장한다. RegistrationsController뿐 아니라
+  # 모든 생성 경로(콘솔·러너)에서 1인 1구독 불변식을 유지하기 위해 모델 콜백으로 둔다.
+  after_create :create_free_subscription
+
+  # ── PLAN-1 한도 판정 위임 ────────────────────────────────────────────────
+  # Client·Invoice 검증과 컨트롤러 UI 분기(@limit_reached)가 공유하는 단일 판정점.
+  # 구독 행이 없는 기존 사용자(기능 도입 이전 가입)는 Free 상수를 그대로 적용한다
+  # (하위 호환 폴백 — 상수는 유지된다).
+
+  def client_limit_reached?(current_count)
+    return subscription.client_limit_reached?(current_count) if subscription
+
+    current_count >= Client::FREE_CLIENT_LIMIT
+  end
+
+  def monthly_invoice_limit_reached?(current_count)
+    return subscription.monthly_invoice_limit_reached?(current_count) if subscription
+
+    # 폴백(Free 상수)에서도 수금 패스로 발행 가능 — 구독 판정점과 동일 기준(이슈 #7)
+    return false if payment_passes.usable.exists?
+
+    current_count >= Invoice::FREE_MONTHLY_INVOICE_LIMIT
+  end
+
+  private
+
+  def create_free_subscription
+    Subscription.create!(user: self, plan: :free)
+  end
 end

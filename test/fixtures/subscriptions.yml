@@ -1,0 +1,14 @@
+<%# 구독(F-PLAN — PLAN-1/2) fixtures — 1인 1구독(user_id 고유 인덱스)이므로 사용자당 최대 1행.
+    epsilon은 Plus 이용 중(빌링키·주기 보유) 상태. alpha·beta·gamma·delta는 구독 행이 없어야
+    기존 PLAN-1 폴백(Free 상수) 테스트가 유지되므로 행을 두지 않는다 — 다른 생명주기 상태
+    (trialing·cancelled·expired·free)는 테스트 내 create_subscription!로 만든다.
+    기간은 기준 테스트 일자 2026-10-15(KST, TIME-1)에 이용 중인 스냅샷값. %>
+
+epsilon_plus_active:
+  user: epsilon
+  plan: plus
+  status: active
+  toss_customer_key: "cust-epsilon-00000000-0000-0000-0000-000000000001"
+  toss_billing_key: "tok_billing_epsilon_0001"
+  current_period_start: "2026-10-01 00:00:00 +0900"
+  current_period_end: "2026-10-31 23:59:59 +0900"

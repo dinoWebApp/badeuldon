@@ -5,14 +5,14 @@ class App::ClientsController < App::BaseController
 
   def index
     @clients = Current.user.clients.order(:id)
-    @limit_reached = Current.user.clients.count >= Client::FREE_CLIENT_LIMIT
+    @limit_reached = Current.user.client_limit_reached?(Current.user.clients.count)
   end
 
   def show; end
 
   def new
     @client = Current.user.clients.build
-    @limit_reached = Current.user.clients.count >= Client::FREE_CLIENT_LIMIT
+    @limit_reached = Current.user.client_limit_reached?(Current.user.clients.count)
   end
 
   def create
@@ -21,7 +21,7 @@ class App::ClientsController < App::BaseController
       redirect_to app_clients_path, status: :see_other, notice: "거래처가 등록되었습니다."
     else
       # 실패 재렌더에서도 배너·저장 버튼 상태를 목록/신규 화면과 동일하게 유지한다(PLAN-1).
-      @limit_reached = Current.user.clients.count >= Client::FREE_CLIENT_LIMIT
+      @limit_reached = Current.user.client_limit_reached?(Current.user.clients.count)
       render :new, status: :unprocessable_entity
     end
   end

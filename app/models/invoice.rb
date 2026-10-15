@@ -2,8 +2,9 @@
 # 발급하며, 발행 계열에서만 무효 처리한다(INV-6). 상태 viewed·overdue·promised·
 # partially_paid·paid는 INV-4 전이의 예약값으로 SHARE·PROMISE·REM·PAY 도메인에서 진입한다.
 class Invoice < ApplicationRecord
-  # PLAN-1 — Free 플랜 월 발행 한도. Client::FREE_CLIENT_LIMIT과 같은 상수 단일 지점 패턴.
-  # 초안은 무제한이며 발행(draft→issued) 시점에 당월 issued_at 기준으로 검사한다(02_prd_update 승인 해석).
+  # PLAN-1 — Free 플랜 월 발행 한도. F-PLAN 구독 체크로 판정점이 옮겨진 뒤에도 이 상수는
+  # 구독 행이 없는 기존 사용자의 폴백·문구 표기의 단일 지점으로 유지한다(02_prd_update 승인 해석).
+  # 초안은 무제한이며 발행(draft→issued) 시점에 당월 issued_at 기준으로 검사한다.
   FREE_MONTHLY_INVOICE_LIMIT = 3
   # INV-3 — 만기일 기본값: 발행일 + 30일
   DEFAULT_DUE_IN_DAYS = 30
@@ -123,11 +124,16 @@ class Invoice < ApplicationRecord
       transaction do
         assign_issue_number
         save!(context: :issue)
+        consume_collection_pass!
       end
     rescue ActiveRecord::RecordNotUnique
       attempts += 1
       retry if attempts < 5
       errors.add(:base, "청구번호 발급에 실패했습니다. 잠시 후 다시 시도해 주세요")
+      return false
+    rescue PaymentPass::UsesExhausted
+      # 검증 통과 후 경합으로 패스가 소진된 경우 — 발행 전체(저장 포함)를 원자적으로 취소한다.
+      errors.add(:base, "사용 가능한 수금 패스가 없어 발행할 수 없습니다. 패스를 구매하거나 Plus로 전환해 주세요")
       return false
     end
     true
@@ -242,12 +248,32 @@ class Invoice < ApplicationRecord
   end
 
   # PLAN-1 — 당월 발행 건수 기준. 무효 처리된 건도 발행 이력이므로 포함해 산정한다.
+  # 판정은 구독 기준(User#monthly_invoice_limit_reached? — Free는 FREE_MONTHLY_INVOICE_LIMIT,
+  # Plus는 무제한. 구독 행이 없는 기존 사용자는 상수 폴백). 사용 가능한 수금 패스가 있으면
+  # 한도 판정을 통과시키며(PLAN-4), 발행 확정 시 consume_collection_pass!가 1건을 소비한다.
   def free_plan_monthly_issue_limit
     return if user.nil?
-    return if user.invoices.where(issued_at: Time.current.beginning_of_month..)
-                   .count < FREE_MONTHLY_INVOICE_LIMIT
+    issued_this_month = user.invoices.where(issued_at: Time.current.beginning_of_month..).count
+
+    return unless user.monthly_invoice_limit_reached?(issued_this_month)
 
     errors.add(:base, "Free 플랜은 매월 #{FREE_MONTHLY_INVOICE_LIMIT}건까지 발행할 수 있습니다. Plus로 무제한 이용할 수 있습니다")
+  end
+
+  # PLAN-4 — Free 월 한도 초과 발행은 수금 패스를 1건 소비한다(이슈 #7 — 소비 지점 연결).
+  # 저장과 소비를 같은 트랜잭션으로 묶어 "패스만 소비되고 발행은 실패"인 상태를 원천 차단한다.
+  # 곧 만료되는 패스부터 소비하며, 검증 통과 뒤 경합으로 소진됐으면 UsesExhausted로 발행을
+  # 되돌린다(use!의 잠금 재판정이 최종 방어).
+  def consume_collection_pass!
+    return if user.nil? || user.subscription&.plus?
+
+    issued_this_month = user.invoices.where(issued_at: Time.current.beginning_of_month..).count
+    return unless issued_this_month > FREE_MONTHLY_INVOICE_LIMIT
+
+    pass = user.payment_passes.usable.order(:expires_at).first
+    raise PaymentPass::UsesExhausted, "사용 가능한 수금 패스가 없습니다" unless pass
+
+    pass.use!
   end
 
   # INV-5 — 발행 계열(갱신 직전 상태가 draft가 아닌 레코드)의 본문 불변 가드. 보호 컬럼

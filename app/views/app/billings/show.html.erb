@@ -1,0 +1,161 @@
+<%# 요금제(F-PLAN — 표면 ②) — 현재 플랜·플랜 비교(PLAN-1/2)·카드 등록·수금 패스(PLAN-4).
+    토스 결제 UI는 SDK 스크립트 + Stimulus(toss_payment·toss_billing)가 담당하며 주문 생성·
+    승인·빌링키 발급은 모두 서버가 수행한다(PLAN-5 — 클라이언트 값 신뢰 금지). %>
+
+<% content_for :head do %>
+  <%= tag.script(src: "https://js.tosspayments.com/v1/payment") %>
+<% end %>
+
+<div class="mx-auto max-w-4xl">
+  <header class="flex flex-wrap items-end justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight text-stone-900">요금제</h1>
+      <p class="mt-2 text-sm leading-relaxed text-stone-500">
+        플랜에 따라 청구·거래처 한도와 자동 리마인더 사용 여부가 달라집니다.
+      </p>
+    </div>
+  </header>
+
+  <%# ── 현재 플랜 카드 ──────────────────────────────────────────────── %>
+  <section class="mt-6 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm" aria-label="현재 플랜">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <span class="inline-flex rounded-full px-3 py-1 text-xs font-bold <%= plan_badge_classes(@subscription) %>">
+          <%= plan_badge_label(@subscription) %>
+        </span>
+        <p class="mt-3 text-sm leading-relaxed text-stone-600">
+          <%= plan_status_description(@subscription) %>
+        </p>
+        <p class="mt-1.5 text-xs leading-relaxed text-stone-500">
+          카드 등록: <%= @subscription.toss_billing_key.present? ? "완료 — 자동 결제로 이용 중" : "미등록" %>
+        </p>
+      </div>
+
+      <div class="flex flex-col items-stretch gap-2">
+        <% if @subscription.free? %>
+          <%# PLAN-2 — 첫 14일 무료 체험 시작 %>
+          <%= button_to "Plus 14일 무료 체험 시작", app_subscription_path, method: :post,
+                class: "inline-flex min-h-11 cursor-pointer items-center justify-center rounded-xl bg-emerald-800 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900" %>
+        <% elsif @subscription.active? && @subscription.plus? %>
+          <%# PLAN-5 — 해지 시 결제 기간 말까지 이용 가능. 해지는 PATCH 전용 액션으로만
+              수행된다(GET 상태 변경 차단 — 이슈 #5). Plus 이용 중에만 노출(이슈 #6). %>
+          <%= button_to "Plus 해지", cancel_app_subscription_path, method: :patch,
+                data: { turbo_confirm: "Plus 구독을 해지하시겠습니까? 현재 결제 기간까지는 이용할 수 있습니다." },
+                class: "inline-flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-stone-300 bg-white px-5 text-sm font-bold text-stone-600 transition hover:border-stone-400 hover:text-stone-800" %>
+        <% end %>
+      </div>
+    </div>
+  </section>
+
+  <%# ── 플랜 비교(PLAN-1/2 수치 원문 — LP-7과 동일 문구 기준) ─────────── %>
+  <section class="mt-8 grid gap-5 sm:grid-cols-2" aria-label="플랜 비교">
+    <div class="flex flex-col rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
+      <p class="text-base font-bold text-stone-800">Free</p>
+      <p class="mt-2 text-2xl font-extrabold tracking-tight tabular-nums text-stone-900">
+        0원 <span class="text-sm font-semibold text-stone-500">/ 월</span>
+      </p>
+      <ul class="mt-4 space-y-2 text-sm leading-relaxed text-stone-600">
+        <li class="flex gap-2"><span class="font-bold text-emerald-700">✓</span>월 청구 <%= Invoice::FREE_MONTHLY_INVOICE_LIMIT %>건</li>
+        <li class="flex gap-2"><span class="font-bold text-emerald-700">✓</span>거래처 <%= Client::FREE_CLIENT_LIMIT %>개</li>
+        <li class="flex gap-2"><span class="font-bold text-emerald-700">✓</span>열람 추적 · 수동 리마인더 발송</li>
+      </ul>
+    </div>
+
+    <div class="relative flex flex-col rounded-2xl border-2 border-emerald-800 bg-white p-6 shadow-lg shadow-emerald-900/10">
+      <p class="absolute -top-3.5 left-1/2 -translate-x-1/2 rounded-full bg-emerald-800 px-3.5 py-1 text-xs font-bold text-white shadow-sm">추천</p>
+      <p class="text-base font-bold text-emerald-800">Plus</p>
+      <p class="mt-2 text-2xl font-extrabold tracking-tight tabular-nums text-stone-900">
+        <%= number_with_delimiter(Subscription::PLUS_MONTHLY_PRICE) %>원
+        <span class="text-sm font-semibold text-stone-500">/ 월 · 부가세 포함</span>
+      </p>
+      <p class="mt-2 inline-flex w-fit rounded-full bg-emerald-800/10 px-3 py-1 text-xs font-bold text-emerald-800">첫 <%= Subscription::TRIAL_DAYS %>일 무료 체험</p>
+      <ul class="mt-4 space-y-2 text-sm leading-relaxed text-stone-600">
+        <li class="flex gap-2"><span class="font-bold text-emerald-700">✓</span>무제한 청구·거래처</li>
+        <li class="flex gap-2"><span class="font-bold text-emerald-700">✓</span>자동 리마인더 시퀀스 · 응답(약속) 수집</li>
+        <li class="flex gap-2"><span class="font-bold text-emerald-700">✓</span>발송 이력 · 기본 리포트</li>
+      </ul>
+    </div>
+  </section>
+  <p class="mt-4 text-xs leading-relaxed text-stone-500">
+    해지 시 현재 결제 기간 말까지 이용할 수 있습니다. · 자동 리마인더 시퀀스는 청구 건당 최대 5통(대체 SMS 포함)으로 발송됩니다.
+  </p>
+
+  <%# ── 카드(자동결제) 등록 — 빌링키 미보유일 때만 표시 ────────────────── %>
+  <% if @subscription.toss_billing_key.blank? %>
+    <section class="mt-8 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm" aria-label="카드 등록">
+      <h2 class="text-base font-bold text-stone-800">카드(자동결제) 등록</h2>
+      <p class="mt-2 text-sm leading-relaxed text-stone-600">
+        카드를 등록하면 체험이 끝난 뒤 월 <%= number_with_delimiter(Subscription::PLUS_MONTHLY_PRICE) %>원으로 자동 결제되어 Plus가 계속됩니다.
+      </p>
+
+      <% if @toss_client_key.present? %>
+        <div data-controller="toss-billing"
+             data-toss-billing-client-key-value="<%= @toss_client_key %>"
+             data-toss-billing-customer-key-value="<%= @subscription.toss_customer_key %>"
+             data-toss-billing-success-url-value="<%= card_callback_app_subscription_url %>"
+             data-toss-billing-fail-url-value="<%= app_billing_url %>">
+          <%# type="button" — 클릭은 위젯 호출(Stimulus)만 하고 폼 전송은 없다.
+              인증 완료 후 토스가 successUrl로 리다이렉트하면 서버가 빌링키를 발급한다. %>
+          <button type="button" data-action="toss-billing#register"
+                  class="mt-4 inline-flex min-h-11 cursor-pointer items-center rounded-xl bg-emerald-800 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900">
+            카드 등록하기
+          </button>
+        </div>
+
+        <%# 테스트 키 마일스톤 — 위젯 없이 authKey를 직접 등록하는 수동 경로(러너 검증용) %>
+        <%= form_with url: app_subscription_path, method: :patch, class: "mt-5 border-t border-stone-100 pt-4" do %>
+          <label for="auth_key" class="block text-xs font-bold text-stone-500">테스트용 카드 인증키(authKey) 직접 등록</label>
+          <%= text_field_tag :auth_key, nil, id: "auth_key",
+                placeholder: "토스 카드 인증 완료 후 받은 authKey",
+                class: "mt-1 block w-full rounded-xl border border-stone-300 bg-white px-3.5 py-2.5 text-stone-800 shadow-sm transition placeholder:text-stone-400 hover:border-stone-400 focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-700/30" %>
+          <%= submit_tag "등록",
+                class: "mt-2 inline-flex min-h-11 cursor-pointer items-center rounded-xl border border-stone-300 bg-white px-5 text-sm font-bold text-stone-600 transition hover:border-emerald-700 hover:text-emerald-900" %>
+        <% end %>
+      <% else %>
+        <p class="mt-4 rounded-xl bg-amber-50 p-4 text-sm font-semibold text-stone-700" role="status">
+          결제 키가 설정되지 않았습니다. 토스페이먼츠 테스트 키를 credentials(:toss/:client_key·:secret_key)에 등록하면 카드 등록이 활성화됩니다.
+        </p>
+      <% end %>
+    </section>
+  <% end %>
+
+  <%# ── 수금 패스(PLAN-4) ──────────────────────────────────────────── %>
+  <section class="mt-8 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm" aria-label="수금 패스">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <h2 class="text-base font-bold text-stone-800">수금 패스</h2>
+        <p class="mt-2 text-sm leading-relaxed text-stone-600">
+          구독 없이 자동 시퀀스·응답 수집을 건별로 이용하는 이용권입니다.
+          <%= Order::PRODUCT_AMOUNTS[:collection_pass] %>원 / <%= PaymentPass::TOTAL_USES %>건 ·
+          <%= PaymentPass::VALIDITY_DAYS %>일 유효
+        </p>
+      </div>
+      <%= button_to "수금 패스 구매", app_orders_path, method: :post,
+            class: "inline-flex min-h-11 cursor-pointer items-center rounded-xl bg-emerald-800 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900" %>
+    </div>
+
+    <% if @checkout_order %>
+      <%= render "checkout", order: @checkout_order %>
+    <% end %>
+
+    <% if @usable_passes.any? %>
+      <ul class="mt-5 space-y-2 border-t border-stone-100 pt-4" aria-label="보유 수금 패스">
+        <% @usable_passes.each do |pass| %>
+          <li class="flex items-center justify-between rounded-xl bg-stone-50 px-4 py-3 text-sm">
+            <span class="font-bold text-stone-800">수금 패스 <%= pass.total_uses %>건권</span>
+            <span class="tabular-nums text-stone-600"><%= payment_pass_summary(pass) %></span>
+          </li>
+        <% end %>
+      </ul>
+    <% else %>
+      <p class="mt-5 border-t border-stone-100 pt-4 text-sm text-stone-500">
+        보유한 수금 패스가 없습니다.
+      </p>
+    <% end %>
+  </section>
+
+  <%# PLAN-6 — 이용권·패스권 환불 불가 고지 %>
+  <p class="mt-6 text-xs leading-relaxed text-stone-500">
+    구독료·이용권·패스권은 환불되지 않습니다(약관 고지). 결제 상태 변경은 토스페이먼츠 웹훅으로 반영됩니다.
+  </p>
+</div>

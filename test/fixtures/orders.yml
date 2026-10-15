@@ -1,0 +1,13 @@
+<%# 주문(F-PLAN — PLAN-2/4/5) fixtures — 웹훅 상태 매핑 검증용 확정 주문 1건만 둔다.
+    대기(pending) 주문은 App::OrdersController#create가 기존 pending을 재사용(멱등)하므로
+    fixture로 두면 주문 생성 테스트 기대값이 흔들린다 — pending은 테스트 내에서 만든다.
+    toss_order_id·toss_payment_key는 고정값(웹훅 이벤트와 대조). 금액은 정수(원). %>
+
+delta_pass_order:
+  user: delta
+  product: collection_pass
+  amount: 4000
+  status: paid
+  toss_order_id: "order-delta-pass-0001"
+  toss_payment_key: "pay-delta-pass-0001"
+  paid_at: "2026-10-10 12:00:00 +0900"

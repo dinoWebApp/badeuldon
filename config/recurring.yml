@@ -9,7 +9,23 @@
 #     priority: 2
 #     schedule: at 5am every day
 
+# F-PLAN 구독 생명주기 잡 — 매일 06:00 KST(TIME-1). fugit 크론의 타임존 접미사로 KST 고정하며,
+# 갱신(renewal)을 강등 체크(expiry) 5분 뒤에 돌려 체험 만료 대상이 갱신 경합에 걸리지 않게 한다.
 production:
+  subscription_trial_expiry:
+    class: SubscriptionTrialExpiryJob
+    schedule: "0 6 * * * Asia/Seoul"
+  subscription_renewal:
+    class: SubscriptionRenewalJob
+    schedule: "5 6 * * * Asia/Seoul"
   clear_solid_queue_finished_jobs:
     command: "SolidQueue::Job.clear_finished_in_batches(sleep_between_batches: 0.3)"
     schedule: every hour at minute 12
+
+development:
+  subscription_trial_expiry:
+    class: SubscriptionTrialExpiryJob
+    schedule: "0 6 * * * Asia/Seoul"
+  subscription_renewal:
+    class: SubscriptionRenewalJob
+    schedule: "5 6 * * * Asia/Seoul"
