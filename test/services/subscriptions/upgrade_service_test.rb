@@ -8,7 +8,7 @@ require_relative "../../test_helpers/fake_portone_client"
 class Subscriptions::UpgradeServiceTest < ActiveSupport::TestCase
   setup do
     @user = users(:gamma)
-    @billing_channel_key = Rails.application.credentials.dig(:portone, :channel_key_billing)
+    @billing_channel_key = Rails.application.credentials.dig(:portone, :channel_key_billing) || "test-channel-billing"
   end
 
   # ── start_trial (체험 시작 — PLAN-2) ──

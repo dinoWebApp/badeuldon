@@ -18,6 +18,7 @@ export default class extends Controller {
     callbackUrl: String,
     customerName: String,
     customerPhone: String,
+    customerEmail: String,
     issueId: String
   }
 
@@ -27,7 +28,8 @@ export default class extends Controller {
 
     const customer = {
       customerId: this.customerIdValue,
-      fullName: this.customerNameValue // KG이니시스 — 항상 필수
+      fullName: this.customerNameValue, // KG이니시스 — 항상 필수
+      email: this.customerEmailValue // KG이니시스 빌링키 발급 — 필수(REQUIRED)
     }
     if (this.customerPhoneValue) customer.phoneNumber = this.customerPhoneValue // PC 필수
 

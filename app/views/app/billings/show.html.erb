@@ -95,7 +95,7 @@
              data-portone-billing-customer-id-value="<%= @subscription.pg_customer_key %>"
              data-portone-billing-callback-url-value="<%= card_callback_app_subscription_url %>"
              data-portone-billing-customer-name-value="<%= @portone_customer_name %>"
-             data-portone-billing-customer-phone-value="<%= @portone_customer_phone %>"
+             data-portone-billing-customer-email-value="<%= @portone_customer_email %>"
              data-portone-billing-issue-id-value="<%= @portone_billing_issue_id %>">
           <%# type="button" — 클릭은 위젯 호출(Stimulus)만 하고 폼 전송은 없다.
               카드 인증 완료 후 위젯이 돌려준 빌링키 발급 토큰(billingIssueToken)을 콜백으로
