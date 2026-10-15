@@ -1,5 +1,5 @@
 # 구독 플로우(F-PLAN — PLAN-2/5) — 체험 시작·카드 등록(빌링키)·자동 갱신·해지·만료 강등의
-# 단일 진입점. 토스 API는 TossPayments::ClientService 경유만 쓰며(외부 API 캡슐화 규약),
+# 단일 진입점. 포트원 API는 PortOne::ClientService 경유만 쓰며(외부 API 캡슐화 규약),
 # 여러 쓰기(주문+주기 연장)는 트랜잭션으로 묶는다. 생명주기 상태 규칙은 Subscription 모델이
 # 소유하고 이 서비스는 흐름·가드·외부 호출을 담당한다.
 #
@@ -11,11 +11,11 @@ module Subscriptions
   class UpgradeService
     class UpgradeError < StandardError; end
 
-    def initialize(user:, action:, auth_key: nil, order: nil, payment: nil,
-                   client: TossPayments::ClientService.new)
+    def initialize(user:, action:, issue_token: nil, order: nil, payment: nil,
+                   client: PortOne::ClientService.new)
       @user = user
       @action = action.to_sym
-      @auth_key = auth_key
+      @issue_token = issue_token
       @order = order
       @payment = payment || {}
       @client = client
@@ -46,11 +46,12 @@ module Subscriptions
       raise UpgradeError, "무료 체험은 계정당 1회만 이용할 수 있습니다. 카드를 등록해 Plus로 이용해 주세요"
     end
 
-    # 카드 등록·빌링키 발급 — 위젯이 발급한 authKey를 빌링키로 교환해 저장하고 활성 전환한다.
-    # Free 사용자가 체험 없이 바로 카드를 등록하면 유료 Plus로 즉시 활성화된다(동일 플로우).
+    # 카드 등록·빌링키 발급 — 위젯이 발급한 토큰(billingIssueToken)을 빌링키로 교환해 저장하고
+    # 활성 전환한다. Free 사용자가 체험 없이 바로 카드를 등록하면 유료 Plus로 즉시 활성화된다
+    # (동일 플로우).
     def register_card
       subscription = resolve_subscription
-      raise UpgradeError, "카드 인증 정보(authKey)가 없습니다" if @auth_key.blank?
+      raise UpgradeError, "카드 인증 정보(발급 토큰)가 없습니다" if @issue_token.blank?
 
       subscription.activate!(billing_key: issue_billing_key!(subscription))
     end
@@ -85,7 +86,7 @@ module Subscriptions
       @renewal_error = nil
       subscription.with_lock do
         subscription.reload
-        if subscription.active? && subscription.toss_billing_key.present?
+        if subscription.active? && subscription.pg_billing_key.present?
           charge_and_extend!(subscription) if renewal_due?(subscription)
         elsif subscription.active? || renewal_due?(subscription)
           subscription.expire! # active-카드 부재 또는 해지 후 주기 종료
@@ -107,7 +108,7 @@ module Subscriptions
 
         ActiveRecord::Base.transaction do
           order.update!(status: :paid, paid_at: Time.current,
-                        toss_payment_key: @payment[:paymentKey], metadata: @payment)
+                        pg_payment_id: @payment[:id], metadata: @payment)
           extend_period!(subscription.reload) unless renewal_current?(subscription)
         end
       end
@@ -120,39 +121,47 @@ module Subscriptions
 
     def issue_billing_key!(subscription)
       response = @client.issue_billing_key(
-        customer_key: subscription.toss_customer_key, auth_key: @auth_key
+        issue_token: @issue_token, channel_key: portone_channel_key_billing,
+        customer_id: subscription.pg_customer_key
       )
       response.fetch(:billingKey)
-    rescue TossPayments::ApiError => e
+    rescue PortOne::ApiError => e
       raise UpgradeError, "카드 등록에 실패했습니다 (#{e.message})"
     end
 
-    # 차감·연장 — 잠금 하에서 호출된다. 차감 전 pending 주문을 선기록해 토스 멱등키
-    # (toss_order_id)를 확정한다(이슈 #4): 차감 성공 후 프로세스 종료·DB 실패로 주기 연장이
-    # 누락돼도 재실행은 같은 주문으로 재시도하므로 토스가 중복 차감을 거부한다.
+    # 차감·연장 — 잠금 하에서 호출된다. 차감 전 pending 주문을 선기록해 포트원 결제 ID
+    # (pg_order_id)를 확정한다(이슈 #4): 차감 성공 후 프로세스 종료·DB 실패로 주기 연장이
+    # 누락돼도 재실행은 같은 주문(같은 paymentId)으로 재시도하므로 포트원이 중복 차감을 거부한다.
     def charge_and_extend!(subscription)
       order = prepare_renewal_order!(subscription)
       response = @client.charge_billing_key(
-        customer_key: subscription.toss_customer_key, billing_key: subscription.toss_billing_key,
-        order_id: order.toss_order_id, amount: Subscription::PLUS_MONTHLY_PRICE
+        payment_id: order.pg_order_id, billing_key: subscription.pg_billing_key,
+        channel_key: portone_channel_key_billing, amount: Subscription::PLUS_MONTHLY_PRICE,
+        customer_id: subscription.pg_customer_key, order_name: "받을돈 Plus 월 구독"
       )
       ActiveRecord::Base.transaction do
-        order.update!(status: :paid, paid_at: Time.current, toss_payment_key: response[:paymentKey],
-                      toss_billing_key: subscription.toss_billing_key, metadata: response)
+        # 포트원 결제 ID는 우리가 지정한 paymentId(pg_order_id)와 같다.
+        order.update!(status: :paid, paid_at: Time.current, pg_payment_id: order.pg_order_id,
+                      pg_billing_key: subscription.pg_billing_key, metadata: response)
         extend_period!(subscription)
       end
-    rescue TossPayments::ApiError => e
+    rescue PortOne::ApiError => e
       @renewal_error = record_charge_failure!(subscription, order, e)
     end
 
     # 차감 대상 pending 주문 확보 — 잔존 pending 주문(선기록 후 실패한 시도)이 있으면 재사용해
-    # 같은 멱등키로 재시도하고, 없으면 새로 만든다.
+    # 같은 결제 ID로 재시도하고, 없으면 새로 만든다.
     def prepare_renewal_order!(subscription)
       subscription.user.orders.where(product: :plus_monthly, status: :pending)
                   .order(:created_at).first ||
         subscription.user.orders.create!(product: :plus_monthly,
                                          amount: Subscription::PLUS_MONTHLY_PRICE,
-                                         toss_order_id: SecureRandom.uuid)
+                                         pg_order_id: SecureRandom.uuid)
+    end
+
+    # 정기결제 채널 키 — 빌링키 발급·차감을 INIBillTst(정기결제 테스트 채널)로 라우팅한다.
+    def portone_channel_key_billing
+      Rails.application.credentials.dig(:portone, :channel_key_billing)
     end
 
     def renewal_due?(subscription)
@@ -171,10 +180,10 @@ module Subscriptions
     end
 
     # 차감 실패 처리(이슈 #4) — 모호 실패(TIMEOUT/CONNECTION)는 차감이 실제로는 성공했을 수
-    # 있으므로 구독을 유지하고 pending 주문으로 회복을 기다린다(웹훅 DONE → settle_renewal,
-    # 또는 익일 잡이 같은 멱등키로 재시도). 같은 주문의 재시도 거절은 "이미 결제됨"일 수 있어
-    # (모호 실패 이력 있음) 만료하지 않는다. 명확한 실패만 실패 주문 + 즉시 만료를 한
-    # 트랜잭션으로 수행해 "실패 주문만 남고 구독은 이용 중"인 상태가 없게 한다.
+    # 있으므로 구독을 유지하고 pending 주문으로 회복을 기다린다(웹훅 Transaction.Paid →
+    # settle_renewal, 또는 익일 잡이 같은 결제 ID로 재시도). 같은 주문의 재시도 거절은
+    # "이미 결제됨"일 수 있어 (모호 실패 이력 있음) 만료하지 않는다. 명확한 실패만 실패 주문 +
+    # 즉시 만료를 한 트랜잭션으로 수행해 "실패 주문만 남고 구독은 이용 중"인 상태가 없게 한다.
     def record_charge_failure!(subscription, order, error)
       metadata = order.metadata.to_h
       if error.ambiguous? || metadata["ambiguous"].present?
@@ -187,7 +196,9 @@ module Subscriptions
       end
 
       ActiveRecord::Base.transaction do
-        order.update!(status: :failed, metadata: { code: error.code, message: error.message })
+        order.update!(status: :failed,
+                      metadata: { code: error.code, message: error.message,
+                                  pg_code: error.pg_code, pg_message: error.pg_message })
         subscription.expire!
       end
       UpgradeError.new("자동 결제에 실패했습니다 (#{error.message}). 구독이 만료되어 Free로 전환됩니다")

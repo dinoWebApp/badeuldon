@@ -17,12 +17,12 @@ class Subscription < ApplicationRecord
   # cancelled: 해지(기간 종료까지 Plus 유지 — PLAN-5), expired: 만료(Free 강등 완료)
   enum :status, { trialing: 0, active: 1, cancelled: 2, expired: 3 }, default: :active
 
-  # 토스 고객 식별자 고유(값 있을 시) — DB 부분 고유 인덱스와 이중 방어
-  validates :toss_customer_key, uniqueness: true, allow_nil: true
+  # 포트원 고객 식별자(customer.id) 고유(값 있을 시) — DB 부분 고유 인덱스와 이중 방어
+  validates :pg_customer_key, uniqueness: true, allow_nil: true
 
-  # 새 구독에는 즉시 토스 고객 식별자를 부여한다 — 카드(빌링) 인증 위젯의 customerKey로
+  # 새 구독에는 즉시 포트원 고객 식별자를 부여한다 — 카드(빌링) 인증 위젯의 customerId로
   # 쓰이며 사용자당 안정적으로 재사용된다(재등록마다 새 키를 만들지 않는다).
-  before_create { self.toss_customer_key ||= SecureRandom.uuid }
+  before_create { self.pg_customer_key ||= SecureRandom.uuid }
 
   # ── PLAN-1 한도 판정(단일 판정점) ──────────────────────────────────────────
   # Free는 상수값(Client·Invoice의 기존 상수를 단일 소스로 재사용), Plus는 무제한.
@@ -67,7 +67,7 @@ class Subscription < ApplicationRecord
   # ② 해지 잔여 기간 중 재등록 — 기존 주기 종료 후부터 새 주기(이중 이용 구간 방지)
   def activate!(billing_key:, period: PERIOD_MONTHS)
     base = [ Time.current, trial_ends_at, current_period_end ].compact.max
-    update!(plan: :plus, status: :active, toss_billing_key: billing_key,
+    update!(plan: :plus, status: :active, pg_billing_key: billing_key,
             current_period_start: base, current_period_end: base + period.months)
   end
 
@@ -80,7 +80,7 @@ class Subscription < ApplicationRecord
   # 만료 — Free로 강등하고 카드·주기 정보를 폐기한다. used_trial 플래그는 유지된다
   # (재체험 차단 — 이슈 #2). 재가입(카드 재등록) 시 activate!가 새 빌링키·주기로 덮어쓴다.
   def expire!
-    update!(plan: :free, status: :expired, trial_ends_at: nil, toss_billing_key: nil,
+    update!(plan: :free, status: :expired, trial_ends_at: nil, pg_billing_key: nil,
             current_period_start: nil, current_period_end: nil)
   end
 end

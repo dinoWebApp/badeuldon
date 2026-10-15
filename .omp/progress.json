@@ -1,1 +1,11 @@
-{"domain":"PG 심사 요건 충족 — 약관·환불·개인정보·유선번호","currentPhase":"phase3_implement","pipelineType":"fast","phaseHistory":[{"phase":"phase0_context","status":"DONE"},{"phase":"phase1_plan","status":"DONE"},{"phase":"approval_gate","status":"DONE"},{"phase":"phase3_implement","status":"IN_PROGRESS"}],"lastUpdated":"2026-10-15T14:00:00+09:00"}
+{
+  "domain": "토스 → 포트원(KG이니시스) 결제 게이트웨이 전환",
+  "currentPhase": "awaiting_approval",
+  "pipelineType": "full",
+  "phaseHistory": [
+    { "phase": "phase0_context", "status": "DONE" },
+    { "phase": "phase1_plan", "status": "DONE" },
+    { "phase": "approval_gate", "status": "IN_PROGRESS" }
+  ],
+  "lastUpdated": "2026-10-15T16:00:00+09:00"
+}

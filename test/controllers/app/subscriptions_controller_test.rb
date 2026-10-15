@@ -1,13 +1,13 @@
 require "test_helper"
-require_relative "../../test_helpers/toss_stubbing"
-require_relative "../../test_helpers/fake_toss_client"
+require_relative "../../test_helpers/portone_stubbing"
+require_relative "../../test_helpers/fake_portone_client"
 
 # 구독 상태 전환(F-PLAN) HTTP 테스트 — create(체험 시작)·update(카드 등록 위젯 콜백/수동·해지).
-# 토스 호출 경로(카드 등록)는 TossPayments::ClientService.new를 FakeTossClient로 스텁한다
+# 포트원 호출 경로(카드 등록)는 PortOne::ClientService.new를 FakePortOneClient로 스텁한다
 # (실호출 금지). 흐름·가드는 UpgradeService가 담당하므로 응답 코드·리다이렉션·DB 전이를 검증한다.
 # 시나리오 기준: PRD §6.10 PLAN-2·PLAN-5, _workspace/03_implementation.md §3.
 class App::SubscriptionsControllerTest < ActionDispatch::IntegrationTest
-  include TossStubbing
+  include PortOneStubbing
 
   test "비인증 체험 시작은 302로 로그인 화면에 리다이렉트된다 (AUTH-1)" do
     post app_subscription_path
@@ -41,13 +41,13 @@ class App::SubscriptionsControllerTest < ActionDispatch::IntegrationTest
     assert_predicate users(:epsilon).subscription.reload, :active?   # 전이 없음
   end
 
-  test "카드 등록(PATCH auth_key)은 303으로 안내되고 빌링키 저장과 즉시 활성화를 확인한다" do
+  test "카드 등록(PATCH issue_token)은 303으로 안내되고 빌링키 저장과 즉시 활성화를 확인한다" do
     users(:gamma).create_subscription!(plan: :free)
-    fake = FakeTossClient.new(issue_billing_key: { billingKey: "tok_billing_http_1" })
+    fake = FakePortOneClient.new(issue_billing_key: { billingKey: "tok_billing_http_1" })
     sign_in_as users(:gamma)
 
-    with_toss_client(fake) do
-      patch app_subscription_path, params: { auth_key: "auth_card_1" }
+    with_portone_client(fake) do
+      patch app_subscription_path, params: { issue_token: "issue_card_1" }
     end
 
     assert_response :redirect
@@ -56,36 +56,36 @@ class App::SubscriptionsControllerTest < ActionDispatch::IntegrationTest
     subscription = users(:gamma).subscription.reload
     assert_predicate subscription, :active?
     assert_predicate subscription, :plus?
-    assert_equal "tok_billing_http_1", subscription.toss_billing_key
+    assert_equal "tok_billing_http_1", subscription.pg_billing_key
     assert_not_nil subscription.current_period_end
   end
 
-  test "카드 인증 위젯 리다이렉트(authKey 카멜케이스 GET)도 동일하게 활성화된다" do
+  test "카드 인증 위젯 리다이렉트(issue_token GET 콜백)도 동일하게 활성화된다" do
     users(:gamma).create_subscription!(plan: :plus, status: :trialing,
                                        trial_ends_at: 10.days.from_now)
-    fake = FakeTossClient.new(issue_billing_key: { billingKey: "tok_billing_widget_1" })
+    fake = FakePortOneClient.new(issue_billing_key: { billingKey: "tok_billing_widget_1" })
     sign_in_as users(:gamma)
 
-    with_toss_client(fake) do
-      get card_callback_app_subscription_path, params: { authKey: "auth_widget_1" }
+    with_portone_client(fake) do
+      get card_callback_app_subscription_path, params: { issue_token: "issue_widget_1" }
     end
 
     assert_response :redirect
     assert_redirected_to app_billing_path
     subscription = users(:gamma).subscription.reload
     assert_predicate subscription, :active?
-    assert_equal "tok_billing_widget_1", subscription.toss_billing_key
+    assert_equal "tok_billing_widget_1", subscription.pg_billing_key
   end
 
-  test "빌링키 발급 실패는 303 알림으로 흡수되고 구독이 유지된다 (토스 ApiError)" do
+  test "빌링키 발급 실패는 303 알림으로 흡수되고 구독이 유지된다 (포트원 ApiError)" do
     users(:gamma).create_subscription!(plan: :free)
-    fake = FakeTossClient.new(raise_on: { issue_billing_key:
-                            TossPayments::ApiError.new(status: 400, code: "INVALID_CARD",
-                                                       message: "유효하지 않은 카드입니다") })
+    fake = FakePortOneClient.new(raise_on: { issue_billing_key:
+                            PortOne::ApiError.new(status: 400, code: "PG_PROVIDER_ERROR",
+                                                  message: "유효하지 않은 카드입니다") })
     sign_in_as users(:gamma)
 
-    with_toss_client(fake) do
-      patch app_subscription_path, params: { auth_key: "auth_bad" }
+    with_portone_client(fake) do
+      patch app_subscription_path, params: { issue_token: "issue_bad" }
     end
 
     assert_response :redirect
@@ -93,7 +93,7 @@ class App::SubscriptionsControllerTest < ActionDispatch::IntegrationTest
     assert_match(/카드 등록에 실패했습니다/, flash[:alert])
     subscription = users(:gamma).subscription.reload
     assert_predicate subscription, :free?
-    assert_nil subscription.toss_billing_key
+    assert_nil subscription.pg_billing_key
   end
 
   test "해지 PATCH는 303으로 안내되고 취소 상태로 전환된다 (PLAN-5)" do

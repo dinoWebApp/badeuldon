@@ -92,28 +92,28 @@ class App::BillingsControllerTest < ActionDispatch::IntegrationTest
 
   test "본인 대기 주문의 체크아웃은 결제 위젯 파셜을 주문 원값으로 렌더한다 (PLAN-5)" do
     order = users(:delta).orders.create!(product: :collection_pass, amount: 4_000,
-                                         toss_order_id: "order-checkout-1")
+                                         pg_order_id: "order-checkout-1")
     sign_in_as users(:delta)
 
-    get app_billing_path(checkout: order.toss_order_id)
+    get app_billing_path(checkout: order.pg_order_id)
 
     assert_response :success
-    assert_select "[data-controller=toss-payment]", count: 1
-    assert_select "div[data-toss-payment-order-id-value='order-checkout-1']", count: 1
-    assert_select "[data-toss-payment-amount-value='4000']", count: 1
+    assert_select "[data-controller=portone-payment]", count: 1
+    assert_select "div[data-portone-payment-payment-id-value='order-checkout-1']", count: 1
+    assert_select "[data-portone-payment-amount-value='4000']", count: 1
   end
 
   test "타인의 주문·이미 처리된 주문의 체크아웃 파라미터는 파셜을 렌더하지 않는다 (위조 차단)" do
     other_order = users(:epsilon).orders.create!(product: :collection_pass, amount: 4_000,
-                                                 toss_order_id: "order-other-1")
+                                                 pg_order_id: "order-other-1")
     sign_in_as users(:delta)
 
-    get app_billing_path(checkout: other_order.toss_order_id)     # 타인 주문
+    get app_billing_path(checkout: other_order.pg_order_id)     # 타인 주문
     assert_response :success
-    assert_select "[data-controller=toss-payment]", count: 0
+    assert_select "[data-controller=portone-payment]", count: 0
 
-    get app_billing_path(checkout: orders(:delta_pass_order).toss_order_id)  # 이미 paid
+    get app_billing_path(checkout: orders(:delta_pass_order).pg_order_id)  # 이미 paid
     assert_response :success
-    assert_select "[data-controller=toss-payment]", count: 0
+    assert_select "[data-controller=portone-payment]", count: 0
   end
 end

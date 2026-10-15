@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_15_000002) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_15_000003) do
   create_table "clients", force: :cascade do |t|
     t.integer "user_id", null: false
     t.string "name", null: false
@@ -78,15 +78,15 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_000002) do
     t.integer "product", null: false
     t.integer "amount", null: false
     t.integer "status", default: 0, null: false
-    t.string "toss_order_id", null: false
-    t.string "toss_payment_key"
-    t.string "toss_billing_key"
+    t.string "pg_order_id", null: false
+    t.string "pg_payment_id"
+    t.string "pg_billing_key"
     t.datetime "paid_at"
     t.json "metadata"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.index ["toss_order_id"], name: "index_orders_on_toss_order_id", unique: true
-    t.index ["toss_payment_key"], name: "index_orders_on_toss_payment_key"
+    t.index ["pg_order_id"], name: "index_orders_on_pg_order_id", unique: true
+    t.index ["pg_payment_id"], name: "index_orders_on_pg_payment_id"
     t.index ["user_id"], name: "index_orders_on_user_id"
   end
 
@@ -139,12 +139,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_000002) do
     t.datetime "trial_ends_at"
     t.datetime "current_period_start"
     t.datetime "current_period_end"
-    t.string "toss_customer_key"
-    t.string "toss_billing_key"
+    t.string "pg_customer_key"
+    t.string "pg_billing_key"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.boolean "used_trial", default: false, null: false
-    t.index ["toss_customer_key"], name: "idx_subscriptions_on_toss_customer_key_uniq", unique: true, where: "toss_customer_key IS NOT NULL"
+    t.index ["pg_customer_key"], name: "idx_subscriptions_on_pg_customer_key_uniq", unique: true, where: "pg_customer_key IS NOT NULL"
     t.index ["user_id"], name: "index_subscriptions_on_user_id", unique: true
   end
 

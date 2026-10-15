@@ -1,5 +1,5 @@
 require "test_helper"
-require_relative "../../test_helpers/fake_toss_client"
+require_relative "../../test_helpers/fake_portone_client"
 
 # 수금 패스 이중 결제 — 실스레드 2개가 같은 주문을 동시에 승인 확정하는 시나리오(이중 콜백·
 # 콜백+웹훅 경합). SQLite(Rails 8.1 — BEGIN IMMEDIATE)에서 with_lock 진입이 쓰기 잠금으로
@@ -14,7 +14,7 @@ class Orders::PurchaseServiceConcurrencyTest < ActiveSupport::TestCase
   def setup
     @user = User.create!(email: "purchase-concurrency@example.com", password: "password123")
     @order = @user.orders.create!(product: :collection_pass, amount: 4_000,
-                                  toss_order_id: "order-pass-concurrency-1")
+                                  pg_order_id: "order-pass-concurrency-1")
   end
 
   def teardown
@@ -36,7 +36,7 @@ class Orders::PurchaseServiceConcurrencyTest < ActiveSupport::TestCase
   private
 
   # 실스레드 n개 — 각자 독립 커넥션에서 주문을 새로 적재해 승인 확정한다(잠금 하 재판정 검증).
-  # FakeTossClient는 스레드별로 격리한다(호출 기록 경합 제거).
+  # FakePortOneClient는 스레드별로 격리한다(호출 기록 경합 제거).
   def race_purchases(count)
     go = Queue.new
     results = Queue.new
@@ -46,7 +46,7 @@ class Orders::PurchaseServiceConcurrencyTest < ActiveSupport::TestCase
         begin
           order = Order.find(@order.id)
           results << Orders::PurchaseService.new(
-            order: order, payment_key: "pay_race_1", client: FakeTossClient.new
+            order: order, payment_token: "tok_race_1", client: FakePortOneClient.new
           ).call
         rescue Orders::PurchaseService::PurchaseError => e
           results << e

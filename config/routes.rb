@@ -40,8 +40,8 @@ Rails.application.routes.draw do
     end
   end
 
-  # ── 토스페이먼츠 웹훅(PLAN-5) — 토스 서버 → 우리 서버(비인증 서버 간 호출) ──
-  post "/webhooks/toss", to: "webhooks/toss#create"
+  # ── 포트원 웹훅(PLAN-5) — 포트원 서버 → 우리 서버(비인증 서버 간 호출) ──
+  post "/webhooks/portone", to: "webhooks/portone#create"
 
   # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html
 

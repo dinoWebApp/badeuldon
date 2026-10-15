@@ -1,9 +1,9 @@
 <%# 요금제(F-PLAN — 표면 ②) — 현재 플랜·플랜 비교(PLAN-1/2)·카드 등록·수금 패스(PLAN-4).
-    토스 결제 UI는 SDK 스크립트 + Stimulus(toss_payment·toss_billing)가 담당하며 주문 생성·
-    승인·빌링키 발급은 모두 서버가 수행한다(PLAN-5 — 클라이언트 값 신뢰 금지). %>
+    포트원 결제 UI는 SDK 스크립트 + Stimulus(portone_payment·portone_billing)가 담당하며
+    주문 생성·승인·빌링키 발급은 모두 서버가 수행한다(PLAN-5 — 클라이언트 값 신뢰 금지). %>
 
 <% content_for :head do %>
-  <%= tag.script(src: "https://js.tosspayments.com/v1/payment") %>
+  <%= tag.script(src: "https://cdn.portone.io/v2/browser-sdk.js") %>
 <% end %>
 
 <div class="mx-auto max-w-4xl">
@@ -27,7 +27,7 @@
           <%= plan_status_description(@subscription) %>
         </p>
         <p class="mt-1.5 text-xs leading-relaxed text-stone-500">
-          카드 등록: <%= @subscription.toss_billing_key.present? ? "완료 — 자동 결제로 이용 중" : "미등록" %>
+          카드 등록: <%= @subscription.pg_billing_key.present? ? "완료 — 자동 결제로 이용 중" : "미등록" %>
         </p>
       </div>
 
@@ -81,39 +81,43 @@
   </p>
 
   <%# ── 카드(자동결제) 등록 — 빌링키 미보유일 때만 표시 ────────────────── %>
-  <% if @subscription.toss_billing_key.blank? %>
+  <% if @subscription.pg_billing_key.blank? %>
     <section class="mt-8 rounded-2xl border border-stone-200 bg-white p-6 shadow-sm" aria-label="카드 등록">
       <h2 class="text-base font-bold text-stone-800">카드(자동결제) 등록</h2>
       <p class="mt-2 text-sm leading-relaxed text-stone-600">
         카드를 등록하면 체험이 끝난 뒤 월 <%= number_with_delimiter(Subscription::PLUS_MONTHLY_PRICE) %>원으로 자동 결제되어 Plus가 계속됩니다.
       </p>
 
-      <% if @toss_client_key.present? %>
-        <div data-controller="toss-billing"
-             data-toss-billing-client-key-value="<%= @toss_client_key %>"
-             data-toss-billing-customer-key-value="<%= @subscription.toss_customer_key %>"
-             data-toss-billing-success-url-value="<%= card_callback_app_subscription_url %>"
-             data-toss-billing-fail-url-value="<%= app_billing_url %>">
+      <% if @portone_channel_key_billing.present? %>
+        <div data-controller="portone-billing"
+             data-portone-billing-store-id-value="<%= @portone_store_id %>"
+             data-portone-billing-channel-key-value="<%= @portone_channel_key_billing %>"
+             data-portone-billing-customer-id-value="<%= @subscription.pg_customer_key %>"
+             data-portone-billing-callback-url-value="<%= card_callback_app_subscription_url %>"
+             data-portone-billing-customer-name-value="<%= @portone_customer_name %>"
+             data-portone-billing-customer-phone-value="<%= @portone_customer_phone %>"
+             data-portone-billing-issue-id-value="<%= @portone_billing_issue_id %>">
           <%# type="button" — 클릭은 위젯 호출(Stimulus)만 하고 폼 전송은 없다.
-              인증 완료 후 토스가 successUrl로 리다이렉트하면 서버가 빌링키를 발급한다. %>
-          <button type="button" data-action="toss-billing#register"
+              카드 인증 완료 후 위젯이 돌려준 빌링키 발급 토큰(billingIssueToken)을 콜백으로
+              전달하면 서버가 포트원 /billing-keys/confirm으로 빌링키를 발급한다. %>
+          <button type="button" data-action="portone-billing#register"
                   class="mt-4 inline-flex min-h-11 cursor-pointer items-center rounded-xl bg-emerald-800 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900">
             카드 등록하기
           </button>
         </div>
 
-        <%# 테스트 키 마일스톤 — 위젯 없이 authKey를 직접 등록하는 수동 경로(러너 검증용) %>
+        <%# 테스트 키 마일스톤 — 위젯 없이 발급 토큰을 직접 등록하는 수동 경로(러너 검증용) %>
         <%= form_with url: app_subscription_path, method: :patch, class: "mt-5 border-t border-stone-100 pt-4" do %>
-          <label for="auth_key" class="block text-xs font-bold text-stone-500">테스트용 카드 인증키(authKey) 직접 등록</label>
-          <%= text_field_tag :auth_key, nil, id: "auth_key",
-                placeholder: "토스 카드 인증 완료 후 받은 authKey",
+          <label for="issue_token" class="block text-xs font-bold text-stone-500">테스트용 빌링키 발급 토큰(billingIssueToken) 직접 등록</label>
+          <%= text_field_tag :issue_token, nil, id: "issue_token",
+                placeholder: "포트원 카드 인증 완료 후 받은 billingIssueToken",
                 class: "mt-1 block w-full rounded-xl border border-stone-300 bg-white px-3.5 py-2.5 text-stone-800 shadow-sm transition placeholder:text-stone-400 hover:border-stone-400 focus:border-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-700/30" %>
           <%= submit_tag "등록",
                 class: "mt-2 inline-flex min-h-11 cursor-pointer items-center rounded-xl border border-stone-300 bg-white px-5 text-sm font-bold text-stone-600 transition hover:border-emerald-700 hover:text-emerald-900" %>
         <% end %>
       <% else %>
         <p class="mt-4 rounded-xl bg-amber-50 p-4 text-sm font-semibold text-stone-700" role="status">
-          결제 키가 설정되지 않았습니다. 토스페이먼츠 테스트 키를 credentials(:toss/:client_key·:secret_key)에 등록하면 카드 등록이 활성화됩니다.
+          결제 채널이 설정되지 않았습니다. 포트원 테스트 키를 credentials(:portone/:store_id·:api_secret·:channel_key_billing)에 등록하면 카드 등록이 활성화됩니다.
         </p>
       <% end %>
     </section>
@@ -156,6 +160,6 @@
 
   <%# PLAN-6 — 이용권·패스권 환불 불가 고지 %>
   <p class="mt-6 text-xs leading-relaxed text-stone-500">
-    구독료·이용권·패스권은 환불되지 않습니다(약관 고지). 결제 상태 변경은 토스페이먼츠 웹훅으로 반영됩니다.
+    구독료·이용권·패스권은 환불되지 않습니다(약관 고지). 결제 상태 변경은 포트원 웹훅으로 반영됩니다.
   </p>
 </div>

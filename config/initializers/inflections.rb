@@ -14,3 +14,10 @@
 # ActiveSupport::Inflector.inflections(:en) do |inflect|
 #   inflect.acronym "RESTful"
 # end
+
+ActiveSupport::Inflector.inflections(:en) do |inflect|
+  # 포트원 V2 결제 연동(PLAN-5) — 서비스 모듈(PortOne::ClientService)·웹훅
+  # 컨트롤러(Webhooks::PortOneController)의 공식 표기. portone_controller.rb 같은
+  # 파일명도 PortOne 상수로 정규화한다.
+  inflect.acronym "PortOne"
+end

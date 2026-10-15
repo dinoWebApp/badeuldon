@@ -20,6 +20,6 @@ class SubscriptionTrialExpiryJob < ApplicationJob
   def due_trials
     Subscription.where(status: [ :trialing, :cancelled ])
                 .where.not(trial_ends_at: nil)
-                .where(trial_ends_at: ...Time.current, toss_billing_key: nil)
+                .where(trial_ends_at: ...Time.current, pg_billing_key: nil)
   end
 end
