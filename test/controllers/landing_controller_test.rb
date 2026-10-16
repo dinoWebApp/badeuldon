@@ -37,17 +37,18 @@ class LandingControllerTest < ActionDispatch::IntegrationTest
     assert_select "a[href=?]", new_registration_path, text: /무료로 시작하기/, count: 2
   end
 
-  test "표면 ①의 a 요소는 ② 진입이 가입뿐이다 (SURF-4 단일 진입점 — 법적 고지 링크 제외)" do
+  test "표면 ①의 a 요소는 가입 CTA와 헤더 로그인만 ②에 진입한다 (SURF-4 개정 — 법적 고지 링크 제외)" do
     get root_url
     # PG 심사 요건(2026-10-15) — 푸터 법적 고지 3종 링크는 ② 진입이 아니므로 허용된다.
     legal_hrefs = [ terms_path, privacy_path, refund_path ]
     assert_select "a" do |anchors|
       assert anchors.any?, "랜딩에 가입 CTA 링크가 존재해야 한다"
-      assert anchors.all? { |anchor| anchor["href"] == new_registration_path || anchor["href"].in?(legal_hrefs) },
-        "② 진입 링크는 가입 링크만 허용된다 — 로그인·재설정 등 타 진입 금지(법적 고지 3종 제외)"
+      assert anchors.all? { |anchor| anchor["href"] == new_registration_path || anchor["href"] == new_session_path || anchor["href"].in?(legal_hrefs) },
+        "② 진입 링크는 가입·로그인만 허용 — 비밀번호 재설정 등 타 진입 금지(법적 고지 3종 제외)"
     end
-    # 로그인·재설정 직접 진입 없음(인증 화면 상호 링크만 존재)
-    assert_select "a[href=?]", new_session_path, count: 0
+    # 헤더 로그인 직행 링크 — 재방문 사용자 동선(SURF-4 개정 2026-10-16)
+    assert_select "header a[href=?]", new_session_path, text: "로그인", count: 1
+    # 비밀번호 재설정 직접 진입 없음(인증 화면 상호 링크만 존재)
     assert_select "a[href=?]", new_password_path, count: 0
   end
 
