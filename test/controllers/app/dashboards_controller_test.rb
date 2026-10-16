@@ -12,11 +12,23 @@ class App::DashboardsControllerTest < ActionDispatch::IntegrationTest
     assert_redirected_to new_session_path
   end
 
-  test "프로필 미완료 사용자의 /app 직접 접근은 프로필 설정 화면으로 안내된다 (AUTH-1.3 가드)" do
+  test "프로필 미완료 사용자의 /app 접근은 플래시·배너·잠금 내비로 안내된다 (AUTH-1.3 가드)" do
     sign_in_as users(:alpha)
     get app_root_path
     assert_response :redirect
     assert_redirected_to edit_app_profile_path
+    # 조용한 리다이렉트 금지 — 클릭이 반응한 이유를 플래시로 전달
+    assert_equal "안전한 청구 발행을 위해 프로필을 먼저 완성해 주세요.", flash[:alert]
+
+    follow_redirect!
+    assert_response :success
+    # 온보딩 배너 — '고장'이 아닌 '시작 단계'로 인식시킨다
+    assert_select "div[role=status]", text: /받을돈 시작하기/
+    assert_select "div[role=status]", text: /프로필을 완성하면/, count: 1
+    # 잠금 내비 — 설정 제외 5개 메뉴는 자물쇠 스타일 링크(클릭 가능·가드가 안내)
+    assert_select "nav a[aria-disabled='true']", count: 5
+    assert_select "nav a[aria-disabled='true'][href=?]", app_invoices_path, text: "청구서", count: 1
+    assert_select "nav a[aria-disabled='true'][href=?]", edit_app_profile_path, count: 0
   end
 
   test "프로필 완료 사용자는 /app 대시보드 셸을 200으로 렌더한다 (DASH 셸 진입)" do

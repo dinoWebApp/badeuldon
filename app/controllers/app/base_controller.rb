@@ -10,8 +10,10 @@ module App
     private
 
     # AUTH-1.3 — 청구서 발행에 표시명·계좌가 필요하므로 미설정 사용자는 프로필 설정을 먼저 완료한다.
+    # 조용한 리다이렉트는 '클릭해도 반응 없음'으로 오해되므로 플래시로 이유를 전달한다.
     def require_complete_profile
-      redirect_to edit_app_profile_path if Current.user.display_name.blank?
+      redirect_to edit_app_profile_path,
+                  alert: "안전한 청구 발행을 위해 프로필을 먼저 완성해 주세요." if Current.user.display_name.blank?
     end
   end
 end

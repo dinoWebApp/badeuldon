@@ -3,14 +3,22 @@ module App
   module BaseHelper
     # 사이드바 메뉴 — 대시보드·청구서(INV)·거래처(CLIENT-1)·품목(CLIENT-2)·요금제(F-PLAN)·설정 활성.
     # 활성 판정은 요청 경로 기준. 미구현 메뉴는 링크 없이 구조만 안내한다(플랜 결정 #2).
+    # locked: 프로필 미완료(AUTH-1.3) 동안 잠금 표시 — 클릭은 가능하되 가드가 플래시와 함께 안내한다.
     def app_nav_items
+      locked = Current.user.display_name.blank?
       [
-        { label: "대시보드", path: app_root_path, active: request.path == app_root_path, disabled: false },
-        { label: "청구서", path: app_invoices_path, active: request.path.start_with?(app_invoices_path), disabled: false },
-        { label: "거래처", path: app_clients_path, active: request.path.start_with?(app_clients_path), disabled: false },
-        { label: "품목", path: app_items_path, active: request.path.start_with?(app_items_path), disabled: false },
-        { label: "요금제", path: app_billing_path, active: request.path.start_with?(app_billing_path), disabled: false },
-        { label: "설정", path: edit_app_profile_path, active: request.path.start_with?(app_profile_path), disabled: false }
+        { label: "대시보드", path: app_root_path, active: request.path == app_root_path,
+          disabled: false, locked: },
+        { label: "청구서", path: app_invoices_path, active: request.path.start_with?(app_invoices_path),
+          disabled: false, locked: },
+        { label: "거래처", path: app_clients_path, active: request.path.start_with?(app_clients_path),
+          disabled: false, locked: },
+        { label: "품목", path: app_items_path, active: request.path.start_with?(app_items_path),
+          disabled: false, locked: },
+        { label: "요금제", path: app_billing_path, active: request.path.start_with?(app_billing_path),
+          disabled: false, locked: },
+        { label: "설정", path: edit_app_profile_path, active: request.path.start_with?(app_profile_path),
+          disabled: false, locked: false }
       ]
     end
 
