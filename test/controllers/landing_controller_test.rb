@@ -146,7 +146,7 @@ class LandingControllerTest < ActionDispatch::IntegrationTest
         assert_includes blocks[1].text, "\n", "본문은 알림톡 템플릿처럼 개행되어야 한다"
         # 링크는 버튼 컴포넌트로 표현 — URL 텍스트 노출 금지(사용자 개정)
         button = bubble.css("div[class*='border-t'] span").map(&:text).join
-        assert_match(/청구 내역 확인하기|입금 완료·예정일 알리기|입금 예정일 제안하기/, button)
+        assert_match(/금액 확인하기|입금 완료·예정일 알리기|입금 예정일 제안하기/, button)
         assert_no_match(%r{badeuldon\.kr/b/}, bubble.text)
         # 버튼은 표시 전용 — 버블 내 앵커 금지(SURF-4)
         assert_empty bubble.css("a")
