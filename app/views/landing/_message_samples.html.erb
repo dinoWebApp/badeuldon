@@ -14,7 +14,7 @@
     </p>
 
     <% samples = [
-         { stage: "D-1", label: "예고", time: "오전 9:00", button: "청구서 확인하기",
+         { stage: "D-1", label: "예고", time: "오전 9:00", button: "청구 내역 확인하기",
            body: <<~BODY.chomp
              [발행인 표시명]님께서 보내신
              청구서를 안내드립니다.
@@ -56,7 +56,7 @@
              전달드리겠습니다.
            BODY
          },
-         { stage: "D+14", label: "최종 안내", time: "오후 2:00", button: "청구서 확인하기",
+         { stage: "D+14", label: "최종 안내", time: "오후 2:00", button: "청구 내역 확인하기",
            body: <<~BODY.chomp
              ‘[청구서명]’이 결제 예정일로부터
              2주가 경과하였습니다.
