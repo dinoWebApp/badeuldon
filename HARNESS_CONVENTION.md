@@ -1,17 +1,17 @@
-# Harness Convention — 범용 개발 자동화 하네스 구성 규약
+# Harness Convention — ZCode Desktop 범용 개발 자동화 하네스 구성 규약
 
-**버전**: 3.2.0
-**최종 수정일**: 2026-10-08
+**버전**: 4.0.3
+**최종 수정일**: 2026-10-29
 
 ---
 
 ## 이 문서의 목적
 
-이 문서는 **omp(oh-my-pi) CLI를 활용한 프로젝트 전용 AI 개발 자동화 체계(이하 "하네스")** 의 구성 방법과 운영 원칙을 정의한다. 에이전트 CLI의 확장 기능(에이전트·스킬·컨텍스트 파일)을 체계적으로 조합하여, 반복적인 개발 사이클(구현 → 리뷰 → 테스트 → 실행 검증)을 자동화하고 코드 품질과 비즈니스 규칙 정합성을 보장한다.
+이 문서는 **ZCode Desktop의 Agent, 사용자 정의 명령어, 워크스페이스 스킬, 서브에이전트, AGENTS.md**를 조합해 프로젝트별 AI 개발 자동화 체계(이하 "하네스")를 구성하는 표준과 운영 원칙을 정의한다. 반복적인 개발 사이클(분석 → 문서화 → 구현 → 코드 정리 → 리뷰 → 수정 → 테스트 → 실행 검증 → 완료 보고)을 자동화하고 코드 품질과 비즈니스 규칙 정합성을 보장한다.
 
-omp 런타임의 구성 표준(파일 위치, frontmatter 포맷, modelRoles)은 [1.7 omp 구성 표준](#17-omp-구성-표준)에 집약되어 있으며, 본문의 원칙(Phase 파이프라인, 문서 선행, Rule ID, 3-에이전트 패턴)은 모든 프로젝트에서 동일하게 적용된다.
+핵심 원칙(Phase 파이프라인, 사용자 승인 게이트, 문서 선행, Rule ID, Developer/Reviewer/Tester 역할 분리)은 유지한다. OMP 전용 `modelRoles`, `autoloadSkills`, task tool, Agent Hub, `@../AGENTS.md` import 등의 런타임 규약은 ZCode 규약으로 대체한다.
 
-사내 모든 프로젝트는 이 규약에 따라 하네스를 구성하며, 프로젝트별 기술 스택과 도메인에 맞게 커스터마이징한다.
+**모드 설계 핵심**: 프로젝트마다 일반용과 절약용 오케스트레이터 **명령어 2개**를 제공한다. 두 명령어는 같은 오케스트레이터 스킬과 동일한 Phase 절차를 사용하지만, 서로 다른 메인 모델 및 서브에이전트 프로필을 호출한다. 워크플로우 자체를 두 벌 복제하지 않는다.
 
 ---
 
@@ -36,72 +36,64 @@ omp 런타임의 구성 표준(파일 위치, frontmatter 포맷, modelRoles)은
 
 ### 1.1 구성 요소 관계도
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     AGENTS.md (정적 지식)                     │
-│   프로젝트 개요 · 기술 스택 · 아키텍처 · 비즈니스 규칙 · 컨벤션    │
-└──────────────────────┬──────────────────────────────────────┘
-                       │ 참조 (모든 구성요소가 읽음)
-    ┌──────────────────┼──────────────────┐
-    ▼                  ▼                  ▼
-┌──────────┐   ┌──────────┐   ┌──────────┐
-│ Developer│   │ Reviewer │   │  Tester  │  ← 전문 에이전트 (Agents)
-│  (구현)  │   │  (리뷰)   │   │  (구현)  │     롤: 구현/테스트=@developer
-│  기능 구현 │   │비즈니스 검증│   │ 테스트 실행│          리뷰/통제=@reviewer
-└────┬─────┘   └────┬─────┘   └────┬─────┘
-     │              │              │
-     └──────────────┼──────────────┘
-                    │ 통제 (planner 롤)
-           ┌───────▼────────┐
-           │  Orchestrator  │  ← 오케스트레이터 스킬 (Skill)
-           │  (Phase 0~9)   │     Phase 0/1/2/4/8/9: 세션 모델(planner 롤)
-           └───────┬────────┘
-                   │ 부가 스킬 (모든 에이전트가 참조)
-     ┌─────────────┼─────────────┐
-     ▼             ▼             ▼
-┌──────────┐ ┌──────────┐ ┌──────────┐
-│ BizRules │ │FeatureDev│ │ TestPat. │  ← 참조 스킬 (Skills)
-│(비즈니스) │ │(개발가이드)│ │(테스트패턴)│
-└──────────┘ └──────────┘ └──────────┘
-┌──────────┐ ┌──────────┐
-│ Review   │ │ GitDeploy│
-│Checklist │ │ (배포)    │
-└──────────┘ └──────────┘
+```text
+프로젝트 AGENTS.md + PRD.md + HARNESS_CONVENTION.md
+                  │
+                  ▼
+   워크스페이스 전용 하네스 리소스 (.zcode/{commands,skills,agents})
+                  │
+       ┌──────────┴──────────┐
+       ▼                     ▼
+/{project_command_prefix}_orchestrator   /{project_command_prefix}_orchestrator_lite
+   일반 모드 명령어           절약 모드 명령어
+       │                     │
+       └──────────┬──────────┘
+                  ▼
+   공통 {project}-orchestrator 스킬
+   (동일한 Phase 0~9, 승인 게이트, 산출물 규칙)
+                  │
+       ┌──────────┼──────────┐
+       ▼          ▼          ▼
+   Developer   Reviewer    Tester
+   일반 프로필   일반 프로필  일반 프로필
+       또는       또는        또는
+   Developer   Reviewer    Tester
+      -lite       -lite       -lite
+                  │
+                  ▼
+     .zcode/progress.json + _workspace/
 ```
 
 ### 1.2 구성 파일 트리
 
-```
+프로젝트 내 모든 하네스 설정은 워크스페이스 스코프 리소스로 구성하고 Git으로 관리한다. 플러그인·마켓플레이스는 사용하지 않는다(§1.4 제약 8).
+
+```text
 프로젝트 루트/
-├── AGENTS.md                       # 프로젝트 지식 베이스 — 단일 소스 (Git 관리)
-├── PRD.md                          # 기능 명세 (Git 관리)
-│
-├── .omp/
-│   ├── AGENTS.md                   # omp 진입점 — 본문 첫머리에 @../AGENTS.md import (Git 관리)
-│   ├── RULES.md                    # 스티키 강제 규칙 (선택, Git 관리)
-│   ├── config.yml                  # modelRoles 등 omp 설정 (Git 관리, 선택)
-│   ├── progress.json               # Phase 진행 상태 (Git 관리)
-│   │
-│   ├── agents/                     # 전문 에이전트 정의
-│   │   ├── {project}-developer.md
-│   │   ├── {project}-reviewer.md
-│   │   └── {project}-tester.md
-│   │
-│   └── skills/                     # 스킬 정의
-│       ├── {project}-orchestrator/
-│       │   └── SKILL.md
-│       ├── {project}-business-rules/
-│       │   └── SKILL.md
-│       ├── {project}-feature-dev/
-│       │   └── SKILL.md
-│       ├── {project}-review-checklist/
-│       │   └── SKILL.md
-│       ├── {project}-test-patterns/
-│       │   └── SKILL.md
-│       └── {project}-git-deploy/
-│           └── SKILL.md
-│
-└── _workspace/                     # 작업 산출물 (Git 관리)
+├── AGENTS.md                         # ZCode가 읽는 프로젝트 지식 베이스
+├── PRD.md                            # 기능 명세·Rule ID·에러 코드
+├── HARNESS_CONVENTION.md             # 프로젝트가 따르는 하네스 규약 사본
+├── ARCHITECTURE_CONVENTION.md        # 선택: 아키텍처 표준
+├── .zcode/
+│   ├── progress.json                 # Git 추적 진행 상태
+│   ├── commands/                     # 오케스트레이터 명령어 2개 (워크스페이스 스코프)
+│   │   ├── {project}_orchestrator.md
+│   │   └── {project}_orchestrator_lite.md
+│   ├── skills/                       # 공통 오케스트레이터 + 참조 스킬
+│   │   ├── {project}-orchestrator/SKILL.md
+│   │   ├── {project}-business-rules/SKILL.md
+│   │   ├── {project}-feature-dev/SKILL.md
+│   │   ├── {project}-review-checklist/SKILL.md
+│   │   ├── {project}-test-patterns/SKILL.md
+│   │   └── {project}-git-deploy/SKILL.md  # 선택
+│   └── agents/                       # 서브에이전트 프로필 6개 — 런타임 감시 위치(실측)
+│       ├── {project}-developer.md
+│       ├── {project}-reviewer.md
+│       ├── {project}-tester.md
+│       ├── {project}-developer-lite.md
+│       ├── {project}-reviewer-lite.md
+│       └── {project}-tester-lite.md
+└── _workspace/                       # Phase별 산출물, Git 추적
     ├── 01_plan.md
     ├── 02_prd_update.md
     ├── 03_implementation.md
@@ -110,250 +102,99 @@ omp 런타임의 구성 표준(파일 위치, frontmatter 포맷, modelRoles)은
     └── 08_run_report.md
 ```
 
-**스킬 위치 전략**: 스킬은 반드시 `.omp/skills/` 에 둔다 — omp가 프로젝트 네이티브 스킬 루트로 자동 발견한다. 에이전트는 `.omp/agents/` 에 두며, frontmatter의 `model`은 롤 앨리어스(`"@롤명"`)로 지정한다(`4.2 참조`).
+전역 하네스 메타 스킬은 프로젝트 밖에 한 번만 설치한다:
+
+```text
+~/.zcode/skills/harness/
+├── SKILL.md
+└── HARNESS_CONVENTION.md
+```
+
+ZCode는 프로젝트 루트 `AGENTS.md`와 사용자 전역 `~/.zcode/AGENTS.md`를 읽지만, 하위 디렉터리의 `AGENTS.md`를 자동 병합하거나 `@../AGENTS.md`를 확장하지 않는다. 따라서 중요한 프로젝트 규칙은 루트 `AGENTS.md`에 둔다. 이 동작은 ZCode 버전에 따라 달라질 수 있으므로 공식 문서에서 현재 동작을 확인한다.
 
 ### 1.3 핵심 설계 원칙
 
 | 원칙 | 설명 |
 |:---|:---|
-| **관심사 분리** | 구현 / 리뷰 / 테스트를 각각 독립된 전문 에이전트로 분리 |
-| **모델 차등화** | Developer·Tester는 코드 생성 특화 모델(`@developer` 롤), Reviewer·Orchestrator는 추론·판단 특화 모델(`@reviewer` 롤). 비용 효율과 품질을 동시에 확보 |
-| **정적 지식 베이스** | AGENTS.md + PRD.md에 프로젝트의 모든 컨텍스트 기록. 에이전트가 매번 참조하여 일관된 출력 보장 |
-| **Phase 기반 파이프라인** | 분석 → 문서화 → 구현 → 정리 → 리뷰 → 수정 → 테스트 → 실행검증 → 완료보고. 단, 작업 규모에 따라 Phase 생략 가능. **에이전트 스폰 전 사용자 승인 게이트(§6.13)는 규모와 무관하게 항상 적용** |
-| **파일 기반 데이터 전달** | Phase 간 데이터는 `_workspace/` 디렉토리의 파일로 전달하여 컨텍스트 단절 방지 |
-| **Git 추적 진행 상태** | `.omp/progress.json`과 `_workspace/`를 Git으로 추적. 다른 PC에서 `git pull`만으로 작업 재개 가능 |
-| **문서 선행 원칙** | PRD.md/AGENTS.md 갱신은 구현보다 먼저. 개발자가 최신 명세를 보고 작업하도록 강제 |
+| **관심사 분리** | 구현·리뷰·테스트를 독립된 전문 서브에이전트로 분리 |
+| **모델 차등화** | 일반/절약 명령어별로 역할마다 다른 모델과 추론 수준을 지정 |
+| **단일 워크플로우** | 일반/절약 명령어는 같은 오케스트레이터 스킬을 사용하며 Phase 규칙을 복제하지 않음 |
+| **정적 지식 베이스** | AGENTS.md + PRD.md에 프로젝트 컨텍스트를 기록 |
+| **Phase 기반 파이프라인** | 분석 → 승인 → 문서화 → 구현 → 정리 → 리뷰 → 수정 → 테스트 → 실행 검증 → 완료 보고 |
+| **사용자 승인 게이트** | 계획을 보고하고 사용자가 승인하기 전에는 Developer/Reviewer/Tester를 호출하지 않음 |
+| **파일 기반 데이터 전달** | Phase 간 결과를 `_workspace/` 파일로 전달해 컨텍스트 단절을 줄임 |
+| **Git 추적 진행 상태** | `.zcode/progress.json`과 `_workspace/`를 Git으로 추적 |
+| **문서 선행** | 코드 구현 전에 PRD.md/AGENTS.md를 필요한 범위에서 갱신 |
 
-### 1.4 모델 차등화 전략 (핵심)
+### 1.4 모델 프로필 정책 — 일반 모드와 절약 모드
 
-```
-비용 효율 <────────────────────────────> 추론 품질
-  코드 생성 특화                          추론 특화
-      │                                     │
-      ├── Developer (구현)                  ├── Reviewer (코드 리뷰)
-      ├── Tester (테스트 작성·실행)          ├── Orchestrator Phase 1 (분석)
-      │                                     ├── Orchestrator Phase 2 (문서화)
-      │                                     ├── Orchestrator Phase 4 (정리)
-      │                                     ├── Orchestrator Phase 8 (실행 검증)
-      │                                     └── Orchestrator Phase 9 (완료 보고)
-```
+OMP의 `modelRoles`와 달리 ZCode는 명령어 frontmatter에 메인 모델을, 서브에이전트 정의에 각 에이전트의 모델·추론 수준을 직접 지정한다. 따라서 ZCode에서는 **모델 프로필을 명시한 6개의 서브에이전트 정의 파일**을 만든다.
 
-| 역할 | 롤 앨리어스 | 사유 |
+| 역할 | 일반 모드 프로필 | 절약 모드 프로필 |
 |:---|:---|:---|
-| **Developer** | `@developer` | 코드 생성은 패턴 매칭에 가깝고, 속도·비용이 중요 |
-| **Tester** | `@developer` | 테스트 코드 생성·실행은 구현과 유사한 성격 (별도 `tester` 롤 정의 가능) |
-| **Reviewer** | `@reviewer` | 비즈니스 로직 정합성 검증은 고도의 추론 능력 필요 — 위양성(false positive)은 신뢰도를 떨어뜨림 |
-| **Orchestrator** (Phase 0, 1, 2, 4, 8, 9) | 세션 모델 (`planner`/`default` 롤) | 요구사항 분석, 문서 현행화 판단, 실행 로그 해석, 최종 보고는 판단력이 중요한 작업 |
+| 메인 Agent / Planner | GLM-5.3 | GLM-5.3-Flash |
+| Developer | GLM-5.3-Flash · High | GLM-5.3-Flash · Low |
+| Reviewer | GLM-5.3 · High | GLM-5.3-Flash · High |
+| Tester | GLM-5.3-Flash · High | GLM-5.3-Flash · Low |
 
-**준수 규칙**: 에이전트 파일에는 모델명을 직접 쓰지 않고 **modelRoles 롤 앨리어스**(`model: "@developer"`, `model: "@reviewer"`)로 지정한다. 롤→실제 모델 매핑은 **전역 `~/.omp/agent/config.yml`의 `modelRoles`에서 단일 관리**한다 ([1.7 omp 구성 표준](#17-omp-구성-표준) 참조). **프로젝트별 `.omp/config.yml`은 생성하지 않는다** — 모델 교체는 전역 config의 매핑만 바꾸면 된다.
+**중요한 설정 제약**:
 
-### 1.5 트리거 메커니즘 — 하네스가 작동하는 실질적 원리
+1. ZCode 명령어 frontmatter의 공식 문서상 `model`은 지원되지만 명령어별 `thoughtLevel` 지정은 문서화되어 있지 않다. 따라서 명령어는 메인 모델을 선택하고, 메인 Agent의 추론 수준은 ZCode UI의 모델/추론 수준 선택에서 확인한다. 사용자 스크린샷에서는 GLM-5.3이 선택되어 있고 Effort가 `Max`로 표시된다. 이 화면은 현재 선택 상태를 증명하지만 명령어로 Effort를 자동 변경할 수 있음을 증명하지는 않는다.
+2. 서브에이전트는 `model`과 `thoughtLevel`을 각 정의에 지정할 수 있다. `thoughtLevel`은 특정 모델을 명시했을 때만 적용된다. ZCode 공식 문서는 GLM-5.3에 `low`, `high`, `max` 수준을 명시한다. Flash에서 사용할 수 있는 수준은 Flash를 선택한 뒤 UI/실행에서 확인한다.
+3. 사용자가 제공한 ZCode 화면에서 Z.ai Individual의 모델 표시명 `GLM-5.3`과 `GLM-5.3-Flash`가 확인되었다. 이 규약은 해당 내장 모델의 `model` 값으로 각각 `glm-5.3`, `glm-5.3-flash`를 우선 사용한다. 단, 스크린샷은 UI 표시명만 보여주고 런타임 내부 ID를 직접 노출하지 않으므로 실제 실행 검증이 필수다. `model not found` 등 오류가 나면 ZCode Settings → Model Settings 또는 ZCode가 생성한 서브에이전트 정의에서 실제 ID를 확인해 수정하며, OMP 전용 `zai/glm-5.3` 표기를 추정해 붙이지 않는다.
+4. ZCode 명령어의 모델 변경만으로 명시적 모델을 가진 서브에이전트가 자동 전환되지는 않는다. 일반/절약 모드마다 다른 서브에이전트 프로필을 호출한다.
+5. 일반 모드 명령어는 `*-developer`, `*-reviewer`, `*-tester`만 호출한다. 절약 모드 명령어는 `*-developer-lite`, `*-reviewer-lite`, `*-tester-lite`만 호출한다.
+6. 플러그인 manifest의 `agents` 필드는 기록만 되고 세션 서브에이전트로 실행되지 않는다(2026-10-29 실측). 서브에이전트 정의 파일은 프로젝트 `.zcode/agents/`에 둔다 — 런타임이 이 경로를 감시해 세션 시작 시 Agent 도구 유형으로 등록한다.
+7. `/` 명령 목록과 서브에이전트 등록은 세션 시작 시 스캔되므로, 리소스 설치·변경 후에는 새 세션에서 발견을 확인한다.
+8. **플러그인은 하네스에 사용하지 않는다(4.0.3부터 표준).** 플러그인에는 워크스페이스 스코프가 없어 설치·활성화가 사용자 전역으로 적용되고(실측), 명령어·스킬이 모든 프로젝트에 노출된다. 플러그인 route에는 추가 실측 장애가 있었다 — marketplace.json의 `pluginRoot`는 현재 빌드의 소스 경로 해석에 적용되지 않는다. 프로젝트 전용 하네스는 워크스페이스 스코프를 공식 지원하는 `.zcode/{commands,skills,agents}` 리소스로 구성한다.
 
-하네스의 모든 구성요소는 omp의 **설명(description) 기반 자동 매칭**에 의해 호출된다. 이 메커니즘을 이해하지 못하면 하네스를 아무리 정교하게 구성해도 작동하지 않는다.
+### 1.5 트리거 메커니즘 — 명령어 우선
 
-#### 스킬 트리거: `description` 필드
+ZCode에서 일반 개발 요청을 자동 매칭에만 의존하면 오케스트레이터를 건너뛸 수 있다. 프로젝트 `AGENTS.md`에는 모든 기능 구현·버그 수정·리팩터링·테스트·리뷰 요청에 해당 프로젝트의 오케스트레이터 명령어를 사용하라고 명시한다. 그러나 가장 신뢰할 수 있는 일상 운영 방식은 사용자가 직접 명령어를 선택하는 것이다.
 
-스킬의 프론트매터 `description`은 omp UI에 표시되는 설명이자, **omp가 어떤 사용자 요청에 이 스킬을 호출할지 판단하는 근거**다.
+- 일반 모드: `/{project_command_prefix}_orchestrator <작업 요청>`
+- 절약 모드: `/{project_command_prefix}_orchestrator_lite <작업 요청>`
+- 하네스 신규 구성/감사/동기화: `$harness <요청>`
 
-```
-사용자 입력: "사용자 관리 API 구현해줘"
-     │
-     ▼ omp가 모든 스킬의 description을 스캔
-     │
-     ├── sentrapass-orchestrator: "SentraPass 개발 오케스트레이터. 신규 기능 구현, 코드 수정, ..."
-     │   → 매칭! "구현" 키워드 → 이 스킬을 로드
-     │
-     ├── sentrapass-business-rules: "SentraPass 비즈니스 규칙 참조 ..."
-     │   → 매칭되지 않음 (직접 호출 대상 아님)
-     │
-     └── sentrapass-git-deploy: "SentraPass Git 배포 ..."
-         → 매칭되지 않음 ("배포" 키워드가 없음)
-```
+명령어는 `commands/*.md`에 두며 `description`, `model`, `skills` 등의 ZCode 지원 frontmatter 필드를 사용한다. 일반용과 절약용 명령어는 같은 `{project}-orchestrator` 스킬을 자동 로드하도록 설정한다. ZCode 문서의 명령어 이름 허용 패턴에는 하이픈이 포함되지 않으므로, 명령어 파일명/호출명에는 `{project_command_prefix}`(소문자 프로젝트명을 `_`로 정규화)를 사용한다. 스킬 디렉터리명은 kebab-case를 유지해도 된다.
 
-**description 작성 규칙**:
-1. **오케스트레이터 description**: 프로젝트의 모든 개발 요청 키워드를 포괄한다.
-   ```
-   description: {프로젝트명} 개발 오케스트레이터. 신규 기능 구현, 코드 수정, 리팩터링, 
-   테스트 작성, 코드 리뷰 등 {프로젝트명} 프로젝트의 모든 개발 작업을 조율한다. 
-   {프로젝트명} 관련 개발 요청, 기능 구현, 코드 리뷰, 테스트 작성, 디버깅, API 설계, 
-   데이터베이스 마이그레이션, 비즈니스 로직 검증 요청 시 사용한다. 
-   후속 작업(수정, 보완, 개선, 리팩터링, 재실행, 업데이트)도 처리한다.
-   ```
-   → "구현", "수정", "리팩터링", "테스트", "리뷰", "API", "디버깅" 등 모든 개발 관련 키워드를 포함.
+### 1.6 하네스가 실제로 실행됐는지 확인하는 방법
 
-2. **배포 스킬 description**: 배포 관련 키워드만 포함.
-   ```
-   description: {프로젝트명} Git 배포 스킬. 변경 사항을 커밋, ... Push 한다. 
-   "git 배포", "커밋", "푸시", "배포", "push" 요청 시 사용한다.
-   ```
+1. `/` 명령 패널에서 명령어가 일반용과 절약용 두 개 모두 표시되는지 확인한다. 명령어 목록은 세션 시작 시 스캔되므로, 리소스 설치·변경 직후라면 새 세션에서 확인한다.
+2. 선택한 명령어가 해당 모드의 메인 모델을 선택하는지 확인한다.
+3. 계획을 먼저 출력하고 `awaiting_approval` 상태를 기록하는지 확인한다.
+4. 사용자 승인 전에는 어떤 Developer/Reviewer/Tester 서브에이전트도 호출되지 않는지 관찰한다.
+5. 승인 후 올바른 모드의 에이전트가 호출되고, 산출물이 `_workspace/`에 기록되는지 확인한다.
+6. 최종 보고에서 실행 모드, 호출된 에이전트 이름, 모델, 테스트 결과를 명시한다.
 
-3. **참조 스킬 description**: 직접 호출되지 않고 에이전트가 참조하므로, description은 설명 목적으로만.
-   ```
-   description: {프로젝트명} 비즈니스 규칙 참조 스킬. PRD에서 추출한 핵심 비즈니스 규칙, 
-   데이터 격리 원칙 등을 제공한다. {프로젝트명} 코드를 작성하거나 리뷰할 때 반드시 참조한다.
-   ```
+ZCode Plan mode는 계획을 먼저 제시하고 확인 후 편집을 시작하는 데 도움이 되지만, **Plan mode만으로 서브에이전트 호출까지 무조건 차단된다고 가정하지 않는다.** 승인 전 에이전트 미호출 여부는 규칙과 실제 검증으로 확인해야 한다.
 
-#### AGENTS.md 트리거 섹션: 명시적 호출 지시
+### 1.7 ZCode 구성 표준
 
-`description` 매칭만으로는 오케스트레이터가 항상 의도대로 호출되지 않을 수 있다. **AGENTS.md에 명시적인 트리거 지시문**을 추가하여 이를 보완한다. 이 섹션은 omp가 매 턴마다 읽는 AGENTS.md에 있으므로 가장 강력한 트리거다.
-
-**표준 패턴** (AGENTS.md의 "하네스" 섹션에 포함):
-
-```markdown
-## 하네스: {프로젝트명} 개발 자동화
-
-**목표:** PRD 비즈니스 규칙과 AGENTS.md 아키텍처를 준수하는 코드의 구현·리뷰·테스트를 자동화한다.
-
-**트리거:** 아래에 해당하는 모든 요청은 반드시 `{project}-orchestrator` 스킬을 사용하라:
-- 기능 구현, 코드 수정, 리팩터링, 버그 수정
-- 코드 리뷰, 테스트 작성, 디버깅
-- API 설계, 데이터베이스 마이그레이션, 비즈니스 로직 검증
-- 위 작업의 후속 요청 (수정, 보완, 개선, 리팩터링, 재실행, 업데이트)
-단순 질문(문서 내용 확인, 의미 해석)은 직접 응답 가능.
-
-**배포:** "git 배포", "커밋", "푸시", "배포", "push" 요청 시 `{project}-git-deploy` 스킬을 사용하라.
-
-**변경 이력:**
-| 날짜 | 변경 내용 | 대상 | 사유 |
-|------|----------|------|------|
-| YYYY-MM-DD | 초기 하네스 구성 | 전체 | 신규 구축 |
-```
-
-**이 섹션이 중요한 이유**: omp가 매 턴마다 AGENTS.md를 시스템 프롬프트로 읽는다. "X 요청 시 Y 스킬을 사용하라"는 명시적 지시문은 description 매칭보다 우선적으로 적용된다.
-
-**omp 런타임**: omp는 루트 `AGENTS.md`를 자동으로 읽지 않는다. 대신 `.omp/AGENTS.md`(프로젝트 컨텍스트, 매 세션 자동 로드)를 두고 본문 첫머리에 `@../AGENTS.md` import 한 줄을 넣어 AGENTS.md를 단일 소스로 유지한다. 트리거 섹션은 AGENTS.md에 이미 있으므로 import만으로 omp에서도 동일하게 작동한다. 추가 강제 규칙이 필요하면 `.omp/RULES.md`(스티키 규칙, 긴 대화 후에도 재부착)를 사용한다.
-
-#### 에이전트 호출: description + 오케스트레이터의 명시적 지정
-
-에이전트는 사용자가 직접 호출하지 않고 오케스트레이터가 호출한다. 따라서 에이전트의 `description`은 오케스트레이터가 이 에이전트를 언제 선택할지 판단하는 기준이 된다.
-
-```yaml
-# Developer 에이전트 description 예시
-description: {Project} 기능 구현 전문가. {기술 스택} 기반의 모델, 
-데이터 접근 계층, 비즈니스 로직, API 핸들러를 PRD 및 AGENTS.md 규칙에 맞게 생성/수정한다.
-```
-
-오케스트레이터는 Phase 2, 4에서 이 description을 보고 Developer 에이전트를 선택한다.
-
-#### 트리거 계층 요약
-
-```
-사용자 요청
-    │
-    ├──→ AGENTS.md 트리거 섹션 (최우선) 
-    │      "{keyword} 요청 시 {skill} 스킬을 사용하라"
-    │
-    ├──→ 스킬 description 매칭 (보조)
-    │      omp가 description 텍스트와 사용자 입력의 의미적 유사성으로 판단
-    │
-    └──→ 오케스트레이터가 직접 에이전트 지정 (Phase 내)
-           task tool — { "tasks": [{ "agent": "{project}-developer", "task": "..." }] }
-```
-
-### 1.6 하네스를 100% 확실하게 타는 방법 — 사용자 입력 패턴
-
-omp가 요청을 오케스트레이터로 라우팅할지 직접 처리할지는 **AGENTS.md 트리거 지시문 + 스킬 description 매칭 + 사용자 입력**의 조합으로 결정된다. 대부분의 경우 잘 동작하지만, 애매한 요청은 omp가 "이건 그냥 내가 답변해도 되겠다"라고 판단하여 오케스트레이터를 건너뛸 수 있다.
-
-이를 방지하고 **100% 하네스 로직을 타도록 보장하는 세 가지 방법**이 있다:
-
-#### 방법 1: 슬래시 커맨드 (★ 가장 확실)
-
-omp는 `/skill:{skill-name}` 문법으로 스킬을 강제 호출할 수 있다.
-
-```
-/{project}-orchestrator 사용자 생성 API 구현해줘
-```
-
-```
-/{project}-orchestrator 위 변경사항 코드 리뷰해줘
-```
-
-```
-/{project}-orchestrator 테스트가 실패했는데 수정해줘
-```
-
-**장점**: 라우팅 추론을 완전히 우회한다. 무조건 오케스트레이터가 로드된다.
-**단점**: 매번 `/{project}-orchestrator`를 타이핑해야 한다.
-
-#### 방법 2: 트리거 키워드를 요청 첫머리에 배치
-
-omp는 요청의 첫 부분을 가장 중요하게 본다. AGENTS.md 트리거 섹션에 나열된 키워드로 시작하면 라우팅 정확도가 크게 올라간다.
-
-```
-✅ "사용자 관리 API 구현해줘"           → "구현" 키워드 → 오케스트레이터
-✅ "코드 리뷰해줘. 방금 구현한 PersonService" → "리뷰" 키워드 → 오케스트레이터
-✅ "버그 수정해줘. 로그인 API에서..."       → "수정" 키워드 → 오케스트레이터
-❌ "PersonService에 create 메서드가 필요한데..." → 애매함 → 직접 처리될 가능성
-❌ "이 코드 좀 봐줘"                         → 너무 모호 → 직접 처리될 가능성
-```
-
-#### 방법 3: AGENTS.md 트리거 지시문을 더 강하게 작성
-
-AGENTS.md의 트리거 섹션에 "반드시", "항상" 같은 절대적 표현을 추가한다. SentraPass의 실제 트리거 섹션을 예로 들면:
-
-```markdown
-**트리거:** 아래에 해당하는 모든 요청은 반드시 `{project}-orchestrator` 스킬을 사용하라:
-- 기능 구현, 코드 수정, 리팩터링, 버그 수정
-- 코드 리뷰, 테스트 작성, 디버깅
-- API 설계, 데이터베이스 마이그레이션
-- 위 작업의 후속 요청 (수정, 보완, 재실행, 업데이트)
-단, 순수한 문서 내용 확인 질문("~가 무슨 뜻이야?", "~는 어디에 있어?")은 직접 응답 가능.
-```
-
-**핵심**: "아래에 해당하는 모든 요청은 반드시"라는 표현 + 구체적인 요청 유형 목록.
-
-#### 종합 권장
-
-**AGENTS.md 트리거 섹션을 방법 3처럼 강하게 작성**해두고, 평소에는 방법 2(키워드 첫머리 배치)로 자연스럽게 사용하다가, **오케스트레이터가 안 탔을 때만 방법 1(슬래시 커맨드)로 재시도**하는 전략이 가장 실용적이다.
-
-#### 오케스트레이터 탔는지 확인하는 법
-
-오케스트레이터가 정상적으로 로드되면 omp의 첫 응답에 스킬의 내용(SKILL.md의 첫 부분)이 컨텍스트로 주입된다. 즉, 응답 초반에 "Phase 0: 컨텍스트 확인" 이나 오케스트레이터 특유의 Phase 기반 사고가 보이면 하네스를 탄 것이다. 그렇지 않고 바로 코드나 설명을 출력하면 직접 처리 중인 것이다.
-
-### 1.7 omp 구성 표준
-
-하네스의 원칙과 파이프라인은 모든 프로젝트에서 동일하다. 프로젝트별로 달라지는 것은 도메인 내용(지식 베이스, PRD, Rule ID)뿐이며, 구성 파일의 위치와 포맷은 아래 표준을 따른다.
-
-#### omp 구성 개념 표
-
-| 개념 | omp 표준 |
+| 개념 | ZCode 표준 |
 |:---|:---|
-| 지식 베이스 | 루트 `AGENTS.md` (단일 소스) — `.omp/AGENTS.md` 진입점이 본문 첫머리 `@../AGENTS.md` import로 로드 |
-| 스티키 강제 규칙 | AGENTS.md 트리거 섹션 + `.omp/RULES.md` (선택 — 긴 대화 후에도 재부착) |
-| 전문 에이전트 위치 | `.omp/agents/{project}-{role}.md` |
-| 에이전트 모델 지정 | `model: "@developer"` / `model: "@reviewer"` (modelRoles 롤 앨리어스) |
-| 에이전트 스킬 할당 | `autoloadSkills:` 목록 |
-| 에이전트 호출 (스폰) | task tool — `{"tasks":[{"agent":"{project}-developer","task":"..."}]}` |
-| 에이전트 간 직접 통신 | Agent Hub (`Alt+A`) / hub tool — 진행 중 협업만 허용. 완료된 에이전트 재소환 금지, 완료 후 등록 해제 — `hub cancel`, 미제공 세션은 UI `x: kill` 수동 정리 (§4.6) |
-| 스킬 위치 | `.omp/skills/{skill}/SKILL.md` |
-| 메타 스킬 | 전역 `~/.omp/agent/skills/harness/` (`skill://harness`) |
-| 강제 스킬 호출 | `/skill:{project}-orchestrator` |
-| 모델 차등화 설정 | `modelRoles` — **전역 `~/.omp/agent/config.yml` 단일 관리** (프로젝트 `.omp/config.yml` 생성 금지 — 설정 단일화로 프로젝트 간 모델 롤 일관성 유지) |
-| 진행 상태 | `.omp/progress.json` |
-| 작업 산출물 | `_workspace/` |
-| 권한/승인 | omp 자체 승인 모델 (프로젝트 권한 파일 없음) |
-| 세션 재개 | `omp -c` / `omp -r` (피커) |
-| 컨텍스트 압축 | 자동 압축 (임계값/overflow 압축, `/compact`) |
+| 지식 베이스 | 루트 `AGENTS.md` + 전역 `~/.zcode/AGENTS.md` |
+| 프로젝트 하네스 등록 | 불필요 — 워크스페이스 `.zcode/{commands,skills,agents}` 리소스(플러그인·마켓플레이스 미사용) |
+| 일반/절약 진입점 | `.zcode/commands/{project}_orchestrator.md`, `.zcode/commands/{project}_orchestrator_lite.md` |
+| 공통 워크플로우 | `.zcode/skills/{project}-orchestrator/SKILL.md` |
+| 서브에이전트 정의 | `.zcode/agents/{project}-{role}.md` 및 `-lite` |
+| 에이전트 모델 지정 | 서브에이전트 frontmatter `model`, `thoughtLevel` |
+| 명령어 모델 지정 | 명령어 frontmatter `model` |
+| 강제 스킬 호출 | `$harness` 또는 `/` 패널의 `$` 스킬 선택 |
+| 파이프라인 산출물 | `_workspace/` |
+| 진행 상태 | `.zcode/progress.json` |
+| 승인을 위한 UI | ZCode Plan mode + 오케스트레이터의 승인 대기 프로토콜 |
+| 컨텍스트 압축 | ZCode의 `/compact` 및 프로젝트 파일 산출물 |
 
-#### omp modelRoles — 모델 차등화
+**ZCode 범위 제약**: 사용자 정의 서브에이전트는 공식 문서상 Beta이며, 공식 문서는 사용자 범위(`~/.zcode/agents/`)만 안내한다. 실측으로는 런타임이 프로젝트 `.zcode/agents/`도 감시하므로, 이 규약은 프로젝트 프로필을 `.zcode/agents/`에 두어 Git으로 관리한다. 명령어(`.zcode/commands/`)와 스킬(`.zcode/skills/`)은 공식 문서가 워크스페이스 스코프를 보장한다. 플러그인은 사용하지 않는다 — 워크스페이스 스코프가 없어 전역 적용되고 `agents` 필드는 미실행(§1.4 제약 6·8). 명령어·에이전트 발견은 세션 시작 시 스캔되므로 리소스 변경 후에는 신규 세션에서 검증한다.
 
-```yaml
-# ~/.omp/agent/config.yml (전역 단일 관리 — 프로젝트별 .omp/config.yml은 생성하지 않는다)
-modelRoles:
-  planner: openrouter/z-ai/glm-5.3-flash                  # 오케스트레이터 (세션 모델, 추론 특화)
-  reviewer: openrouter/z-ai/glm-5.3-flash                 # Reviewer 에이전트 (추론 특화)
-  developer: openrouter/deepseek/deepseek-v4-flash-0731   # Developer·Tester 에이전트 (코드 생성 특화)
-```
-
-에이전트 frontmatter의 `model: "@developer"`는 스폰 시점에 `modelRoles.developer`로 해석되므로, 모델 교체 시 에이전트 파일 수정 없이 config의 롤 매핑만 바꾸면 된다.
-
----
+**공식 문서**: [ZCode Agent](https://zcode.z.ai/en/docs/agents) · [Commands](https://zcode.z.ai/en/docs/commands) · [Skills](https://zcode.z.ai/en/docs/skill) · [Subagents](https://zcode.z.ai/en/docs/subagents) · [Plugins](https://zcode.z.ai/en/docs/plugin)
 
 ## 2. AGENTS.md — 프로젝트 지식 베이스
 
 ### 2.1 목적
 
-`AGENTS.md`는 omp가 매 세션 자동으로 로드하는 지식 베이스다(`.omp/AGENTS.md` 진입점이 `@../AGENTS.md` import로 로드). 하네스의 모든 구성요소가 이 파일을 기준으로 동작한다.
+`AGENTS.md`는 ZCode가 Workspace 시작 시 프로젝트 지침으로 읽는 지식 베이스다. 사용자 전역 `~/.zcode/AGENTS.md`와 현재 Workspace의 루트 `AGENTS.md`가 함께 사용되며, 프로젝트 지침을 우선 기준으로 삼는다.
 
 **핵심 원칙**: 프로젝트에 대한 모든 컨텍스트(아키텍처, 규칙, 컨벤션, 진행 상황)가 이 파일에 집약되어야 한다. 새 PC에서 클론 받아도 이 파일만 읽으면 프로젝트를 이해하고 작업을 재개할 수 있어야 한다.
 
@@ -364,7 +205,7 @@ AGENTS.md는 다음 섹션을 반드시 포함해야 한다:
 ```markdown
 # AGENTS.md
 
-이 파일은 omp 에이전트가 이 저장소에서 작업할 때 참고할 가이드입니다.
+이 파일은 ZCode Agent와 프로젝트 하네스 서브에이전트가 이 저장소에서 작업할 때 참고할 가이드입니다.
 
 ---
 
@@ -548,67 +389,45 @@ PRD(Product Requirements Document)는 프로젝트의 **실행 가능한 명세(
                            │ (수정 피드백 루프)
 ```
 
-### 4.2 에이전트 정의 파일 포맷
+### 4.2 ZCode 서브에이전트 정의 파일 포맷
 
-위치: `.omp/agents/{project}-{role}.md`
+서브에이전트 정의는 다음 위치에 둔다(워크스페이스 스코프 — Git 추적):
+
+`.zcode/agents/`
+
+일반/절약 모드가 서로 다른 모델을 사용하므로 역할마다 두 정의를 둔다. ZCode 서브에이전트 frontmatter의 주요 키는 `name`, `description`, `model`, `thoughtLevel`, `tools`, `injectAgentsMd`다. OMP의 `autoloadSkills`나 `model: "@developer"` 모드별 서브에이전트 프로필 지정에는 사용하지 않는다.
 
 ```markdown
 ---
-name: {project}-{role}
-description: {프로젝트명} {역할 한글명}. {주요 업무 설명}.
-model: "@developer"        # ← Developer/Tester="@developer", Reviewer="@reviewer"
-autoloadSkills:
-  - {project}-business-rules
-  - {project}-{guide-skill}
+name: "{project}-developer"
+description: "{프로젝트명} 구현 전문가. 승인된 작업을 PRD와 AGENTS.md에 맞게 구현한다."
+model: glm-5.3-flash
+thoughtLevel: high
+color: green
+injectAgentsMd: true
 ---
 
-# {Project} {Role}
+# {Project} Developer
 
 ## 핵심 역할
-
-{3~5문장으로 역할 정의. 이 에이전트가 무엇을 하는지, 왜 중요한지를 명확히.}
-
-## 작업 원칙
-
-1. **{원칙 1}** — {상세 설명}
-2. **{원칙 2}** — {상세 설명}
-...
-
-## {구현/리뷰/테스트} 체크리스트
-
-### {레이어/영역} (해당 시)
-- [ ] {체크 항목}
-- [ ] {체크 항목}
-
-## 입력/출력 프로토콜
-
-- **입력**: {무엇을 받는지}
-- **출력**: {무엇을 반환하는지}
-- **중간 산출물**: `_workspace/` 디렉토리에 저장할 파일들
-
-## 에러 핸들링
-
-- {상황} → {대응 방법}
-
-## 협업
-
-- 다른 에이전트와의 상호작용 방법
-- 오케스트레이터와의 보고 체계
-
-## 이전 산출물이 있을 때의 행동
-
-- `_workspace/` 디렉토리가 존재하면 이전 결과를 읽고 중복 작업을 피한다.
+- 승인된 구현 계획과 관련 Rule ID를 기준으로 코드만 구현한다.
+- AGENTS.md, PRD.md 및 기존 코드 패턴을 확인한다.
+- 완료 시 변경 파일, 검증 명령, 미해결 사항을 보고한다.
 ```
 
-**frontmatter 규칙**: `model`은 롤 앨리어스(`"@롤명"`)로 지정하며 modelRoles 매핑으로 해석된다(§1.7 참조). omp 태스크 에이전트는 `type` 필드가 없으며 기본 전체 도구를 보유한다. 본문(systemPrompt)은 역할 원칙·체크리스트·입출력 프로토콜을 담는다.
+**프로필 운영 규칙**:
+- 일반 프로필 `model`과 `thoughtLevel`은 일반 모드 표를 따르고, `-lite` 프로필은 절약 모드 표를 따른다.
+- Reviewer 프로필은 가능한 한 읽기 전용 도구만 부여한다. ZCode에서 도구 제한을 설정한 경우 허용 목록에 없는 도구는 호출할 수 없다.
+- ZCode 서브에이전트 frontmatter에는 OMP의 `autoloadSkills`와 동등한 범용 스킬 자동 할당 필드가 없다. 필수 규칙은 루트 `AGENTS.md`/PRD와 각 에이전트의 시스템 프롬프트에 포함하고, 오케스트레이터 명령어가 공통 오케스트레이터 스킬을 로드하도록 한다.
+- 파일에서 모델 ID를 변경한 뒤에는 새 ZCode 세션에서 적용 여부를 검증한다.
 
 ### 4.3 Developer 에이전트 (구현)
 
 | 속성 | 값 |
 |:---|:---|
 | **파일명** | `{project}-developer.md` |
-| **모델 롤** | **`@developer`** (코드 생성에 적합, 비용 효율) |
-| **할당 스킬** | `{project}-business-rules`, `{project}-feature-dev` |
+| **모델 프로필** | 일반: `{project}-developer` / 절약: `{project}-developer-lite` |
+| **관련 지식** | PRD.md, AGENTS.md, `{project}-business-rules`, `{project}-feature-dev` (필수 규칙은 문서/프롬프트에 포함) |
 | **역할** | 기능 구현, 코드 수정, 리뷰 피드백 반영 |
 
 **핵심 책임**:
@@ -623,8 +442,8 @@ autoloadSkills:
 | 속성 | 값 |
 |:---|:---|
 | **파일명** | `{project}-reviewer.md` |
-| **모델 롤** | **`@reviewer`** (고도의 추론 능력이 필요한 비즈니스 로직 검증) |
-| **할당 스킬** | `{project}-business-rules`, `{project}-review-checklist` |
+| **모델 프로필** | 일반: `{project}-reviewer` / 절약: `{project}-reviewer-lite` |
+| **관련 지식** | PRD.md, AGENTS.md, `{project}-business-rules`, `{project}-review-checklist` (필수 규칙은 문서/프롬프트에 포함) |
 | **역할** | 비즈니스 규칙 정합성, 데이터 무결성, 아키텍처 준수 검증 |
 
 **핵심 책임**:
@@ -645,8 +464,8 @@ autoloadSkills:
 | 속성 | 값 |
 |:---|:---|
 | **파일명** | `{project}-tester.md` |
-| **모델 롤** | **`@developer`** (테스트 코드 생성은 구현과 유사, 비용 효율) |
-| **할당 스킬** | `{project}-business-rules`, `{project}-test-patterns` |
+| **모델 프로필** | 일반: `{project}-tester` / 절약: `{project}-tester-lite` |
+| **관련 지식** | PRD.md, AGENTS.md, `{project}-business-rules`, `{project}-test-patterns` (필수 규칙은 문서/프롬프트에 포함) |
 | **역할** | 테스트 코드 작성, 실행, 실패 원인 분석 |
 
 **핵심 책임**:
@@ -655,120 +474,80 @@ autoloadSkills:
 3. 테스트 실패 시 **코드 버그인지 테스트 오류인지 반드시 구분**하여 보고
 4. 기존 테스트와의 충돌 여부 확인
 
-### 4.6 서브에이전트 수명 주기 — 일회성 스폰 원칙
+### 4.6 서브에이전트 수명 주기 — 작업 단위 위임 원칙
 
-서브에이전트는 **일회성(one-shot)**으로 운영한다. omp 런타임은 완료된 서브에이전트를 parked 상태로 보존하므로, 규약 차원에서 재사용을 차단한다.
+각 Phase의 위임은 독립 작업으로 취급한다. ZCode 서브에이전트는 기본 Agent와 격리된 컨텍스트에서 실행되고 결과를 요약해 반환한다. OMP의 Agent Hub, `hub cancel`, parked 로스터 정리 절차는 ZCode 하네스에 적용하지 않는다.
 
-**원칙**:
+| 원칙 | 내용 |
+|:---|:---|
+| 작업 범위 명확화 | 한 번의 위임은 하나의 결과물과 완료 기준을 갖는다. |
+| 산출물 전달 | 재검토·수정·재테스트는 `_workspace/`의 이전 보고서와 변경 파일을 명시해 별도 호출한다. |
+| 재사용 통제 | 역할이 같더라도 새 Phase에서는 기존 결과를 읽고 새로운 호출을 사용한다. 이전 대화가 자동으로 완전하게 전달된다고 가정하지 않는다. |
+| 병렬 실행 제한 | 읽기 전용 조사처럼 독립적인 작업만 병렬화한다. 동일 파일을 수정하는 Developer 작업은 병렬화하지 않는다. |
+| 완료 확인 | 서브에이전트 결과를 받은 후 오케스트레이터가 실제 diff, 테스트 출력 및 보고서 파일을 직접 확인한다. |
 
-| # | 원칙 | 내용 |
-|---|---|---|
-| 1 | **작업마다 신규 스폰** | 모든 작업 위임은 task tool로 **새 에이전트**를 스폰한다. 동일 역할 재위임(리뷰 반영 수정·재테스트 등)도 예외 없이 신규 스폰하며, 선행 작업 맥락은 `_workspace/` 산출물(`03_implementation.md`, `05_review.md` 등)로 전달한다. |
-| 2 | **완료 에이전트 재소환 금지** | 완료 보고를 낸 에이전트를 `hub send`로 다시 깨워 후속 작업을 맡기지 않는다. 재소환은 이전 작업의 오염된 컨텍스트와 과거 규약 기준을 이어받게 한다. |
-| 3 | **완료 후 등록 해제** | 오케스트레이터는 서브에이전트의 최종 결과를 수신한 뒤 **즉시** 등록 해제를 시도한다 — Agent Hub 로스터에 잔류하지 않아야 한다. 해제 수단: `hub cancel`. 단, `proc://<에이전트ID>/kill`은 **실행 중인 세션만** 취소하며 완료(parked) 에이전트의 로스터 등록은 해제하지 못한다(실측: not found). `hub` 도구가 없는 세션에서는 자동 해제가 불가하므로 Agent Hub UI(`x: kill`)로 수동 정리하고, 오케스트레이터는 최종 보고에 잔존 에이전트를 안내한다. |
-
-**예외 — 진행 중 협업**: 작업 진행 중 양쪽 에이전트가 모두 살아 있을 때의 조정(리뷰어→개발자 중간 질의 등)은 Agent Hub 사용을 허용한다. 금지 대상은 **완료된 에이전트의 재소환**뿐이다.
-
-**근거**: ① 컨텍스트 신선도 — 이전 작업 맥락이 새 작업 판단을 오염시키지 않는다. ② 로스터 위생 — 허브 목록에 사용 완료 에이전트가 누적되지 않는다. ③ 결정론적 재현 — 같은 산출물 기반이라면 누가 수행해도 동일하게 진행된다.
-
----
+ZCode가 자체적으로 subagent 호출과 수명 주기를 관리하므로, 하네스는 플랫폼 내부 세션을 임의로 종료하거나 로스터를 정리하는 도구 명령을 요구하지 않는다.
 
 ## 5. 스킬 (Skills)
 
 ### 5.1 스킬 역할 분류
 
-| 유형 | 설명 | 예시 | 할당 대상 |
+| 유형 | 설명 | 예시 | 호출 방식 |
 |:---|:---|:---|:---|
-| **오케스트레이터** | 전체 프로세스 통제, Phase 관리 | `{project}-orchestrator` | 사용자 직접 호출 |
-| **참조 스킬** | 비즈니스 규칙, 개발 패턴, 테스트 패턴 등 프로젝트 특화 지식 | `{project}-business-rules`, `{project}-feature-dev`, `{project}-test-patterns` | Developer, Reviewer, Tester |
-| **도구 스킬** | 체크리스트, 배포 등 특정 작업 자동화 | `{project}-review-checklist`, `{project}-git-deploy` | Reviewer, 사용자 |
-| **메타 스킬** | 하네스 자체의 구성·점검·개선 | `harness:harness` | 관리자 |
+| **오케스트레이터 워크플로우** | Phase, 승인 게이트, 데이터 흐름을 정의하는 공통 스킬 1개 | `{project}-orchestrator` | 일반/절약 명령어가 자동 로드 |
+| **참조 스킬** | 비즈니스 규칙, 구현 패턴, 테스트 패턴 | `{project}-business-rules`, `{project}-feature-dev`, `{project}-test-patterns` | 메인 Agent가 필요 시 호출; 필수 지식은 AGENTS.md/PRD에도 유지 |
+| **도구 스킬** | 리뷰 체크리스트, 배포 등 특정 작업 | `{project}-review-checklist`, `{project}-git-deploy` | 명령 또는 스킬로 호출 |
+| **메타 스킬** | 하네스 자체의 신규 구성·점검·개선 | `harness` | 사용자 전역 `$harness` |
 
-### 5.2 스킬 정의 파일 포맷
+일반용·절약용 오케스트레이터는 **실행 명령어 두 개**다. 각각이 같은 `{project}-orchestrator` 스킬을 로드한다. Phase 규칙을 두 개의 SKILL.md에 복제하지 않는다.
 
-위치: `.omp/skills/{skill-name}/SKILL.md`
+### 5.2 ZCode 스킬 정의 파일 포맷
+
+위치: `.zcode/skills/{skill-name}/SKILL.md` (워크스페이스 스코프)
 
 ```markdown
 ---
-name: {skill-name}
-description: {한 줄 설명. omp UI에 표시되며, 어떤 상황에서 호출할지 포함한다.}
+name: "{skill-name}"
+description: "{무엇을 언제 사용할지 한국어 트리거 포함}"
 ---
 
 # {Skill Title}
 
-## 이 스킬의 목적
-
-{2~3문장으로 이 스킬이 해결하는 문제와 사용 시기를 설명}
-
-## {Section 1}
-
-{본문 — 필요한 만큼 섹션을 구성}
+## 목적
+{스킬의 용도, 입력, 출력 및 사용 시점}
 ```
 
-**스킬 위치 표준**: 스킬은 반드시 `.omp/skills/{skill-name}/SKILL.md`에 둔다 — omp가 프로젝트 네이티브 스킬로 자동 발견하며, 이때 `description` 필드가 필수다. 오케스트레이터 스킬 본문의 에이전트 호출 문법은 omp task tool로 통일한다(§1.7 참조).
+`name`과 `description`은 필수다. 설명은 1024자 이내로 유지한다. ZCode 스킬은 채팅에서 `$skill-name`으로 직접 호출하거나 명령어의 `skills` 필드로 자동 로드할 수 있다. 스킬 수가 지나치게 많으면 설명 메타데이터가 컨텍스트에 부담을 줄 수 있으므로 실제 사용하는 스킬만 활성화한다.
 
-### 5.3 오케스트레이터 스킬
+### 5.3 오케스트레이터 워크플로우 스킬
 
-**파일명**: `{project}-orchestrator`
+**파일명**: `{project}-orchestrator/SKILL.md`
 
-**목적**: 개발 작업의 전체 프로세스를 조율한다. 사용자의 개발 요청을 받아 Phase 0~9을 진행하며, 각 Phase마다 적절한 전문 에이전트를 호출하고 결과를 검증한다.
-
-**절대 직접 코드를 수정하지 않는다.** 코드 수정이 필요한 모든 작업은 Developer 에이전트에게 위임한다.
-
-**오케스트레이터의 역할**:
-- Phase 간 전환과 진행 상태 관리
-- 사용자 승인 게이트 운영 — 플랜 승인 전 에이전트 스폰 금지 (§6.13)
-- 문서(AGENTS.md/PRD.md) 현행화
-- 기계적 검증 (Phase 4)
-- 실행 검증 (Phase 6)
-- 최종 완료 보고 (Phase 7)
-- 작업 복잡도에 따른 Phase 생략 판단
-
-**상세 Phase 구조**: [6. 오케스트레이터 — 개발 프로세스 자동화](#6-오케스트레이터--개발-프로세스-자동화) 참조.
+이 스킬은 대규모/중규모/소규모 작업의 Phase 진행, 승인 게이트, 문서 선행, 검증 결과, 진행 상태 기록을 정의한다. **스스로 코드를 직접 수정하지 않고** 변경은 해당 모드의 Developer 프로필에 위임한다. 일반/절약 명령어 모두 이 하나의 스킬을 로드하며, 명령어의 지시문으로 호출할 서브에이전트 프로필을 구분한다.
 
 ### 5.4 비즈니스 규칙 스킬
 
-**파일명**: `{project}-business-rules`
-
-PRD 7장의 핵심 규칙을 Rule ID와 함께 빠르게 참조할 수 있도록 정리한다. Developer, Reviewer, Tester 모두가 작업 시 참조한다.
+PRD의 Rule ID를 간단히 찾을 수 있도록 정리한다. 정합성에 중요한 규칙은 하위 에이전트도 읽을 수 있도록 PRD.md와 루트 AGENTS.md에 유지한다.
 
 ### 5.5 기능 개발 가이드 스킬
 
-**파일명**: `{project}-feature-dev`
-
-프로젝트의 기술 스택에 맞는 단계별 구현 가이드와 각 레이어별 코드 템플릿을 제공한다.
+프로젝트 기술 스택에 맞는 단계별 구현 가이드, 레이어 순서, 기존 코드 참조 방법 및 검증 명령을 제공한다.
 
 ### 5.6 코드 리뷰 체크리스트 스킬
 
-**파일명**: `{project}-review-checklist`
-
-Reviewer가 코드 리뷰를 체계적으로 수행하기 위한 레이어별 점검 항목과 Rule ID 매핑을 제공한다.
+Reviewer가 비즈니스 규칙, 데이터 격리, 권한, 데이터 무결성, API 규약을 점검하도록 한다. 리뷰어에게 수정 권한을 주지 않는 것을 권장한다.
 
 ### 5.7 테스트 패턴 스킬
 
-**파일명**: `{project}-test-patterns`
-
-프로젝트의 테스트 계층별 템플릿과 Rule ID별 필수 테스트 시나리오를 제공한다.
+정상·경계·예외 조건, 계층별 테스트 패턴 및 테스트 실패 원인 분류 규칙을 제공한다.
 
 ### 5.8 배포 스킬
 
-**파일명**: `{project}-git-deploy`
+커밋·푸시·PR 생성 등 명시적 배포 요청에만 사용한다. 기본 개발 파이프라인이 사용자 승인 없이 배포·푸시하도록 만들지 않는다.
 
-변경 사항을 Git에 커밋하고 원격 저장소에 푸시한다. 브랜치 전략에 따라 PR 생성도 지원한다.
+### 5.9 메타 스킬 (`$harness`)
 
-### 5.9 메타 스킬 (harness:harness)
-
-하네스 자체를 구성·점검·개선하는 메타 스킬. 다음과 같은 요청을 처리한다:
-
-- **구성**: "하네스 구성해줘", "하네스 구축해줘", "하네스 설계"
-- **점검**: "하네스 점검해줘", "하네스 감사", "하네스 현황"
-- **동기화**: "에이전트/스킬 동기화", "하네스 확장"
-
-이 스킬은 HARNESS_CONVENTION.md를 참조하여 프로젝트에 하네스를 신규 구성하거나, 기존 하네스의 상태를 점검하고 개선하는 작업을 수행한다.
-
-**omp 런타임**: 플러그인 대신 전역 스킬 `~/.omp/agent/skills/harness/SKILL.md`로 동일 메타 스킬을 제공한다 (규약 문서 사본을 스킬 디렉토리에 내장 — `skill://harness/HARNESS_CONVENTION.md`). 프로젝트 루트에 `HARNESS_CONVENTION.md`가 있으면 프로젝트 로컬 문서가 우선한다.
-
----
+`~/.zcode/skills/harness/SKILL.md`에 설치한다. `HARNESS_CONVENTION.md`가 같은 디렉터리에 있으면 해당 사본을 읽으며, 현재 프로젝트 루트에 규약 파일이 있으면 프로젝트 사본을 우선한다. 이 스킬은 프로젝트의 워크스페이스 하네스 리소스(명령어 두 개, 공통 오케스트레이터 스킬, 6개 프로필)를 생성하거나 점검한다. 프로젝트 기능 구현은 항상 프로젝트 오케스트레이터 명령어로 진행한다.
 
 ## 6. 오케스트레이터 — 개발 프로세스 자동화
 
@@ -812,7 +591,7 @@ Reviewer가 코드 리뷰를 체계적으로 수행하기 위한 레이어별 �
     │
     ▼
 Phase 0: 컨텍스트 확인 (오케스트레이터)
-    │   .omp/progress.json, _workspace/ 확인, resume/신규 결정
+    │   .zcode/progress.json, _workspace/ 확인, resume/신규 결정
     │   작업 규모 판별 → Phase 선택
     ▼
 Phase 1: 요구사항 분석 (오케스트레이터)
@@ -866,25 +645,25 @@ Phase 8: 실행 검증 (오케스트레이터)
 Phase 9: 완료 보고 (오케스트레이터)
     ├── 최종 결과 요약 보고
     ├── AGENTS.md 구현 진행 상황 갱신
-    ├── .omp/progress.json 리셋
+    ├── .zcode/progress.json 리셋
     └── Git 커밋
 ```
 
 ### 6.3 Phase 간 데이터 흐름
 
-각 Phase 간 데이터는 **`_workspace/` 디렉토리의 마크다운 파일**로 전달된다:
+각 Phase 간 데이터는 **`_workspace/` 디렉토리의 마크다운 파일**로 전달한다:
 
-- 컨텍스트 단절 없이 Phase 간 연속성 보장
-- Git으로 추적 가능 → 다른 PC에서도 작업 재개 가능
-- 감사 추적(audit trail) 제공
+- Phase별 입력과 출력을 명시해 세션/모델 변경에도 작업 연속성을 유지한다.
+- Git으로 추적해 다른 PC에서도 작업을 재개할 수 있게 한다.
+- 리뷰·테스트 감사 추적(audit trail)을 제공한다.
 
-에이전트 간 직접 통신(`hub` tool)은 **작업 진행 중**(양쪽 에이전트가 모두 살아 있는 동안)의 조정에만 보조적으로 사용한다. 완료 보고를 낸 에이전트의 재소환은 금지되며(§4.6), 후속 작업은 `_workspace/` 산출물을 전달해 **신규 에이전트**에게 위임한다. 오케스트레이터는 최종 결과 수신 후 즉시 등록 해제를 시도한다 — `hub cancel`. `hub` 도구 미제공 세션에서는 자동 해제가 불가하므로(`proc kill`은 parked 등록에 무력, §4.6) Agent Hub UI(`x: kill`) 수동 정리를 최종 보고에 안내한다.
+ZCode 서브에이전트는 별도 컨텍스트를 사용하므로, 이전 대화가 자동 전달된다고 가정하지 않는다. 위임 프롬프트에 관련 파일 경로, Rule ID, 변경 요약, 완료 기준을 적고 `_workspace/03_implementation.md`, `_workspace/05_review.md`, `_workspace/07_test_report.md` 등을 함께 읽도록 지시한다.
 
 ### 6.4 진행 상태 관리
 
 `progress.json`으로 현재 Phase를 추적한다 (Git 관리):
 
-**세션 todo 동기화**: 오케스트레이터는 작업 시작 시 Phase 구조로 세션 todo를 init한다. 갱신 트리거 2가지: ① **에이전트 결과 수신 직후의 첫 도구 호출 = todo done** — 다음 스폰·검증·문서 작업보다 반드시 먼저 수행한다(이 순서를 놓치는 것이 누적 누락의 주된 원인이다), ② `progress.json` 갱신 시 반드시 세트 갱신. 터미널 TODO 위젯은 자동 추적이 아니라 todo 호출 기준으로만 표시된다.
+**세션 todo 동기화**: 오케스트레이터는 작업 시작 시 Phase 구조로 Phase 진행 상황을 UI와 `.zcode/progress.json`에 기록한다. 갱신 트리거 2가지: ① **에이전트 결과 수신 직후의 첫 도구 호출 = Phase 완료 상태** — 다음 스폰·검증·문서 작업보다 반드시 먼저 수행한다(이 순서를 놓치는 것이 누적 누락의 주된 원인이다), ② `progress.json` 갱신 시 반드시 세트 갱신. UI의 작업 목록은 Git으로 추적되는 `.zcode/progress.json`을 대체하지 않는다.
 
 ```json
 {
@@ -1060,7 +839,7 @@ git branch --show-current
 
 ```
 오케스트레이터(세션 모델):
-  1. .omp/progress.json 확인 → currentPhase: null → 새 작업 모드
+  1. .zcode/progress.json 확인 → currentPhase: null → 새 작업 모드
   2. _workspace/ 존재 → _workspace_prev/로 이동
   3. git status --short → 깨끗함 ✅
   4. PRD.md 확인 → Person 관련 규칙 US-001~US-008 식별
@@ -1120,7 +899,7 @@ git branch --show-current
 #### Phase 3: 구현
 
 ```
-Developer(@developer 롤):
+Developer(선택한 모드의 Developer 프로필):
   1. PRD 4.3.4절 + US-001~US-005 읽음
   2. 레이어 순서대로 구현:
 
@@ -1163,7 +942,7 @@ Developer(@developer 롤):
 #### Phase 5: 코드 리뷰
 
 ```
-Reviewer(@reviewer 롤):
+Reviewer(선택한 모드의 Reviewer 프로필):
   1. PersonCreateRequest 검증:
      - API 문서화(description, example) 확인 ✅
      - 검증 어노테이션(NotBlank, Size) 적절함 ✅
@@ -1186,7 +965,7 @@ Reviewer(@reviewer 롤):
 #### Phase 6: 수정
 
 ```
-Developer(@developer 롤):
+Developer(선택한 모드의 Developer 프로필):
   Reviewer 지적 사항 수정:
   1. valid_begin_time null 체크 추가 → INVALID_VALID_PERIOD 에러 반환
   2. organizationRepository.existsByMasterAccountIdAndId() 호출 추가 → 
@@ -1198,7 +977,7 @@ Developer(@developer 롤):
 #### Phase 7: 테스트
 
 ```
-Tester(@developer 롤):
+Tester(선택한 모드의 Tester 프로필):
   1. PersonServiceTest 작성 및 실행:
 
   [성공 케이스]
@@ -1269,7 +1048,7 @@ progress.json: 리셋 완료
 
 ### 6.13 사용자 승인 게이트 (Plan Approval Gate)
 
-오케스트레이터는 **플랜에 대한 사용자 승인을 받기 전까지 어떤 에이전트도 스폰하지 않는다.** 이 게이트는 작업 규모(Full/Standard/Fast Path)와 무관하게 모든 파이프라인에 공통 적용되며, §6.1의 Phase 생략 규칙으로도 생략되지 않는다.
+오케스트레이터는 **플랜에 대한 사용자 승인을 받기 전까지 Developer/Reviewer/Tester 서브에이전트를 호출하지 않는다.** 모든 작업 규모(Full/Standard/Fast Path)에 공통 적용하며, Phase 생략으로도 면제되지 않는다.
 
 #### 시점
 
@@ -1277,71 +1056,63 @@ progress.json: 리셋 완료
 |:---|:---|:---|
 | Full | Phase 1 완료 직후, Phase 2 진입 전 | `_workspace/01_plan.md` |
 | Standard | Phase 1 완료 직후, Phase 3 진입 전 | `_workspace/01_plan.md` |
-| Fast Path | Phase 3 진입 전 | 채팅 요약 플랜(변경 파일·변경점 요약) — `01_plan.md` 생략 가능 |
+| Fast Path | 간이 Phase 1 후, 구현 전 | 채팅 요약 플랜(변경 파일·변경점 요약) — 파일 생략 가능 |
 
 #### 절차
 
-1. 플랜 저장 — Full·Standard는 `01_plan.md` 작성, Fast Path는 간이 플랜을 채팅에 출력
-2. `progress.json` 갱신 — `"currentPhase": "awaiting_approval"` + 세션 todo 갱신(§6.4)
-3. 플랜 보고 출력 — 반드시 포함할 항목:
-   - 작업 규모(pipelineType)와 진행할 Phase 순서
-   - 각 에이전트(Developer/Reviewer/Tester)에게 내릴 지시 요약
-   - 변경 예상 파일 목록
-   - 리스크·모호점(있으면)
-4. 보고 마지막에 승인 요청("플랜을 승인하시겠습니까?")을 명시하고 **턴을 종료한다**
+1. Full/Standard는 `_workspace/01_plan.md`를 작성하고, Fast Path는 간이 계획을 작성한다.
+2. `.zcode/progress.json`을 `"currentPhase": "awaiting_approval"`로 갱신한다.
+3. 계획 보고에 작업 규모, Phase 순서, 호출 예정 에이전트 및 모드 프로필, 변경 예상 파일, 관련 Rule ID, 리스크와 검증 방법을 포함한다.
+4. 응답 끝에 명시적으로 승인 여부를 묻고 **턴을 종료한다**. 같은 응답에서 Developer/Reviewer/Tester를 호출하거나 구현을 시작하지 않는다.
 
-**강제 수단**: omp에는 플랜 승인 네이티브 프리미티브가 없다(§7.1의 승인은 도구 권한 승인으로 별개다). 턴을 종료하면 사용자 응답 전까지 다음 Phase가 물리적으로 실행될 수 없으므로, **턴 종료가 이 게이트의 강제 메커니즘이다.** "플랜 보고 후 그대로 계속 진행"은 금지된다.
+**ZCode 실행 모드와의 관계**: ZCode Plan mode(입력 상자에서 `Shift+Tab`으로 선택 가능)는 계획 검토와 UI 확인 절차를 보조한다. 그러나 Plan mode의 UI 확인만으로 "승인 전 서브에이전트 호출 금지"가 완벽히 보장된다고 가정하지 않는다. 공통 오케스트레이터 스킬과 양쪽 명령어 본문에 하드 룰을 넣고, 최초 검증 시 실제로 승인 전 호출이 일어나지 않는지 확인한다.
 
 #### 승인 응답 분기
 
 | 사용자 응답 | 처리 |
 |:---|:---|
-| 승인 ("진행", "OK", "승인" 등 긍정) | `progress.json`을 다음 Phase로 갱신하고 게이트 이후 Phase부터 자동 진행. **재승인은 불필요** — 이후 파이프라인(리뷰·테스트·수정 루프 포함)은 자동으로 진행한다 |
-| 수정 요청 | Phase 1(Fast Path는 간이 플랜) 재계획 → 재보고 → 게이트 재통과 |
-| 중단 | `progress.json` 리셋 후 종료 |
+| 승인("진행", "OK", "승인" 등) | `.zcode/progress.json`을 다음 Phase로 갱신하고 후속 Phase 진행. 이후 리뷰·테스트·수정 루프의 재승인은 원칙적으로 요구하지 않음 |
+| 수정 요청 | 계획 수정 후 다시 보고하고 승인 대기 |
+| 중단 | 진행 상태를 정리하고 종료. 미완료 작업 흔적은 삭제하지 말고 보고 |
 
 #### 세션 재개
 
-`progress.json`의 `currentPhase`가 `awaiting_approval`이면(세션 재개, 타 PC `git pull` 후 모두 포함), 플랜(`01_plan.md` 또는 직전 대화)을 요약 재보고하고 승인 대기 상태로 진입한다. 승인 없이 Phase를 진행하지 않는다.
+`.zcode/progress.json`의 `currentPhase`가 `awaiting_approval`이면 먼저 기존 계획을 요약하고 다시 승인을 기다린다. 승인 상태가 확인되지 않거나 Git에 상태가 없으면 승인받았다고 추정하지 않는다.
 
-#### 컨텍스트 압축 대비 보강 (스티키 미러링)
+#### 강제 규칙 배치
 
-컨텍스트 압축 후에도 게이트가 유지되도록, 하네스 구성 시(§9.2 5단계) 다음 두 곳에 규칙을 미러링한다:
+동일한 승인 규칙을 아래 세 곳에 둔다:
 
-1. 오케스트레이터 SKILL.md의 하드 룰 섹션
-2. `.omp/RULES.md`(스티키 규칙):
+1. 루트 `AGENTS.md`의 하네스 섹션
+2. `{project}-orchestrator/SKILL.md`
+3. 일반/절약 양쪽 `commands/*.md` 본문
 
-```markdown
-- 오케스트레이터는 사용자 승인 전 에이전트를 스폰하지 않는다(§6.13).
-  progress.json currentPhase=awaiting_approval 상태에서는 플랜 재보고 후 승인 대기한다.
-```
-
----
+`.zcode/RULES.md`는 ZCode가 자동으로 읽는 표준 강제 규칙 파일이라고 가정하지 않는다. 핵심 규칙은 공식적으로 자동 주입되는 파일과 실제 호출 명령어에 둔다.
 
 ## 7. 설정 및 권한 (Settings)
 
 ### 7.1 승인 및 권한
 
-omp는 프로젝트 권한 파일을 사용하지 않고 자체 승인 모델로 도구 사용을 제어한다. 세션 시작 시 권한 모드를 선택하고, 신뢰하는 명령어는 승인 프롬프트에서 "항상 허용"으로 저장한다.
+ZCode의 실행 모드는 파일 편집과 명령 실행 권한을 제어한다. `Ask before changes`, `Edit automatically`, `Plan`, `Full access` 중 작업 위험도에 맞게 선택한다. 복잡하거나 영향 범위가 큰 작업은 Plan mode를 권장한다. 단, 도구 권한 승인과 하네스의 업무 계획 승인 게이트는 서로 다른 절차다.
 
-- **빌드/테스트/실행 명령어**: `{프로젝트 빌드 명령어}`, `{프로젝트 테스트 명령어}` 등 프로젝트 표준 명령어를 초기 세션에서 항상 허용으로 등록해 둔다
-- **Git 명령어**: 커밋·푸시는 `git-deploy` 스킬의 안전 장치(브랜치 확인, 민감 파일 검사)를 거친 후 실행한다
-- **파일 쓰기**: 프로젝트 디렉토리 내 쓰기는 허용 범위로 두고, 프로젝트 외부(`~` 등) 쓰기는 승인을 요구한다
+- **개발/테스트 명령어**: 프로젝트에서 실행할 빌드·테스트 명령을 확인하고 필요할 때만 허용한다.
+- **Git 명령어**: 커밋·푸시는 사용자의 명시적 요청 및 배포 스킬의 안전 점검 이후 실행한다.
+- **민감 파일**: `.env`, 인증서, 프로덕션 설정, 키 파일을 읽거나 커밋할 때 각별히 주의한다.
+- **Reviewer**: 도구 권한을 제한할 수 있다면 기본적으로 읽기 전용 도구만 부여한다.
+- **외부 경로**: 프로젝트 밖 파일 변경, 파괴적 명령, 배포 등은 사용자 확인 없이 실행하지 않는다.
 
 ### 7.2 권한 부여 원칙
 
 | 원칙 | 설명 |
 |:---|:---|
-| **필요 최소 권한** | 실제로 사용하는 명령어만 화이트리스트에 추가 |
-| **구체적 패턴** | 와일드카드(`*`)는 가능한 좁게 |
-| **Git 관리는 신중히** | `git commit`, `git push`는 배포 스킬을 통해서만 수행 |
-| **민감 파일 보호** | `.env`, `*.p12`, `*.jks` 등은 커밋 전 검사 |
+| **필요 최소 권한** | 역할별로 실제 필요한 도구만 활성화 |
+| **명시적 위험 관리** | 삭제, 배포, 커밋·푸시, DB 변경은 영향 범위를 설명하고 승인 획득 |
+| **Git 관리 신중히** | `git commit`, `git push`는 명시적인 사용자 요청 후 수행 |
+| **민감 파일 보호** | `.env`, `*.p12`, `*.jks` 등의 비밀 정보 노출·커밋 방지 |
 
-### 7.3 권한 누적 관리
+### 7.3 모드별 권한 및 설정 확인
 
-settings.local.json은 실제 작업을 진행하면서 **필요한 명령어를 발견할 때마다 누적**된다. 최초에는 핵심 명령어만 등록하고, 작업하면서 자연스럽게 확장한다.
-
----
+일반/절약 모드 변경은 모델 및 에이전트 프로필 변경이지 권한 정책 완화가 아니다. 절약 모드에서도 동일한 사용자 승인 게이트와 보안 검사를 유지한다. 명령어·스킬·에이전트 정의를 바꾼 뒤에는 새 세션에서 적용 상태를 확인한다(발견은 세션 시작 시 스캔).
 
 ## 8. 작업 디렉토리 및 컨텍스트 관리
 
@@ -1355,14 +1126,14 @@ settings.local.json은 실제 작업을 진행하면서 **필요한 명령어를
 |:---|:---|:---|
 | `01_plan.md` | Phase 1 | 작업 범위, 대상 파일, 관련 Rule ID |
 | `02_prd_update.md` | Phase 2 | 갱신된 PRD/AGENTS.md 섹션 목록 |
-| `03_implementation.md` | Phase 2 | 변경 파일 목록 및 요약 |
-| `05_review.md` | Phase 3 | 리뷰 상태(APPROVED/CHANGES_REQUESTED), 이슈 목록 |
-| `07_test_report.md` | Phase 5 | 테스트 통과/실패 건수, 실패 상세 |
-| `08_run_report.md` | Phase 6 | 실행 성공/실패, WARN 분류 |
+| `03_implementation.md` | Phase 3 | 변경 파일 목록 및 요약 |
+| `05_review.md` | Phase 5 | 리뷰 상태(APPROVED/CHANGES_REQUESTED), 이슈 목록 |
+| `07_test_report.md` | Phase 7 | 테스트 통과/실패 건수, 실패 상세 |
+| `08_run_report.md` | Phase 8 | 실행 성공/실패, WARN 분류 |
 
 ### 8.2 작업 재개 전략
 
-1. **Git Clone 후**: `.omp/progress.json` → `currentPhase`의 다음 Phase부터. 단 `awaiting_approval`이면 플랜 요약 재보고 후 승인 대기부터 재개한다(§6.13)
+1. **Git Clone 후**: `.zcode/progress.json` → `currentPhase`의 다음 Phase부터. 단 `awaiting_approval`이면 플랜 요약 재보고 후 승인 대기부터 재개한다(§6.13)
 2. **기존 PC에서 새 작업**: `_workspace/` → `_workspace_prev/`로 이동 후 Phase 1부터
 3. **부분 재실행**: 해당 Phase만 재실행, 연관 산출물만 교체
 
@@ -1372,75 +1143,114 @@ settings.local.json은 실제 작업을 진행하면서 **필요한 명령어를
 
 ### 9.1 사전 조건
 
-- omp가 설치되어 있을 것
+- ZCode Desktop이 설치되어 있고 Z.ai/BigModel Coding Plan 또는 사용할 모델 서비스가 연결되어 있을 것
 - Git 저장소가 초기화되어 있을 것
-- 프로젝트의 기본 구조가 갖춰져 있을 것
-- PRD.md 초안이 작성되어 있을 것 (최소한 기능 목록과 Rule ID)
+- 프로젝트 루트와 핵심 소스가 준비되어 있을 것(신규 프로젝트면 기본 골격부터 생성)
+- `~/.zcode/skills/harness/SKILL.md`와 같은 디렉터리의 `HARNESS_CONVENTION.md`가 설치되어 있을 것
+- ZCode 모델 선택기에서 GLM-5.3과 GLM-5.3-Flash를 실제 선택할 수 있는지 확인할 것
 
-### 9.2 단계별 설정
+### 9.2 단계별 설정 — ZCode Desktop
 
-#### 0단계: omp 런타임 확인
+#### 0단계: 모델 연결
 
-omp(oh-my-pi)가 설치되어 있고 `~/.omp/agent/config.yml`(전역)에 `modelRoles`가 정의되어 있는지 확인한다. **프로젝트 `.omp/config.yml`은 생성하지 않는다** — 모델 차등화는 전역 config 하나로 관리한다(§1.7).
+ZCode의 모델 선택기 또는 Settings → Models에서 사용할 Z.ai/BigModel 계정을 연결한다. 터미널 OMP의 API 환경 변수와 ZCode 데스크톱 설정은 자동 동기화되지 않으므로 별도로 설정한다. 일반 모드와 절약 모드에서 사용할 모델이 모델 선택기에 표시되는지 확인한다.
 
-#### 1단계: AGENTS.md 작성
+#### 1단계: 전역 메타 스킬 설치 (한 PC에서 1회)
 
-[2. AGENTS.md 섹션](#22-필수-섹션)의 필수 섹션을 채운다. 이 파일이 하네스의 근간이다. 루트 `AGENTS.md`를 작성하고, `.omp/AGENTS.md` 진입점에서 `@../AGENTS.md`로 import 한다.
-
-#### 2단계: PRD.md 작성
-
-[3. PRD.md 섹션](#32-필수-섹션)의 구조에 따라 기능 명세를 작성한다. 최소한:
-- 4절 기능 명세 (API 엔드포인트별)
-- 7절 비즈니스 규칙 (Rule ID 포함)
-- 8절 에러 코드
-
-#### 3단계: `.omp/` 디렉토리 생성
+아래 경로를 만든다:
 
 ```bash
-mkdir -p .omp/agents
-mkdir -p .omp/skills
+mkdir -p ~/.zcode/skills/harness
 ```
 
-이어서 `.omp/AGENTS.md` 진입점을 생성한다(본문 첫머리에 `@../AGENTS.md` import, §1.7). **`.omp/config.yml`은 생성하지 않는다** — modelRoles는 전역 `~/.omp/agent/config.yml`에서만 관리한다(§1.7).
+제공된 `SKILL.md`를 `~/.zcode/skills/harness/SKILL.md`로, 제공된 `HARNESS_CONVENTION.md`를 같은 디렉터리의 `~/.zcode/skills/harness/HARNESS_CONVENTION.md`로 복사한다. ZCode Settings → Skills에서 Refresh를 누르고 `harness`를 활성화한다.
 
-#### 4단계: 에이전트 정의 파일 작성
+#### 2단계: 프로젝트 Workspace 열기
 
-`.omp/agents/` 아래 3개 에이전트를 생성한다. 부록의 스켈레톤을 복사하여 프로젝트에 맞게 수정한다.
+ZCode에서 새 프로젝트 루트를 Workspace로 연다. 기존 프로젝트라면 루트 `AGENTS.md`, `PRD.md`, `HARNESS_CONVENTION.md` 및 선택적 `ARCHITECTURE_CONVENTION.md`를 확인한다. 아직 없는 파일은 `$harness`가 기존 소스와 사용자 제공 정보를 바탕으로 초안을 만들게 한다. 민감 정보가 포함된 `.env`는 하네스 생성 컨텍스트에 첨부하지 않는다.
 
-**모델 지정 규칙** (롤 앨리어스, §4.2):
-- `{project}-developer.md` → `model: "@developer"`
-- `{project}-reviewer.md` → `model: "@reviewer"`
-- `{project}-tester.md` → `model: "@developer"`
+#### 3단계: 최초 하네스 구성 요청
 
-#### 5단계: 스킬 정의 파일 작성
+ZCode 입력창에서 `$harness`를 선택한 다음 다음과 같이 요청한다:
 
-`.omp/skills/` 아래 5~6개 스킬을 생성한다:
-
-```
-.omp/skills/{project}-orchestrator/SKILL.md
-.omp/skills/{project}-business-rules/SKILL.md
-.omp/skills/{project}-feature-dev/SKILL.md
-.omp/skills/{project}-review-checklist/SKILL.md
-.omp/skills/{project}-test-patterns/SKILL.md
-.omp/skills/{project}-git-deploy/SKILL.md       # 선택
-```
-
-오케스트레이터 SKILL.md의 에이전트 호출 문법은 omp task tool로 통일한다(§1.7).
-오케스트레이터 SKILL.md에는 사용자 승인 게이트(§6.13)를 하드 룰로 포함하고, `.omp/RULES.md`에도 동일 규칙을 스티키로 미러링한다.
-
-#### 6단계: 전역 harness 메타 스킬 확인
-
-전역 `~/.omp/agent/skills/harness/` 스킬이 있으면 이후 하네스 점검·확장·동기화에 활용한다(`/skill:harness`). 없으면 전역 스킬 저장소에서 설치한다.
-
-#### 7단계: 작업 디렉토리 생성
-
-```bash
-mkdir -p _workspace
+```text
+$harness
+이 프로젝트에 ZCode Desktop용 하네스를 최초 구성해줘.
+먼저 HARNESS_CONVENTION.md 전체를 읽고 규약을 준수해.
+프로젝트 루트 AGENTS.md를 지식 베이스로 사용하고,
+일반용과 절약용 오케스트레이터 명령어 2개가 같은 오케스트레이터
+워크플로우 스킬을 사용하도록 구성해줘.
+일반/절약 모드별 Developer·Reviewer·Tester 프로필 6개를 만들고,
+사용자 스크린샷의 모델 표시명은 GLM-5.3 / GLM-5.3-Flash다. 모델 값은 우선 glm-5.3 / glm-5.3-flash로 설정하고, 최초 실행 시 실제 인식 여부를 검증해. 인식되지 않으면 ZCode의 모델 설정/실행 로그에서 실제 ID를 찾아 수정해.
+Phase 승인 게이트, .zcode/progress.json, _workspace 산출물 규칙을 검증해.
+파일 작성 전에 생성 계획을 먼저 보고하고 내 승인을 기다려.
 ```
 
-#### 8단계: 엔드-투-엔드 검증
+실행 모드는 Plan mode를 권장한다. 생성 계획을 검토해 승인한 다음에만 파일을 작성하도록 한다.
 
-간단한 기능(예: Health check API)으로 Phase 0→7 전체 파이프라인 검증.
+#### 4단계: 생성된 파일 구조 확인
+
+생성 결과는 다음 구조를 따른다:
+
+```text
+프로젝트 루트/
+├── AGENTS.md
+├── PRD.md
+├── HARNESS_CONVENTION.md
+├── .zcode/
+│   ├── progress.json
+│   ├── commands/
+│   │   ├── {project}_orchestrator.md
+│   │   └── {project}_orchestrator_lite.md
+│   ├── skills/                       # 공통 orchestrator + 참조 스킬
+│   └── agents/                       # 서브에이전트 프로필 — 일반/절약 6개
+└── _workspace/
+```
+
+프로젝트 스킬명은 소문자 kebab-case로 유지할 수 있다. 단, ZCode 명령어는 공식 허용 패턴에 하이픈이 없으므로 명령어 파일명과 호출명에는 프로젝트명을 밑줄로 정규화한 `{project_command_prefix}`를 사용한다. `{project_command_prefix}_orchestrator`와 `{project_command_prefix}_orchestrator_lite`는 각각 다른 메인 모델을 지정하지만, 둘 다 같은 `{project}-orchestrator` 스킬을 불러야 한다.
+
+#### 5단계: 발견 확인 (등록 절차 없음)
+
+워크스페이스 스코프 리소스는 별도 등록이 필요 없다 — ZCode가 세션 시작 시 `.zcode/{commands,skills,agents}`를 자동 스캔한다.
+
+1. 플러그인·마켓플레이스 등록 절차는 수행하지 않는다. 관련 파일(`marketplace.json`, `plugin.json`, `.zcode-plugin/`)을 만들지 않는다.
+2. 새 세션을 시작하고 `/` 명령 패널에서 명령어 2개가 Commands 그룹에 표시되는지 확인한다.
+3. Settings → Skills에서 `{project}` 스킬들이 표시되는지 확인한다.
+4. Agent 도구 유형 목록(또는 오케스트레이터 실행 시)에 서브에이전트 6개가 등록됐는지 확인한다.
+5. 발견되지 않으면 파일 위치(`.zcode/commands/`, `.zcode/skills/`, `.zcode/agents/`)와 frontmatter를 점검하고 새 세션에서 재확인한다.
+
+#### 6단계: 모델 프로필 설정
+
+`.zcode/commands/*.md`와 `.zcode/agents/*.md`에는 `glm-5.3` / `glm-5.3-flash`를 설정한다. 최초 실행에서 모델이 인식되지 않으면 ZCode의 실제 모델 ID로 수정한다.
+
+| 파일 | 모델 설정 |
+|:---|:---|
+| `{project_command_prefix}_orchestrator.md` | 메인 Agent: GLM-5.3 (`glm-5.3`) |
+| `{project_command_prefix}_orchestrator_lite.md` | 메인 Agent: GLM-5.3-Flash (`glm-5.3-flash`) |
+| `{project}-developer.md` | GLM-5.3-Flash / `thoughtLevel: high` |
+| `{project}-reviewer.md` | GLM-5.3 / `thoughtLevel: high` |
+| `{project}-tester.md` | GLM-5.3-Flash / `thoughtLevel: high` |
+| `{project}-developer-lite.md` | GLM-5.3-Flash / `thoughtLevel: low` |
+| `{project}-reviewer-lite.md` | GLM-5.3-Flash / `thoughtLevel: high` |
+| `{project}-tester-lite.md` | GLM-5.3-Flash / `thoughtLevel: low` |
+
+명령어 frontmatter에서 명시적으로 보장되는 것은 메인 `model` 오버라이드다. 메인 Agent의 추론 수준은 UI에서 확인한다. 서브에이전트 정의에서 지정한 `thoughtLevel`은 해당 모델이 지원하는 값이어야 한다.
+
+#### 7단계: 최초 엔드-투-엔드 검증
+
+먼저 파괴 위험이 낮은 예시 작업(예: README 문구 수정 또는 간단한 Health check API 설계)을 선택한다.
+
+1. `/{project_command_prefix}_orchestrator`를 실행하고 메인 모델이 GLM-5.3인지 확인한다.
+2. 계획 보고 후 `awaiting_approval` 상태가 기록되고 응답이 종료되는지 확인한다.
+3. 승인 전 Developer/Reviewer/Tester가 호출되지 않는지 확인한다.
+4. 승인한 뒤 일반 모드의 프로필만 호출되는지 확인한다.
+5. 같은 요청의 새 작업을 `/{project_command_prefix}_orchestrator_lite`로 실행하고 Flash 메인 모델 및 Lite 프로필이 선택되는지 확인한다.
+6. 리뷰·테스트, `_workspace/` 산출물, `.zcode/progress.json` 갱신을 확인한다.
+7. 실패한 부분은 `HARNESS_CONVENTION.md`와 `SKILL.md`를 기준으로 수정하고 재검증한다.
+
+#### 8단계: Git 관리
+
+`AGENTS.md`, `PRD.md`, `HARNESS_CONVENTION.md`, `.zcode/`(progress.json, commands, skills, agents 전체), `_workspace/`를 프로젝트 정책에 맞게 Git으로 추적한다. API 키, 토큰, 개인정보, `.env`는 포함하지 않는다. 하네스가 워크스페이스 리소스만으로 구성되므로, 다른 PC에서는 clone 후 ZCode에 동일한 모델 접근 권한만 연결하면 된다 — 별도 등록 절차는 없다.
 
 ### 9.3 프로젝트 유형별 커스터마이징
 
@@ -1470,11 +1280,11 @@ mkdir -p _workspace
 
 | 메트릭 | 측정 방법 | 목표치 | 개선 액션 |
 |:---|:---|:---|:---|
-| **Phase 3 첫 리뷰 통과율** | APPROVED / 전체 리뷰 횟수 | 60% 이상 | Developer 체크리스트 강화, PRD 명확화 |
+| **Phase 5 첫 리뷰 통과율** | APPROVED / 전체 리뷰 횟수 | 60% 이상 | Developer 체크리스트 강화, PRD 명확화 |
 | **되먹임 루프 횟수** | Phase 5→6→5 반복 횟수 | 평균 0.5회 이하 | BLOCKER 우선 리뷰 전략 적용 |
 | **Reviewer 오탐률** | 리뷰 지적 중 실제 버그가 아니었던 비율 | 10% 미만 | review-checklist에 경계 조건 명확화 |
 | **테스트 커버리지** | 프로젝트 커버리지 도구 | 80% 이상 (신규 코드) | test-patterns에 누락 시나리오 추가 |
-| **Phase 6 실패율** | 실행 검증 실패 / 전체 실행 횟수 | 5% 미만 | Phase 4 검증 강화 |
+| **Phase 8 실패율** | 실행 검증 실패 / 전체 실행 횟수 | 5% 미만 | Phase 4 검증 강화 |
 | **Phase 소요 시간** | 각 Phase 평균 완료 시간 | 추세 모니터링 | 병목 Phase 최적화 |
 
 ### 10.3 개선 절차
@@ -1495,12 +1305,11 @@ mkdir -p _workspace
 
 ### 10.5 다른 PC에서 복제
 
-1. `git clone`
-2. omp 실행 → AGENTS.md 자동 참조
-3. `.omp/progress.json` → 재개 지점 인식
-4. 세션 재개: `omp -c` 또는 `omp -r` (피커)
-
----
+1. Git clone 후 프로젝트 루트를 ZCode Workspace로 연다.
+2. 해당 PC의 ZCode에 GLM 모델 서비스에 로그인/연결한다.
+3. Settings → Skills에서 전역 `$harness` 메타 스킬을 설치해 둔다(해당 PC 최초 1회).
+4. `.zcode/progress.json`의 `currentPhase`를 확인한다. `awaiting_approval`이면 계획을 재보고하고 재승인을 기다린다.
+5. 일반/절약 중 적절한 명령어로 파이프라인을 재개한다. 하네스 리소스가 모두 워크스페이스 스코프이므로 플러그인·마켓플레이스 등록은 불필요하다.
 
 ## 11. Anti-Patterns — 하지 말아야 할 것
 
@@ -1510,9 +1319,9 @@ mkdir -p _workspace
 |:---|:---|:---|
 | **오케스트레이터가 직접 코드 수정** | 오케스트레이터는 높은 수준의 통제만 해야 함. 코드 수정 시 컨벤션 일관성 깨짐 | 반드시 Developer 에이전트에게 위임 |
 | **Reviewer가 코드 스타일만 지적** | 고추론 모델의 추론 능력을 낭비. 정작 중요한 비즈니스 로직 검증 누락 | 코드 스타일은 Phase 4에서 기계적으로 처리 |
-| **Developer·Tester에 고추론 모델 사용** | 비용 낭비. 코드 생성에는 코드 생성 특화 모델로 충분 | Developer·Tester는 반드시 `model: "@developer"` |
-| **Reviewer에 저비용 코드 생성 모델 사용** | 비즈니스 로직 검증 품질 저하, 오탐 증가로 신뢰도 하락 | Reviewer는 반드시 `model: "@reviewer"` |
-| **에이전트에 너무 많은 스킬 할당** | 컨텍스트 분산, 핵심 지시사항 희석 | 에이전트당 2개의 스킬 (business-rules + 도메인별 가이드 1개) |
+| **Developer·Tester에 고추론 모델 사용** | 비용 낭비. 코드 생성에는 코드 생성 특화 모델로 충분 | Developer·Tester는 모드에 맞는 `*-developer` / `*-tester` 프로필을 사용 |
+| **Reviewer에 저비용 코드 생성 모델 사용** | 비즈니스 로직 검증 품질 저하, 오탐 증가로 신뢰도 하락 | Reviewer는 모드에 맞는 `*-reviewer` 프로필을 사용 |
+| **에이전트 프롬프트에 지침 중복** | 컨텍스트 분산, 핵심 지시사항 희석 | 짧은 역할 프롬프트를 유지하고 필수 규칙은 AGENTS.md/PRD.md를 단일 기준으로 사용 |
 | **Tester가 테스트 코드 정리를 하지 않음** | Phase 4는 구현 코드만 정리하므로, 테스트 코드에 미사용 import·변수가 누적됨 | Tester는 Phase 7 완료 전에 테스트 소스 자체 정리 필수 |
 
 ### 11.2 프로세스 관련
@@ -1520,7 +1329,7 @@ mkdir -p _workspace
 | Anti-Pattern | 문제점 | 올바른 접근 |
 |:---|:---|:---|
 | **모든 작업에 Full Pipeline** | 단순 오타 수정에 Phase 1~9 전부 거치면 생산성 저하 | [6.1 작업 규모 판별](#61-작업-규모-판별-phase-선택) 기준 적용 |
-| **구현 후에 PRD 업데이트** | Developer가 잘못된(오래된) 명세를 보고 구현 | Phase 2를 Phase 2보다 반드시 먼저 실행 |
+| **구현 후에 PRD 업데이트** | Developer가 잘못된(오래된) 명세를 보고 구현 | Phase 2(문서 현행화)를 Phase 3(구현)보다 먼저 실행 |
 | **PRD 없이 AGENTS.md만으로 진행** | Developer·Reviewer·Tester가 같은 기준을 공유하지 못함 | PRD.md는 필수. 최소한 Rule ID + 기능 목록이라도 작성 |
 | **리뷰 피드백 무한 루프** | Phase 5→6→5 반복이 3회 이상 지속 | 2회 초과 시 루트 원인 분석, 필요 시 사용자에게 중재 요청 |
 | **_workspace/ 없이 진행** | Phase 간 컨텍스트 단절, 다른 PC에서 작업 재개 불가 | _workspace/와 progress.json은 반드시 유지 |
@@ -1542,51 +1351,43 @@ mkdir -p _workspace
 
 | 용어 | 정의 |
 |:---|:---|
-| **하네스 (Harness)** | omp의 에이전트, 스킬, 설정, AGENTS.md를 유기적으로 조합한 개발 자동화 체계 |
-| **에이전트 (Agent)** | 특정 역할(구현, 리뷰, 테스트)에 특화된 omp 서브 에이전트 |
-| **스킬 (Skill)** | 에이전트가 작업 시 참조하는 도메인 지식 패키지 |
-| **오케스트레이터** | 전체 개발 프로세스(Phase 0~9)를 통제하는 최상위 스킬 |
-| **Phase** | 오케스트레이터가 관리하는 개발 프로세스의 한 단계 |
-| **PRD.md** | 제품 요구사항 명세. 기능, 규칙, 에러 코드의 백과사전 |
-| **Rule ID** | PRD 7장에 정의된 비즈니스 규칙 식별자 (예: `US-001`) |
-| **되먹임 루프** | Phase 5(리뷰)→4(수정)→3(재리뷰) 반복. 최소화 대상 |
+| **하네스** | ZCode의 명령어·스킬·서브에이전트·AGENTS.md를 조합한 개발 자동화 체계 |
+| **오케스트레이터 명령어** | 일반/절약 모드로 실행을 시작하는 명령어 두 개 |
+| **오케스트레이터 스킬** | 두 명령어가 공유하는 Phase 0~9 워크플로우 정의 하나 |
+| **서브에이전트** | 구현, 리뷰, 테스트처럼 독립 역할을 맡는 ZCode Agent |
+| **Phase** | 오케스트레이터가 관리하는 개발 프로세스 단계 |
+| **PRD.md** | 기능, Rule ID, 데이터 모델, 에러 코드 명세 |
+| **Rule ID** | PRD 비즈니스 규칙의 고유 식별자(예: `US-001`) |
 | **Full Pipeline** | Phase 0~9 전체를 거치는 대규모 작업 모드 |
-| **Fast Path** | Phase 3→7만 거치는 소규모 작업 모드 |
+| **Fast Path** | 계획 승인 후 최소 Phase로 수행하는 소규모 작업 모드 |
 
 ### 부록 B: 전체 파일 트리
 
-```
+```text
 {project}/
 ├── AGENTS.md
 ├── PRD.md
-├── ARCHITECTURE_CONVENTION.md    (존재 시 — 사내 아키텍처 표준)
-├── HARNESS_CONVENTION.md         (이 문서 — 사내 하네스 표준)
-├── CHANGELOG.md
-│
-├── .omp/                           (omp 하네스 루트 — §1.7)
-│   ├── AGENTS.md                   @../AGENTS.md import
-│   ├── RULES.md                    스티키 강제 규칙 (선택)
-│   ├── config.yml                  modelRoles (선택)
+├── HARNESS_CONVENTION.md
+├── ARCHITECTURE_CONVENTION.md       # 선택
+├── .zcode/
 │   ├── progress.json
-│   ├── agents/
-│   │   ├── {project}-developer.md   (model: "@developer")
-│   │   ├── {project}-reviewer.md    (model: "@reviewer")
-│   │   └── {project}-tester.md      (model: "@developer")
-│   │
-│   └── skills/
-│       ├── {project}-orchestrator/
-│       │   └── SKILL.md
-│       ├── {project}-business-rules/
-│       │   └── SKILL.md
-│       ├── {project}-feature-dev/
-│       │   └── SKILL.md
-│       ├── {project}-review-checklist/
-│       │   └── SKILL.md
-│       ├── {project}-test-patterns/
-│       │   └── SKILL.md
-│       └── {project}-git-deploy/
-│           └── SKILL.md
-│
+│   ├── commands/
+│   │   ├── {project}_orchestrator.md
+│   │   └── {project}_orchestrator_lite.md
+│   ├── skills/
+│   │   ├── {project}-orchestrator/SKILL.md
+│   │   ├── {project}-business-rules/SKILL.md
+│   │   ├── {project}-feature-dev/SKILL.md
+│   │   ├── {project}-review-checklist/SKILL.md
+│   │   ├── {project}-test-patterns/SKILL.md
+│   │   └── {project}-git-deploy/SKILL.md
+│   └── agents/
+│       ├── {project}-developer.md
+│       ├── {project}-reviewer.md
+│       ├── {project}-tester.md
+│       ├── {project}-developer-lite.md
+│       ├── {project}-reviewer-lite.md
+│       └── {project}-tester-lite.md
 └── _workspace/
     ├── 01_plan.md
     ├── 02_prd_update.md
@@ -1596,188 +1397,79 @@ mkdir -p _workspace
     └── 08_run_report.md
 ```
 
-### 부록 C: 에이전트 스켈레톤
+전역 PC 설정:
 
-**스켈레톤 frontmatter 표준** — `model`은 롤 앨리어스로 지정한다: C.1/C.3(developer·tester) → `"@developer"`, C.2(reviewer) → `"@reviewer"`. 본문은 에이전트 역할에 맞게 수정한다:
+```text
+~/.zcode/
+├── AGENTS.md                       # 개인 공통 지침(선택)
+└── skills/
+    └── harness/
+        ├── SKILL.md                # 제공하는 메타 스킬
+        └── HARNESS_CONVENTION.md   # 같은 버전의 규약 문서
+```
+
+### 부록 C: 에이전트/명령어 스켈레톤
+
+#### C.1 일반용 오케스트레이터 명령어
 
 ```markdown
 ---
-name: {project}-{role}
-description: {프로젝트명} {역할 한글명}. {주요 업무 설명}.
-model: "@developer"
-autoloadSkills:
-  - {할당 스킬 목록}
+description: "{프로젝트} 개발 하네스 실행 — 일반 모드"
+model: glm-5.3
+skills: "{project}-orchestrator"
 ---
+
+일반 모드로 작업한다. 동일한 {project}-orchestrator 스킬의 전체 규칙을 따른다.
+사용자 승인 전 Developer/Reviewer/Tester를 호출하지 않는다.
+호출 프로필: {project}-developer, {project}-reviewer, {project}-tester.
+작업 요청: $ARGUMENTS
 ```
 
-#### C.1 Developer (model: "@developer")
+#### C.2 절약용 오케스트레이터 명령어
 
 ```markdown
 ---
-name: {project}-developer
-description: {Project} 기능 구현 전문가. {기술 스택} 기반의 {구현 대상}을 PRD 및 AGENTS.md 규칙에 맞게 생성/수정한다.
-model: "@developer"
-autoloadSkills:
-  - {project}-business-rules
-  - {project}-feature-dev
+description: "{프로젝트} 개발 하네스 실행 — 절약 모드"
+model: glm-5.3-flash
+skills: "{project}-orchestrator"
 ---
 
-# {Project} Developer
-
-## 핵심 역할
-
-{3~5문장}
-
-## 작업 원칙
-
-1. **항상 PRD와 AGENTS.md를 먼저 확인한다**
-2. **레이어 순서대로 구현한다**: {프로젝트 레이어 순서}
-3. **기존 코드와 일관성을 유지한다**
-4. **문서화를 빼먹지 않는다**
-5. **데이터 무결성을 보장한다**
-
-## 구현 체크리스트
-
-- [ ] {레이어 1}: {체크리스트}
-- [ ] {레이어 2}: {체크리스트}
-...
-
-## 입력/출력 프로토콜
-
-- **입력**: 구현할 기능 명세, 관련 Rule ID, 참고 코드 경로
-- **출력**: 생성/수정 파일 목록과 변경 요약
-- **중간 산출물**: `_workspace/` 디렉토리
-
-## 에러 핸들링
-
-- 빌드 에러 → {빌드 명령어} 실행하여 원인 파악 후 수정
-- 비즈니스 규칙 충돌 → Reviewer에게 질의
-- 모호한 요구사항 → 오케스트레이터에게 명확화 요청
-
-## 협업
-
-- Reviewer의 피드백을 받으면 해당 내용만 수정한다.
-- Tester의 실패 보고를 받으면 원인을 분석하고 수정한다.
-
-## 이전 산출물이 있을 때의 행동
-
-- `_workspace/`가 존재하면 이전 결과를 읽고 중복 작업을 피한다.
+절약 모드로 작업한다. 동일한 {project}-orchestrator 스킬의 전체 규칙을 따른다.
+사용자 승인 전 Developer/Reviewer/Tester를 호출하지 않는다.
+호출 프로필: {project}-developer-lite, {project}-reviewer-lite, {project}-tester-lite.
+작업 요청: $ARGUMENTS
 ```
 
-#### C.2 Reviewer (model: "@reviewer")
+#### C.3 서브에이전트 정의 예시
 
 ```markdown
 ---
-name: {project}-reviewer
-description: {Project} 코드 리뷰 전문가. PRD 비즈니스 규칙, AGENTS.md 아키텍처, 데이터 무결성을 기준으로 구현 코드를 검증하고 개선점을 제시한다.
-model: "@reviewer"
-autoloadSkills:
-  - {project}-business-rules
-  - {project}-review-checklist
+name: "{project}-reviewer"
+description: "{프로젝트} 코드 리뷰 전문가. 비즈니스 규칙, 보안, 권한, 데이터 무결성을 검증한다."
+model: glm-5.3
+thoughtLevel: high
+color: blue
+injectAgentsMd: true
 ---
 
-# {Project} Reviewer
+# Reviewer
 
-## 핵심 역할
-
-{3~5문장}
-
-## 작업 원칙
-
-1. **PRD 비즈니스 규칙이 최우선 기준이다**
-2. **데이터 무결성을 반드시 확인한다**
-3. **심각도로 구분한다**: BLOCKER > CRITICAL > WARNING
-4. **코드 스타일보다 정합성에 집중한다**
-5. **건설적이고 구체적인 피드백을 제시한다**
-
-## 리뷰 체크리스트
-
-### 1. {레이어 1}
-- [ ] {체크리스트}
-...
-
-## 입력/출력 프로토콜
-
-- **입력**: 리뷰 대상 파일 경로, 변경 코드, 관련 PRD 섹션
-- **출력**: `{severity, rule_id, file:line, description, suggestion}` 이슈 목록
-- **리뷰 상태**: APPROVED / CHANGES_REQUESTED
-
-## 협업
-
-- Developer에게 건설적 피드백 전달
-- Tester에게 중점 테스트 영역 제안
+PRD.md와 AGENTS.md를 기준으로 구현을 독립 검토한다. 코드를 직접 수정하지 않는다.
+각 이슈에는 severity(BLOCKER/CRITICAL/WARNING), Rule ID, 파일/라인, 근거,
+수정 제안을 포함한다. 완료 시 결과를 `_workspace/05_review.md`에 저장한다.
 ```
 
-#### C.3 Tester (model: "@developer")
-
-```markdown
----
-name: {project}-tester
-description: {Project} 테스트 전문가. {테스트 프레임워크} 기반으로 단위/통합 테스트를 작성·실행한다. 비즈니스 규칙의 경계 조건과 예외 케이스를 중점 검증한다.
-model: "@developer"
-autoloadSkills:
-  - {project}-business-rules
-  - {project}-test-patterns
----
-
-# {Project} Tester
-
-## 핵심 역할
-
-{3~5문장}
-
-## 작업 원칙
-
-1. **비즈니스 규칙을 테스트한다**
-2. **계층별 적절한 테스트를 작성한다**
-3. **테스트는 독립적이고 반복 가능해야 한다**
-4. **실패 시 반드시 원인(버그 vs 테스트 오류)을 구분한다**
-5. **커버리지보다 테스트 품질**
-6. **테스트 코드도 정리 대상이다** — 테스트 작성 완료 후 미사용 import, 미사용 변수, 미사용 private 멤버를 제거한다. 테스트 소스에 대해서도 Phase 4와 동일한 수준의 코드 정리를 자체 수행한다. 프로젝트 표준 들여쓰기(§6.5 — Ruby·JS·HTML·ERB 2칸, 그 외 4칸)도 준수한다.
-
-## 테스트 체크리스트
-
-### {계층 1} 테스트
-- [ ] {체크리스트}
-...
-
-### 테스트 코드 품질 (Phase 7 완료 전 자체 점검)
-- [ ] 테스트 소스에서 미사용 import 제거
-- [ ] 테스트 소스에서 미사용 지역 변수 제거
-- [ ] 테스트 소스에서 미사용 private 필드/메서드 제거
-- [ ] 프로젝트 표준 들여쓰기 준수 확인 (§6.5: Ruby·JS·HTML·ERB 2칸, 그 외 4칸, 탭 금지)
-- [ ] `{컴파일 명령어}`(또는 동등 명령) 통과 확인
-
-## 입력/출력 프로토콜
-
-- **입력**: 테스트 대상, 기능 요약, 중점 시나리오
-- **출력**: 테스트 실행 보고서 (통과/실패, 실패 상세, 원인 분류)
-
-## 협업
-
-- Developer에게 실패 정보 전달 (버그인 경우)
-- Reviewer가 지적한 위험 영역 중점 테스트
-```
+> `model` 값은 사용자 스크린샷에 표시된 내장 모델명에 대응하여 `glm-5.3` / `glm-5.3-flash`로 기입했다. 스크린샷에는 내부 ID가 표시되지 않으므로 최초 실행 시 각 명령어·서브에이전트가 실제로 로드되는지 검증한다. `thoughtLevel`은 선택한 모델이 지원하는 수준만 사용한다.
 
 ---
 
-> **이 문서는 사내 모든 프로젝트의 omp 하네스 구성 기준입니다.**
-> 프로젝트별 편차가 필요한 경우, 이 문서의 원칙 범위 내에서 AGENTS.md에 예외 사항을 명시하세요.
+> **이 문서는 ZCode Desktop 기반 사내 하네스 구성 기준입니다.** 프로젝트별 예외는 루트 `AGENTS.md`에 사유와 범위를 명시하고, 일반/절약 모드에 공통인 규칙과 모드별 차이를 구분해 기록한다.
 >
-> **변경 이력:**
+> **변경 이력**
+>
 > | 날짜 | 버전 | 변경 내용 |
 > |------|------|----------|
-> | 2026-08-05 | 1.0.0 | 최초 제정 — SentraPass 하네스 기반 |
-> | 2026-08-05 | 1.1.0 | 모델 전략 명확화(Developer·Tester=코드 생성 특화, Reviewer·Orchestrator=추론 특화), Phase 생략 규칙(Fast Path), PRD.md 표준 구조, Phase 4 언어 중립화, 되먹임 루프 최소화 전략, 병렬 실행 가이드, Anti-Patterns, 하네스 효과성 메트릭, 메타 스킬 개념 추가 |
-> | 2026-08-05 | 1.2.0 | 트리거 메커니즘(description 기반 자동 매칭, AGENTS.md 트리거 섹션 패턴), Phase별 완료 기준(Definition of Done), Git 사전 상태 점검, 구체적인 실행 예시(Narrative Walkthrough: Person API 구현 Full Pipeline) 추가 |
-> | 2026-08-05 | 2.0.0 | **Phase 번호 체계 개편** — 소수점(1.5, 2.5)을 순차 정수(0~9)로 통일. Phase 4(코드 정리) 범위 확장: 미사용 변수·private 멤버 제거, 테스트 코드 정리, 들여쓰기 4칸(space) 표준 명시 |
-> | 2026-08-28 | 2.1.0 | **omp(oh-my-pi) 런타임 호환** — §1.7 런타임 매핑 신설(개념 매핑 표, modelRoles 롤 앨리어스, 공존 전략), omp 파일 트리·에이전트 frontmatter(`@롤` 앨리어스, `autoloadSkills`)·스킬 위치 전략·설정 가이드 병기, 메타 스킬의 전역 omp 스킬(~/.omp/agent/skills/harness) 명시 |
-> | 2026-08-28 | 3.0.0 | **omp(oh-my-pi) 단일 런타임화** — 듀얼 런타임 개념 전면 제거. §1.7 omp 구성 표준 재정의(단일 컬럼 표 16행), 에이전트 frontmatter omp 전용(`model: "@롤"`, `autoloadSkills`), task tool 스폰 문법·Agent Hub 통신·`/skill:` 강제 호출, §7.1 omp 자체 승인 모델로 재작성, 스킬 위치 `.omp/skills/` 단일 소스, §9.2 omp 구성 절차, 부록 B/C omp 전용 개정, 전역 harness 메타 스킬 omp 전용화 |
-> | 2026-09-14 | 3.1.0 | **서브에이전트 일회성 스폰 원칙 신설(§4.6)** — 작업마다 task tool 신규 스폰 의무화, 완료 에이전트 `hub send` 재소환 금지, 최종 결과 수신 후 `hub cancel` 등록 해제. §1.7 통신 행·§6.3 데이터 흐름 갱신 |
-> | 2026-09-14 | 3.1.1 | **modelRoles 전역 단일 관리로 정책 변경** — 프로젝트별 `.omp/config.yml` 생성 금지, 전역 `~/.omp/agent/config.yml`의 `modelRoles`만 사용 (§1.4·§1.7·§9.2). 설정 단일화로 프로젝트 간 모델 롤 일관성 유지 |
-> | 2026-10-01 | 3.1.2 | **세션 todo 동기화 규칙 신설(§6.4)** — 오케스트레이터가 매 Phase 전환 시 세션 todo를 done/start로 갱신 의무화. TODO 위젯은 todo 호출 기준 표시이며 자동 추적이 아님을 명문화 (sentinel-demo 하네스 운영 경험 반영) |
-> | 2026-10-01 | 3.1.3 | **완료 에이전트 해제 수단 명시(§4.6·§6.3·§1.7)** — 결과 수신 즉시 해제 의무화, `hub cancel` 미제공 런타임에서는 `proc://<에이전트ID>/kill` 취소를 대안 해제 수단으로 고정. 해제 생략 → 로스터 잔존·재소환 사고 경로 명문화 (sentinel-demo 하네스 운영 경험 반영) |
-> | 2026-10-01 | 3.1.4 | **3.1.3 정정 — proc kill은 parked 등록 해제 불가(§4.6·§6.3·§1.7)** — `proc://<id>/kill`은 실행 중 세션만 취소하며 완료(parked) 에이전트의 로스터 등록은 잔존(4건 실측: not found). `hub` 미제공 세션은 Agent Hub UI `x: kill` 수동 정리 + 오케스트레이터의 잔존 안내 의무로 대체 |
-> | 2026-10-01 | 3.1.5 | **세션 todo 갱신 트리거 절차형 명시(§6.4)** — '에이전트 결과 수신 직후 첫 도구 호출 = todo done'을 1순위 트리거로 고정(누적 누락의 실측 실패 모드 반영), progress.json 세트 갱신 유지 (sentinel-demo 하네스 운영 경험 반영) |
-> | 2026-10-08 | 3.1.6 | **사용자 승인 게이트 신설(§6.13)** — 모든 작업 규모에서 플랜 보고 후 사용자 승인 전 에이전트 스폰 금지. 턴 종료를 강제 수단으로 고정, progress.json `awaiting_approval` 상태·재개 규칙 도입, §1.3·§5.3·§6.1·§6.2·§6.4·§6.10·§6.12·§8.2·§9.2·§11.2 갱신, 오케스트레이터 SKILL.md·`.omp/RULES.md` 미러링 의무화 |
-> | 2026-10-08 | 3.2.0 | **들여쓰기 표준 언어별 이원화(§2.2·§6.5·부록 C.3)** — Ruby·JavaScript·HTML·ERB를 2칸(space) 표준으로 변경, 그 외 언어는 4칸(space) 유지. 탭 문자 금지 공통. Prettier 예시 `--tab-width 2`로 갱신 |
+> | 2026-10-27 | 4.0.0 | ZCode Desktop 런타임으로 전환. 일반/절약 오케스트레이터 명령어 2개와 공통 워크플로우 스킬 1개, 6개 서브에이전트 프로필, 로컬 plugin marketplace 구조, 승인 게이트 및 모델 설정 제약 반영. OMP 전용 실행 규약 제거 |
+> | 2026-10-28 | 4.0.1 | 사용자 스크린샷의 Z.ai 모델 표시명(GLM-5.3 / GLM-5.3-Flash)을 반영해 모델 값과 실행 검증 절차 구체화. ZCode 명령어 파일명 규칙에 맞게 예시를 밑줄 기반으로 수정 |
+> | 2026-10-29 | 4.0.2 | 실측 기반 수정: 서브에이전트 정의 위치를 플러그인 `agents/` → 프로젝트 `.zcode/agents/`로 변경(플러그인 `agents` 필드 미실행 확인), marketplace.json `pluginRoot` 미적용 확인으로 `source`를 마켓플레이스 루트 기준 상대경로로 수정, 명령어·에이전트 발견 시점(세션 시작 스캔)을 검증 절차에 명시 |
+> | 2026-10-29 | 4.0.3 | 플러그인·마켓플레이스 경로 폐기 — 플러그인에는 워크스페이스 스코프가 없어 전역 적용됨이 실측됨(§1.4 제약 8). 하네스 구성을 워크스페이스 스코프 리소스(`.zcode/{commands,skills,agents}`)로 전면 전환: marketplace.json·plugin.json 예시 삭제, 등록 절차(구 5단계)를 발견 확인으로 교체, 다른 PC 복제 절차에서 마켓플레이스 등록 단계 제거. git clone만으로 하네스 완결 |

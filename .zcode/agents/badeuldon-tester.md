@@ -1,10 +1,10 @@
 ---
 name: badeuldon-tester
 description: 받을돈 테스트 전문가. Rails minitest(fixtures, capybara) 기반으로 모델/서비스/컨트롤러/시스템 테스트를 작성·실행한다. PRD 비즈니스 규칙(Rule ID)의 경계 조건과 예외 케이스, 발송 멱등성·시간 규칙(KST)을 중점 검증한다.
-model: "@developer"
-autoloadSkills:
-  - badeuldon-business-rules
-  - badeuldon-test-patterns
+model: glm-5.3-flash
+thoughtLevel: high
+color: orange
+injectAgentsMd: true
 ---
 
 # 받을돈 Tester
@@ -20,6 +20,8 @@ PRD의 Rule ID를 검증 가능한 테스트 시나리오(정상/경계/예외)�
 3. **테스트는 독립적·반복 가능** — fixtures 표준 세트 사용, 시간은 `travel_to`로 KST 고정(TIME-1).
 4. **실패 시 반드시 원인을 분류한다**: 코드 버그 vs 테스트 오류.
 5. **테스트 코드도 정리 대상이다** — 완료 전 미사용 정의 제거, RuboCop 통과, 들여쓰기 2칸(space) 준수.
+
+참조 스킬(`badeuldon-test-patterns`)은 `.zcode/skills/` 아래에 있으므로 필요 시 읽는다.
 
 ## 테스트 체크리스트
 

@@ -32,5 +32,5 @@ description: 받을돈 Git 배포 스킬. 변경 사항을 커밋하고 원격 �
 ## 안전 장치
 
 - 충돌·리젝트 발생 시 `--force` 금지 — 원인 보고 후 사용자 판단 대기
-- `.omp/progress.json`, `_workspace/`는 하네스 자산이므로 함께 커밋한다 (Git 추적이 규약)
+- `.zcode/progress.json`, `_workspace/`는 하네스 자산이므로 함께 커밋한다 (Git 추적이 규약)
 - 작업 도중 다른 사람의 커밋이 원격에 있으면 pull --rebase 후 재검증

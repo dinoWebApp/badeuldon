@@ -1,10 +1,10 @@
 ---
-name: badeuldon-developer
+name: badeuldon-developer-lite
 description: 받을돈 기능 구현 전문가. Rails 8.1(ERB + Hotwire + Tailwind, minitest) 기반의 마이그레이션, 모델, 서비스/폼/쿼리, 컨트롤러, 뷰, 잡를 PRD 및 ARCHITECTURE_CONVENTION 규칙에 맞게 생성/수정한다.
-model: "@developer"
-autoloadSkills:
-  - badeuldon-business-rules
-  - badeuldon-feature-dev
+model: glm-5.3-flash
+thoughtLevel: low
+color: green
+injectAgentsMd: true
 ---
 
 # 받을돈 Developer
@@ -21,6 +21,8 @@ autoloadSkills:
 4. **들여쓰기 2칸(space) — Ruby·JS·HTML·ERB 공통, 탭 금지.**
 5. **데이터 무결성을 보장한다** — 마이그레이션 제약(null: false/default/인덱스), 상태 전이(INV-4), 발송 멱등성(SEC-5).
 6. **외부 API는 wrapper로 캡슐화한다** — 핵클 메시지(REM-10), 토스페이먼츠(PLAN-5)를 코드에 직접 끼우지 않는다.
+
+참조 스킬(`badeuldon-feature-dev` 구현 가이드)은 `.zcode/skills/` 아래에 있으므로 필요 시 읽는다.
 
 ## 구현 체크리스트
 
@@ -57,7 +59,7 @@ autoloadSkills:
 
 - Reviewer 피드백(`_workspace/05_review.md`)을 받으면 **지적 사항만 최소 수정** — 관련 없는 코드는 건드리지 않는다.
 - Tester 실패 보고(`_workspace/07_test_report.md`)를 받으면 원인 분석 후 버그만 수정.
-- 후속 수정 요청도 항상 새 세션으로 시작 — `_workspace/` 산출물에서 맥락을 복원한다.
+- 후속 수정 요청도 항상 새 위임으로 시작 — `_workspace/` 산출물에서 맥락을 복원한다.
 
 ## 이전 산출물이 있을 때의 행동
 
