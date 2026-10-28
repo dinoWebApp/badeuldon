@@ -18,7 +18,7 @@
   가입 전환                U1 수금 루프               U2 열람·응답(비로그인)          운영자 전용(2FA)
       └────────────── 단일 도메인, 라우트 수준 분리(SURF-1) ──────────────┘
                           Rails 8.1 모놀리스 (ERB + Hotwire)
-                  알림톡/SMS: 핵클 메시지 API · 결제: 토스페이먼츠 · 인증: 이메일/비밀번호(Rails 표준, AUTH-1)
+                  알림톡/SMS: 솔라피 메시지 API · 결제: 포트원(KG이니시스) · 인증: 이메일/비밀번호(Rails 표준, AUTH-1)
 ```
 
 ## 기술 스택
@@ -30,7 +30,7 @@
 - **테스트**: minitest(Rails 기본) + fixtures(YAML) + capybara/selenium(시스템 테스트)
 - **정적 분석**: RuboCop(rubocop-rails-omakase) · Brakeman · bundler-audit — `bin/ci`로 통합
 - **배포**: Kamal + Docker + Thruster (`config/deploy.yml`)
-- **외부 서비스**: 핵클 메시지 API(알림톡/SMS, REM-10), 토스페이먼츠(결제, PLAN-5). 인증은 이메일/비밀번호(Rails 표준 — OAuth 소셜 로그인 2026-10-12 폐기, AUTH-1·Q8)
+- **외부 서비스**: 솔라피 메시지 API(알림톡/SMS, REM-10 — 2026-10-29 핵클→솔라피 전환, 템플릿 검수 승인), 포트원(KG이니시스 채널)(결제, PLAN-5). 인증은 이메일/비밀번호(Rails 표준 — OAuth 소셜 로그인 2026-10-12 폐기, AUTH-1·Q8)
 
 ## 빌드 및 실행 명령어
 
@@ -84,9 +84,9 @@ bin/jobs             # Solid Queue 잡 프로세스 (웹과 별도 실행)
 | PROMISE | 응답(약속) 수집 | 무가입 응답, 약속 등록→시퀀스 재스케줄, 채무자 마감 권한 없음(PROMISE-7) |
 | PAY | 입금 처리 | 원클릭 마감, 부분입금 잔액 재계산, 계좌조회 자동화 금지(PAY-5) |
 | DASH | 대시보드 | 오늘의 액션, 연체일 내림차순 |
-| PLAN | 구독·과금 | Free 3건/5거래처, Plus 9,900원, 수금 패스, 토스페이먼츠 |
+| PLAN | 구독·과금 | Free 3건/5거래처, Plus 9,900원, 수금 패스, 포트원(KG이니시스) |
 | VIEW | 채무자 뷰어 | 비로그인, 인앱 브라우저 QA 필수(VIEW-1), 마케팅 요소 금지(VIEW-8) |
-| NOTI | 알림(프리랜서 향) | 핵클 채널 공유 |
+| NOTI | 알림(프리랜서 향) | 솔라피 채널 공유 |
 | LEGAL / REF / TAX | 법적 조치·추심·세금 | D+30 한정, 소개 화면만(REF-2), 제휴 발행 |
 | SEC | 데이터·보안 | 토큰 엔트로피, 발송 멱등성(SEC-5) |
 | PERF / TIME | 비기능 | 열람→알림 60초, 뷰어 2초, KST 고정 |
@@ -125,7 +125,7 @@ bin/jobs             # Solid Queue 잡 프로세스 (웹과 별도 실행)
 - 프레임워크: minitest + fixtures. 계층: 모델(검증·상태 전이·Rule ID 시나리오) → 서비스/쿼리(비즈니스 로직) → 컨트롤러(통합) → 시스템(브라우저 E2E, 뷰어 인앱 브라우저 동작 포함)
 - Rule ID별 정상/경계/예외 시나리오 도출이 원칙(Tester는 PRD §6~7 기준)
 - 게이트: `bin/ci`(RuboCop 0에러 + Brakeman 0경고 + 테스트 전체 통과) 통과 전까지 커밋/병합/배포 불가
-- 외부 API(핵클·토스페이먼츠)는 테스트에서 stub/wrapper 주입 — 실 호출 금지
+- 외부 API(솔라피·포트원)는 테스트에서 stub/wrapper 주입 — 실 호출 금지
 
 ## 하네스: 받을돈 개발 자동화 (ZCode Desktop)
 
@@ -179,10 +179,10 @@ bin/jobs             # Solid Queue 잡 프로세스 (웹과 별도 실행)
 
 ## 구현 진행 상황 (로드맵)
 
-- **완료**: Rails 8.1 스켈레이션, 하네스 구축 + E2E 검증, F-AUTH 인증(OAuth 폐기·Q8), 랜딩 전체 + UI 품질 기준 + AUTH-1.3 프로필(v0.18.1), /app 대시보드 뼈대(v0.18.2), F-CLIENT(v0.18.3), F-INV 청구서(v0.18.4), F-SHARE+F-VIEW 뷰어 개봉(v0.18.5), F-PROMISE 응답 수집(v0.18.6), F-PAY 입금·MVP 수금 루프 완결(v0.18.7), 랜딩 헤드라인 교체·푸터 사업자·LP-5 버블 UI(v0.19), 로그인 UX(원클릭 복귀), **F-PLAN 구독·과금**(`2026-10-15`, PRD v0.20 — Subscription(체험→활성→해지→만료·빌링키·1人1구독)·Order·PaymentPass(10건·90일·with_lock), TossPayments 래퍼(테스트 키·stub 가능·모호실패 pending 유지·웹훅 회복), 한도 전환(Free 5/3→Plus 무제한·수금 패스 소비), 자동 갱신 Job(with_lock·멱등키), 웹훅 POST /webhooks/toss(get_payment 재조회), /app/billing UI·사이드바. 테스트 484건. 리뷰 BLOCKER 1+CRITICAL 6 수정)
+- **완료**: Rails 8.1 스켈레이션, 하네스 구축 + E2E 검증, F-AUTH 인증(OAuth 폐기·Q8), 랜딩 전체 + UI 품질 기준 + AUTH-1.3 프로필(v0.18.1), /app 대시보드 뼈대(v0.18.2), F-CLIENT(v0.18.3), F-INV 청구서(v0.18.4), F-SHARE+F-VIEW 뷰어 개봉(v0.18.5), F-PROMISE 응답 수집(v0.18.6), F-PAY 입금·MVP 수금 루프 완결(v0.18.7), 랜딩 헤드라인 교체·푸터 사업자·LP-5 버블 UI(v0.19), 로그인 UX(원클릭 복귀), **F-PLAN 구독·과금**(`2026-10-15`, PRD v0.20 — Subscription(체험→활성→해지→만료·빌링키·1人1구독)·Order·PaymentPass(10건·90일·with_lock), 결제 래퍼(초기 TossPayments → 포트원(KG이니시스) 전환, stub 가능·웹훅 회복), 한도 전환(Free 5/3→Plus 무제한·수금 패스 소비), 자동 갱신 Job(with_lock·멱등키), 웹훅 POST /webhooks/portone(결제 재조회 검증), /app/billing UI·사이드바. 테스트 484건. 리뷰 BLOCKER 1+CRITICAL 6 수정)
 - **구현됨 상세**: `_workspace_prev/`(로그인 UX)·`_workspace/`(F-PLAN) 산출물 참조
 - **진행 중**: 없음
-- **예정**: F-REM(핵클 계약 — SHARE-4·PROMISE-4/7·PAY-4 알림, SHARE-5 문구 분기, VIEW-7 수신거부, PROMISE-3 재스케줄, overdue 저장화) → F-DASH 나머지(DASH-5/6) → F-ADMIN → F-LEGAL/REF/TAX → CLIENT-3/4·PROMISE-5 → INV-7·PDF → 부분입금 오기록 정책 → LP-11 콘텐츠 허브·블로그. 기술 부채: dunning(결제 실패 재시도), 환불 처리(토스 콘솔 수동), 웹훅 data 필드 [INFERENCE] 라이브 실측 필요, Pretendard 셀프호스팅, 이메일 서비스, ko locale, 관리자 계정, 약관·개인정보 문서, 후기, Stimulus 분리, ViewEvent 하드닝, 봇 UA 필터, 인앱 실기 QA
+- **예정**: F-REM(솔라피 연동 — 알림톡 템플릿 검수 승인 2026-10-29, SHARE-4·PROMISE-4/7·PAY-4 알림, SHARE-5 문구 분기, VIEW-7 수신거부, PROMISE-3 재스케줄, overdue 저장화) → F-DASH 나머지(DASH-5/6) → F-ADMIN → F-LEGAL/REF/TAX → CLIENT-3/4·PROMISE-5 → INV-7·PDF → 부분입금 오기록 정책 → LP-11 콘텐츠 허브·블로그. 기술 부채: dunning(결제 실패 재시도), 환불 처리(포트원 콘솔 수동), 웹훅 data 필드 [INFERENCE] 라이브 실측 필요, Pretendard 셀프호스팅, 이메일 서비스, ko locale, 관리자 계정, 약관·개인정보 문서, 후기, Stimulus 분리, ViewEvent 하드닝, 봇 UA 필터, 인앱 실기 QA
 - **작업 재개 가이드**: `.zcode/progress.json`의 `currentPhase` 확인 → `awaiting_approval`이면 플랜 재보고 후 승인 대기, 그 외에는 다음 Phase부터 재개. 산출물은 `_workspace/`.
 
 ### 운영 배포 운영 노트 (2026-10-14 실측)

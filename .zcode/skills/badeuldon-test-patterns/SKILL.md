@@ -1,6 +1,6 @@
 ---
 name: badeuldon-test-patterns
-description: 받을돈 테스트 패턴 스킬. minitest + fixtures 기반 계층별(모델/서비스/컨트롤러/시스템) 테스트 템플릿, Rule ID별 시나리오 도출 방법, 외부 API(핵클·토스페이먼츠) stub 처리, 테스트 실행 명령어를 제공한다. 받을돈 테스트를 작성·실행할 때 사용한다.
+description: 받을돈 테스트 패턴 스킬. minitest + fixtures 기반 계층별(모델/서비스/컨트롤러/시스템) 테스트 템플릿, Rule ID별 시나리오 도출 방법, 외부 API(솔라피·포트원) stub 처리, 테스트 실행 명령어를 제공한다. 받을돈 테스트를 작성·실행할 때 사용한다.
 ---
 
 # 받을돈 테스트 패턴 (minitest + fixtures)
@@ -63,7 +63,7 @@ module Reminders
     fixtures :users, :clients, :invoices
 
     test "발송 창 밖(토요일)에서는 발송하지 않는다 (REM-3)" do
-      HackleMessage.stub(:send, ->(*) { raise "must not send" }) do
+      SolapiMessage.stub(:send, ->(*) { raise "must not send" }) do
         travel_to(Time.zone.parse("2026-10-10 10:00")) do   # 토요일
           assert_raises(SendWindowViolation) do
             DispatchService.new(invoice: invoices(:issued_overdue), step: :d1).call
@@ -83,7 +83,7 @@ module Reminders
 end
 ```
 
-**외부 API(핵클·토스페이먼츠)는 절대 실호출하지 않는다** — wrapper 모듈을 stub/주입으로 대체. 시간 의존 로직은 `travel_to`로 KST 시각을 고정.
+**외부 API(솔라피·포트원)는 절대 실호출하지 않는다** — wrapper 모듈을 stub/주입으로 대체. 시간 의존 로직은 `travel_to`로 KST 시각을 고정.
 
 ## 컨트롤러(통합) 테스트 템플릿
 

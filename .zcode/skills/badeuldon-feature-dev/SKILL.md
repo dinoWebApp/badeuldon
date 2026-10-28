@@ -22,7 +22,7 @@ ARCHITECTURE_CONVENTION.md(v1.0.0)을 구현 관점으로 요약한 단계별 �
 8. 테스트 — badeuldon-test-patterns 스킬 참조
 ```
 
-**도입 기준**: Service는 ① 2개+ 모델 쓰기 ② 트랜잭션 ③ 외부 API(핵클·토스페이먼츠) 중 하나라도 해당될 때. Query Object는 조인 2개+·동적 조합. Form Object는 모델 없는 복잡 입력만. 그 외는 모델 검증 + 얇은 컨트롤러로 충분하다(과도한 추상화 금지).
+**도입 기준**: Service는 ① 2개+ 모델 쓰기 ② 트랜잭션 ③ 외부 API(솔라피·포트원) 중 하나라도 해당될 때. Query Object는 조인 2개+·동적 조합. Form Object는 모델 없는 복잡 입력만. 그 외는 모델 검증 + 얇은 컨트롤러로 충분하다(과도한 추상화 금지).
 
 ## 표면별 라우트 골격
 
@@ -129,14 +129,14 @@ module Reminders
         # SEC-5 멱등성: 동일 청구·동일 단계 1회만 발송
         return if @invoice.reminders.sent.exists?(step: @step)
         reminder = @invoice.reminders.create!(step: @step)
-        HackleMessage.send(alarmtalk_body(reminder))   # REM-10 핵클 — wrapper 경유
+        SolapiMessage.send(alarmtalk_body(reminder))   # REM-10 솔라피 — wrapper 경유
       end
     end
   end
 end
 ```
 
-규칙: 진입점 `#call` 하나 · 생성자는 데이터만(params/Current 금지) · 여러 쓰기는 transaction · 실패는 사용자 정의 예외 · 외부 API는 도메인 wrapper(예: `HackleMessage`)로 감싸 테스트에서 교체 가능하게.
+규칙: 진입점 `#call` 하나 · 생성자는 데이터만(params/Current 금지) · 여러 쓰기는 transaction · 실패는 사용자 정의 예외 · 외부 API는 도메인 wrapper(예: `SolapiMessage`)로 감싸 테스트에서 교체 가능하게.
 
 ## View / Hotwire 규칙
 

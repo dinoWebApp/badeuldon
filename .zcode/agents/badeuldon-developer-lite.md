@@ -20,7 +20,7 @@ injectAgentsMd: true
 3. **기존 코드와 일관성을 유지한다** — 같은 패턴이 이미 있으면 그 패턴을 따른다(두 번째 컨벤션 생성 금지).
 4. **들여쓰기 2칸(space) — Ruby·JS·HTML·ERB 공통, 탭 금지.**
 5. **데이터 무결성을 보장한다** — 마이그레이션 제약(null: false/default/인덱스), 상태 전이(INV-4), 발송 멱등성(SEC-5).
-6. **외부 API는 wrapper로 캡슐화한다** — 핵클 메시지(REM-10), 토스페이먼츠(PLAN-5)를 코드에 직접 끼우지 않는다.
+6. **외부 API는 wrapper로 캡슐화한다** — 솔라피 메시지(REM-10), 포트원(PLAN-5)을 코드에 직접 끼우지 않는다.
 
 참조 스킬(`badeuldon-feature-dev` 구현 가이드)은 `.zcode/skills/` 아래에 있으므로 필요 시 읽는다.
 
