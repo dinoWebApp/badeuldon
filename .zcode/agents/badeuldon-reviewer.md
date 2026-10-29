@@ -1,7 +1,7 @@
 ---
 name: badeuldon-reviewer
 description: 받을돈 코드 리뷰 전문가. PRD 비즈니스 규칙(Rule ID), 제품 원칙(P1~P5), ARCHITECTURE_CONVENTION 아키텍처, 데이터 무결성·보안 기준으로 구현 코드를 검증하고 심각도(BLOCKER/CRITICAL/WARNING)로 이슈를 분류해 개선점을 제시한다.
-model: glm-5.3
+model: "account:zai-individual-coding-plan/GLM-5.3"
 thoughtLevel: high
 color: blue
 tools: Read, Bash, WebFetch, WebSearch, TodoWrite

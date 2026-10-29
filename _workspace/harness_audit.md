@@ -94,3 +94,14 @@
 2. badeuldon 스킬 6종이 워크스페이스 스코프로 표시
 3. 서브에이전트 6개 Agent 도구 유형 유지 확인
 4. 다른 프로젝트 워크스페이스에서는 두 명령어가 보이지 않는 것 확인
+
+## 후속 수정 4 — 규약 v4.0.5 동기화 (2026-10-29)
+
+**계기**: 전역 HARNESS_CONVENTION.md·메타 스킬 SKILL.md이 v4.0.3 → v4.0.5로 갱신됨(모델 ID 형식 실측 확정 v4.0.4, 위임 실측 운영 규칙 정식화 v4.0.5). 프로젝트 구성 요소에 동기화 적용.
+
+**변경 내용**:
+- **model 슬래시 형식 전환**(§1.4 제약 3): bare 이름(`glm-5.3-flash`)은 파서가 조용히 거절해 `model`·`thoughtLevel`이 함께 탈락, 부모 세션 모델·추론 수준 상속(실측: `thoughtLevel: high` 지정에도 서브에이전트 요청 12건 `effort=max`). 명령어 2개·프로필 6개의 `model`을 `account:zai-individual-coding-plan/GLM-5.3(-Flash)`로 교체 — providerId는 ListModels 실측值(현재 세션 `[current]` 표시와 동일 계정)
+- **위임 실측 절차 신설**(§4.6·§8.1): 오케스트레이터 스킬 하드 룰 6 + Phase 3·5·7 각 섹션 + Phase 9 완료 보고 + 데이터 흐름에 `00_delegation_log.md` 추가. 스폰 직후 model-io 로그(`~/.zcode/cli/rollout/model-io-sess_subagent_agent_*.jsonl`의 `effort`) 실측, 불일치 시 재위임 없이 기록·보고
+- HARNESS_CONVENTION.md 프로젝트 사본 v4.0.5 동기화, AGENTS.md 변경 이력 추가
+
+**검증**: 새 세션에서 첫 오케스트레이터 실행 시 §9.2 7단계 실측 명령으로 effort 확인 — developer/tester(high)·reviewer(glm-5.3,high)·lite(low) 프로필별 기대값 일치 여부.

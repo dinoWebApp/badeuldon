@@ -1,6 +1,6 @@
 # Harness Convention — ZCode Desktop 범용 개발 자동화 하네스 구성 규약
 
-**버전**: 4.0.3
+**버전**: 4.0.5
 **최종 수정일**: 2026-10-29
 
 ---
@@ -141,7 +141,7 @@ OMP의 `modelRoles`와 달리 ZCode는 명령어 frontmatter에 메인 모델을
 
 1. ZCode 명령어 frontmatter의 공식 문서상 `model`은 지원되지만 명령어별 `thoughtLevel` 지정은 문서화되어 있지 않다. 따라서 명령어는 메인 모델을 선택하고, 메인 Agent의 추론 수준은 ZCode UI의 모델/추론 수준 선택에서 확인한다. 사용자 스크린샷에서는 GLM-5.3이 선택되어 있고 Effort가 `Max`로 표시된다. 이 화면은 현재 선택 상태를 증명하지만 명령어로 Effort를 자동 변경할 수 있음을 증명하지는 않는다.
 2. 서브에이전트는 `model`과 `thoughtLevel`을 각 정의에 지정할 수 있다. `thoughtLevel`은 특정 모델을 명시했을 때만 적용된다. ZCode 공식 문서는 GLM-5.3에 `low`, `high`, `max` 수준을 명시한다. Flash에서 사용할 수 있는 수준은 Flash를 선택한 뒤 UI/실행에서 확인한다.
-3. 사용자가 제공한 ZCode 화면에서 Z.ai Individual의 모델 표시명 `GLM-5.3`과 `GLM-5.3-Flash`가 확인되었다. 이 규약은 해당 내장 모델의 `model` 값으로 각각 `glm-5.3`, `glm-5.3-flash`를 우선 사용한다. 단, 스크린샷은 UI 표시명만 보여주고 런타임 내부 ID를 직접 노출하지 않으므로 실제 실행 검증이 필수다. `model not found` 등 오류가 나면 ZCode Settings → Model Settings 또는 ZCode가 생성한 서브에이전트 정의에서 실제 ID를 확인해 수정하며, OMP 전용 `zai/glm-5.3` 표기를 추정해 붙이지 않는다.
+3. **`model` 값은 `providerId/modelId` 슬래시 형식 필수다(2026-10-29 실측).** 명령어·서브에이전트 frontmatter의 `model`에 슬래시 없는 bare 이름(예: `glm-5.3-flash`)을 쓰면 파서가 조용히 거절해 `model`과 `thoughtLevel`이 **오류 없이 함께 탈락**하고, 서브에이전트는 부모 세션의 현재 모델·추론 수준을 상속한다(겉으로 드러나지 않는 결함 — 실측: `thoughtLevel: high` 지정에도 서브에이전트 요청 12건 전부 `effort=max`). 실제 값은 세션의 모델 목록에서 확인한다(예: `account:zai-individual-coding-plan/GLM-5.3-Flash`). 프로바이더 prefix는 요금제·계정별로 다르므로 다른 PC에서는 해당 계정의 실제 ID로 수정한다. 적용 여부는 §9.2 7단계의 실측 명령으로 검증한다.
 4. ZCode 명령어의 모델 변경만으로 명시적 모델을 가진 서브에이전트가 자동 전환되지는 않는다. 일반/절약 모드마다 다른 서브에이전트 프로필을 호출한다.
 5. 일반 모드 명령어는 `*-developer`, `*-reviewer`, `*-tester`만 호출한다. 절약 모드 명령어는 `*-developer-lite`, `*-reviewer-lite`, `*-tester-lite`만 호출한다.
 6. 플러그인 manifest의 `agents` 필드는 기록만 되고 세션 서브에이전트로 실행되지 않는다(2026-10-29 실측). 서브에이전트 정의 파일은 프로젝트 `.zcode/agents/`에 둔다 — 런타임이 이 경로를 감시해 세션 시작 시 Agent 도구 유형으로 등록한다.
@@ -166,6 +166,7 @@ ZCode에서 일반 개발 요청을 자동 매칭에만 의존하면 오케스�
 4. 사용자 승인 전에는 어떤 Developer/Reviewer/Tester 서브에이전트도 호출되지 않는지 관찰한다.
 5. 승인 후 올바른 모드의 에이전트가 호출되고, 산출물이 `_workspace/`에 기록되는지 확인한다.
 6. 최종 보고에서 실행 모드, 호출된 에이전트 이름, 모델, 테스트 결과를 명시한다.
+7. 서브에이전트의 실제 추론 수준은 모델 I/O 로그로 실측한다: `grep -o '"effort":"[a-z]*"' ~/.zcode/cli/rollout/model-io-sess_subagent_agent_*.jsonl | sort | uniq -c`. 정의한 `thoughtLevel`과 다르면 frontmatter `model`이 탈락한 것이다(§1.4 제약 3). 파싱 결과는 `~/.zcode/cli/agents/<세션ID>/<에이전트ID>/metadata.json`의 `profileSnapshot.modelSelection` 존재 여부로 확인한다.
 
 ZCode Plan mode는 계획을 먼저 제시하고 확인 후 편집을 시작하는 데 도움이 되지만, **Plan mode만으로 서브에이전트 호출까지 무조건 차단된다고 가정하지 않는다.** 승인 전 에이전트 미호출 여부는 규칙과 실제 검증으로 확인해야 한다.
 
@@ -401,7 +402,7 @@ PRD(Product Requirements Document)는 프로젝트의 **실행 가능한 명세(
 ---
 name: "{project}-developer"
 description: "{프로젝트명} 구현 전문가. 승인된 작업을 PRD와 AGENTS.md에 맞게 구현한다."
-model: glm-5.3-flash
+model: "account:zai-individual-coding-plan/GLM-5.3-Flash"
 thoughtLevel: high
 color: green
 injectAgentsMd: true
@@ -419,7 +420,8 @@ injectAgentsMd: true
 - 일반 프로필 `model`과 `thoughtLevel`은 일반 모드 표를 따르고, `-lite` 프로필은 절약 모드 표를 따른다.
 - Reviewer 프로필은 가능한 한 읽기 전용 도구만 부여한다. ZCode에서 도구 제한을 설정한 경우 허용 목록에 없는 도구는 호출할 수 없다.
 - ZCode 서브에이전트 frontmatter에는 OMP의 `autoloadSkills`와 동등한 범용 스킬 자동 할당 필드가 없다. 필수 규칙은 루트 `AGENTS.md`/PRD와 각 에이전트의 시스템 프롬프트에 포함하고, 오케스트레이터 명령어가 공통 오케스트레이터 스킬을 로드하도록 한다.
-- 파일에서 모델 ID를 변경한 뒤에는 새 ZCode 세션에서 적용 여부를 검증한다.
+- `model`은 `providerId/modelId` 슬래시 형식(예: `"account:zai-individual-coding-plan/GLM-5.3-Flash"`)으로 쓴다 — bare 이름은 `model`·`thoughtLevel`이 조용히 탈락한다(§1.4 제약 3).
+- 파일에서 모델 ID를 변경한 뒤에는 새 ZCode 세션에서 적용 여부를 검증한다(§9.2 7단계 실측 명령).
 
 ### 4.3 Developer 에이전트 (구현)
 
@@ -484,6 +486,7 @@ injectAgentsMd: true
 | 산출물 전달 | 재검토·수정·재테스트는 `_workspace/`의 이전 보고서와 변경 파일을 명시해 별도 호출한다. |
 | 재사용 통제 | 역할이 같더라도 새 Phase에서는 기존 결과를 읽고 새로운 호출을 사용한다. 이전 대화가 자동으로 완전하게 전달된다고 가정하지 않는다. |
 | 병렬 실행 제한 | 읽기 전용 조사처럼 독립적인 작업만 병렬화한다. 동일 파일을 수정하는 Developer 작업은 병렬화하지 않는다. |
+| 위임 실측 | Phase 3·5·7에서 서브에이전트 스폰 직후 모델 I/O 로그로 스폰된 프로필·모델·추론 수준(effort)이 정의와 일치하는지 실측해 `_workspace/00_delegation_log.md`에 한 줄 기록한다(§1.6 7항). model-io 로그는 임시 파일이라 스폰 직후 측정이 필수다. 불일치 시 자동 재위임하지 않고 기록 후 최종 보고에 명시한다. |
 | 완료 확인 | 서브에이전트 결과를 받은 후 오케스트레이터가 실제 diff, 테스트 출력 및 보고서 파일을 직접 확인한다. |
 
 ZCode가 자체적으로 subagent 호출과 수명 주기를 관리하므로, 하네스는 플랫폼 내부 세션을 임의로 종료하거나 로스터를 정리하는 도구 명령을 요구하지 않는다.
@@ -1124,12 +1127,15 @@ ZCode의 실행 모드는 파일 편집과 명령 실행 권한을 제어한다.
 
 | 파일 | Phase | 내용 |
 |:---|:---|:---|
+| `00_delegation_log.md` | Phase 3·5·7 | 위임 직후 실측 기록(스폰 프로필·모델·effort·기대값 일치 여부) |
 | `01_plan.md` | Phase 1 | 작업 범위, 대상 파일, 관련 Rule ID |
 | `02_prd_update.md` | Phase 2 | 갱신된 PRD/AGENTS.md 섹션 목록 |
 | `03_implementation.md` | Phase 3 | 변경 파일 목록 및 요약 |
 | `05_review.md` | Phase 5 | 리뷰 상태(APPROVED/CHANGES_REQUESTED), 이슈 목록 |
 | `07_test_report.md` | Phase 7 | 테스트 통과/실패 건수, 실패 상세 |
 | `08_run_report.md` | Phase 8 | 실행 성공/실패, WARN 분류 |
+
+모든 산출물 파일은 **작업 단위**로 생성·교체된다 — 새 작업 시작 시 `_workspace/`를 `_workspace_prev/`로 이동하고(§8.2) 새로 작성하므로 특정 파일이 작업 간 무한 누적되지 않는다. Git에는 작업별 커밋으로 감사 이력이 남고, 로컬 디스크의 `_workspace_prev*`는 로테이션 시 덮어써지는 최근 세대 보관 분이다.
 
 ### 8.2 작업 재개 전략
 
@@ -1181,7 +1187,7 @@ $harness
 일반용과 절약용 오케스트레이터 명령어 2개가 같은 오케스트레이터
 워크플로우 스킬을 사용하도록 구성해줘.
 일반/절약 모드별 Developer·Reviewer·Tester 프로필 6개를 만들고,
-사용자 스크린샷의 모델 표시명은 GLM-5.3 / GLM-5.3-Flash다. 모델 값은 우선 glm-5.3 / glm-5.3-flash로 설정하고, 최초 실행 시 실제 인식 여부를 검증해. 인식되지 않으면 ZCode의 모델 설정/실행 로그에서 실제 ID를 찾아 수정해.
+사용자 스크린샷의 모델 표시명은 GLM-5.3 / GLM-5.3-Flash다. 모델 값은 반드시 providerId/modelId 슬래시 형식(예: account:zai-individual-coding-plan/GLM-5.3-Flash)으로 설정해 — bare 이름(glm-5.3-flash)은 model·thoughtLevel이 조용히 탈락하므로 금지다. 실제 providerId는 세션의 모델 목록에서 확인하고, 최초 실행 시 모델 I/O 로그로 effort 적용 여부를 실측해.
 Phase 승인 게이트, .zcode/progress.json, _workspace 산출물 규칙을 검증해.
 파일 작성 전에 생성 계획을 먼저 보고하고 내 승인을 기다려.
 ```
@@ -1221,12 +1227,12 @@ Phase 승인 게이트, .zcode/progress.json, _workspace 산출물 규칙을 검
 
 #### 6단계: 모델 프로필 설정
 
-`.zcode/commands/*.md`와 `.zcode/agents/*.md`에는 `glm-5.3` / `glm-5.3-flash`를 설정한다. 최초 실행에서 모델이 인식되지 않으면 ZCode의 실제 모델 ID로 수정한다.
+`.zcode/commands/*.md`와 `.zcode/agents/*.md`의 `model`에는 반드시 `providerId/modelId` 슬래시 형식(예: `"account:zai-individual-coding-plan/GLM-5.3-Flash"`)을 설정한다. bare 이름(`glm-5.3-flash`)은 오류 없이 조용히 탈락하므로 사용하지 않는다(§1.4 제약 3). 프로바이더 prefix는 계정·요금제별로 다르므로 대상 PC의 실제 ID로 채운다.
 
 | 파일 | 모델 설정 |
 |:---|:---|
-| `{project_command_prefix}_orchestrator.md` | 메인 Agent: GLM-5.3 (`glm-5.3`) |
-| `{project_command_prefix}_orchestrator_lite.md` | 메인 Agent: GLM-5.3-Flash (`glm-5.3-flash`) |
+| `{project_command_prefix}_orchestrator.md` | 메인 Agent: GLM-5.3 (`account:zai-individual-coding-plan/GLM-5.3`) |
+| `{project_command_prefix}_orchestrator_lite.md` | 메인 Agent: GLM-5.3-Flash (`account:zai-individual-coding-plan/GLM-5.3-Flash`) |
 | `{project}-developer.md` | GLM-5.3-Flash / `thoughtLevel: high` |
 | `{project}-reviewer.md` | GLM-5.3 / `thoughtLevel: high` |
 | `{project}-tester.md` | GLM-5.3-Flash / `thoughtLevel: high` |
@@ -1247,6 +1253,7 @@ Phase 승인 게이트, .zcode/progress.json, _workspace 산출물 규칙을 검
 5. 같은 요청의 새 작업을 `/{project_command_prefix}_orchestrator_lite`로 실행하고 Flash 메인 모델 및 Lite 프로필이 선택되는지 확인한다.
 6. 리뷰·테스트, `_workspace/` 산출물, `.zcode/progress.json` 갱신을 확인한다.
 7. 실패한 부분은 `HARNESS_CONVENTION.md`와 `SKILL.md`를 기준으로 수정하고 재검증한다.
+8. 서브에이전트의 실제 추론 수준을 모델 I/O 로그로 실측한다: `grep -o '"effort":"[a-z]*"' ~/.zcode/cli/rollout/model-io-sess_subagent_agent_*.jsonl | sort | uniq -c`. 정의한 `thoughtLevel`과 다르면 frontmatter `model`이 탈락한 것이므로 슬래시 형식인지 점검한다(§1.4 제약 3).
 
 #### 8단계: Git 관리
 
@@ -1415,7 +1422,7 @@ Phase 승인 게이트, .zcode/progress.json, _workspace 산출물 규칙을 검
 ```markdown
 ---
 description: "{프로젝트} 개발 하네스 실행 — 일반 모드"
-model: glm-5.3
+model: "account:zai-individual-coding-plan/GLM-5.3"
 skills: "{project}-orchestrator"
 ---
 
@@ -1430,7 +1437,7 @@ skills: "{project}-orchestrator"
 ```markdown
 ---
 description: "{프로젝트} 개발 하네스 실행 — 절약 모드"
-model: glm-5.3-flash
+model: "account:zai-individual-coding-plan/GLM-5.3-Flash"
 skills: "{project}-orchestrator"
 ---
 
@@ -1446,7 +1453,7 @@ skills: "{project}-orchestrator"
 ---
 name: "{project}-reviewer"
 description: "{프로젝트} 코드 리뷰 전문가. 비즈니스 규칙, 보안, 권한, 데이터 무결성을 검증한다."
-model: glm-5.3
+model: "account:zai-individual-coding-plan/GLM-5.3"
 thoughtLevel: high
 color: blue
 injectAgentsMd: true
@@ -1459,7 +1466,7 @@ PRD.md와 AGENTS.md를 기준으로 구현을 독립 검토한다. 코드를 직
 수정 제안을 포함한다. 완료 시 결과를 `_workspace/05_review.md`에 저장한다.
 ```
 
-> `model` 값은 사용자 스크린샷에 표시된 내장 모델명에 대응하여 `glm-5.3` / `glm-5.3-flash`로 기입했다. 스크린샷에는 내부 ID가 표시되지 않으므로 최초 실행 시 각 명령어·서브에이전트가 실제로 로드되는지 검증한다. `thoughtLevel`은 선택한 모델이 지원하는 수준만 사용한다.
+> `model` 값은 2026-10-29 실측으로 확정한 Z.ai Individual Coding Plan의 실제 ID 형식(`providerId/modelId`)으로 기입했다. 다른 요금제·PC에서는 해당 계정의 실제 ID로 수정한다. bare 이름(`glm-5.3-flash`)은 `model`·`thoughtLevel`이 조용히 탈락하므로 금지다(§1.4 제약 3). `thoughtLevel`은 선택한 모델이 지원하는 수준만 사용하며, 적용 여부는 §9.2 7단계 실측 명령으로 검증한다.
 
 ---
 
@@ -1473,3 +1480,5 @@ PRD.md와 AGENTS.md를 기준으로 구현을 독립 검토한다. 코드를 직
 > | 2026-10-28 | 4.0.1 | 사용자 스크린샷의 Z.ai 모델 표시명(GLM-5.3 / GLM-5.3-Flash)을 반영해 모델 값과 실행 검증 절차 구체화. ZCode 명령어 파일명 규칙에 맞게 예시를 밑줄 기반으로 수정 |
 > | 2026-10-29 | 4.0.2 | 실측 기반 수정: 서브에이전트 정의 위치를 플러그인 `agents/` → 프로젝트 `.zcode/agents/`로 변경(플러그인 `agents` 필드 미실행 확인), marketplace.json `pluginRoot` 미적용 확인으로 `source`를 마켓플레이스 루트 기준 상대경로로 수정, 명령어·에이전트 발견 시점(세션 시작 스캔)을 검증 절차에 명시 |
 > | 2026-10-29 | 4.0.3 | 플러그인·마켓플레이스 경로 폐기 — 플러그인에는 워크스페이스 스코프가 없어 전역 적용됨이 실측됨(§1.4 제약 8). 하네스 구성을 워크스페이스 스코프 리소스(`.zcode/{commands,skills,agents}`)로 전면 전환: marketplace.json·plugin.json 예시 삭제, 등록 절차(구 5단계)를 발견 확인으로 교체, 다른 PC 복제 절차에서 마켓플레이스 등록 단계 제거. git clone만으로 하네스 완결 |
+> | 2026-10-29 | 4.0.4 | **모델 ID 형식 실측 확정** — frontmatter `model`은 `providerId/modelId` 슬래시 형식 필수(§1.4 제약 3). bare 이름(`glm-5.3-flash`)은 오류 없이 `model`·`thoughtLevel`이 탈락하고 부모 세션 모델·추론 수준을 상속함이 확인됨(`thoughtLevel: high` 지정에도 서브에이전트 요청 12건 `effort=max` 실측). §1.6·§4.2·§9.2 6·7단계·부록 C에 슬래시 형식·실측 검증 명령(model-io 로그 effort·profileSnapshot.modelSelection) 반영 |
+> | 2026-10-29 | 4.0.5 | **위임 실측 운영 규칙 정식화** — Phase 3·5·7 서브에이전트 스폰 직후 모델 I/O 로그로 프로필·모델·effort를 실측해 `_workspace/00_delegation_log.md`에 기록(§4.6 위임 실측 행·§8.1 산출물 표·메타 스킬 §3.5). model-io 로그의 임시 특성(스폰 직후만 존재)과 산출물의 작업 단위 로테이션(§8.2)으로 무한 누적 없음을 명시 |

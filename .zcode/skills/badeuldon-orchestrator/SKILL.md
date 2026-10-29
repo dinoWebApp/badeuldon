@@ -23,6 +23,7 @@ description: 받을돈(BadeulDon) 개발 오케스트레이터. 신규 기능 �
 3. **작업 단위 위임(§4.6)**: 모든 위임은 Agent tool로 신규 서브에이전트를 호출한다. 서브에이전트는 격리된 컨텍스트에서 실행되므로 지시서는 자급자족해야 한다 — 목적·범위·Rule ID·파일 경로·`_workspace/` 산출물 경로·기대 산출물을 명시한다. 후속 작업(리뷰 반영 수정, 재테스트)은 이전 산출물(`05_review.md`·`07_test_report.md`)을 지시서에 첨부해 새로 호출한다.
 4. **모드 프로필 준수**: 일반 모드는 `-developer`/`-reviewer`/`-tester`만, 절약 모드는 `-developer-lite`/`-reviewer-lite`/`-tester-lite`만 호출한다. 동일 파일을 수정하는 Developer 작업은 병렬화하지 않는다.
 5. **진행 상태 동기화**: 서브에이전트 결과 수신 직후의 첫 도구 호출로 `.zcode/progress.json` Phase 완료 상태를 기록하고 세션 todo를 세트로 갱신한다(누적 누락 방지).
+6. **위임 실측**: Phase 3·5·7에서 서브에이전트 스폰 직후 모델 I/O 로그(`~/.zcode/cli/rollout/model-io-sess_subagent_agent_*.jsonl`의 `effort`)로 스폰된 프로필·모델·추론 수준이 정의와 일치하는지 실측해 `_workspace/00_delegation_log.md`에 한 줄 기록한다. model-io 로그는 임시 파일이라 스폰 직후 측정이 필수다. 불일치 시 자동 재위임하지 않고 기록 후 최종 보고에 명시한다(규약 §4.6·§8.1).
 
 ## 서브에이전트 호출 (Agent tool)
 
@@ -62,7 +63,7 @@ PRD.md·AGENTS.md를 **구현보다 먼저** 갱신한다. "수정 사항 없음
 
 ## Phase 3 — 구현 (Developer 위임)
 
-ARCHITECTURE_CONVENTION 레이어 순서 준수 지시: 마이그레이션 → Model(+enum·scope·검증) → Form/Service(필요 시) → Controller → View(ERB/Hotwire) → Routes → Job(필요 시). 산출물: 소스 + `_workspace/03_implementation.md` (변경 파일 목록·요약·Rule ID별 구현 매핑).
+ARCHITECTURE_CONVENTION 레이어 순서 준수 지시: 마이그레이션 → Model(+enum·scope·검증) → Form/Service(필요 시) → Controller → View(ERB/Hotwire) → Routes → Job(필요 시). 산출물: 소스 + `_workspace/03_implementation.md` (변경 파일 목록·요약·Rule ID별 구현 매핑). 스폰 직후 위임 실측(하드 룰 6) — 프로필·모델·effort 일치를 `_workspace/00_delegation_log.md`에 기록.
 
 ## Phase 4 — 코드 정리 (오케스트레이터 직접, 기계적 검증)
 
@@ -78,7 +79,7 @@ bin/rails db:migrate              # 마이그레이션 정합성 (스키마 변�
 
 ## Phase 5 — 코드 리뷰 (Reviewer 위임)
 
-검증 기준: ① PRD Rule ID 정합성(최우선) ② 데이터 무결성·보안(토큰 엔트로피·멱등성·noindex·권한) ③ 아키텍처 준수(의존 방향·계층 규칙). 심각도: BLOCKER > CRITICAL > WARNING. 산출물: `_workspace/05_review.md`.
+검증 기준: ① PRD Rule ID 정합성(최우선) ② 데이터 무결성·보안(토큰 엔트로피·멱등성·noindex·권한) ③ 아키텍처 준수(의존 방향·계층 규칙). 심각도: BLOCKER > CRITICAL > WARNING. 산출물: `_workspace/05_review.md`. 스폰 직후 위임 실측(하드 룰 6) — `_workspace/00_delegation_log.md` 기록.
 
 - APPROVED → Phase 7
 - CRITICAL/WARNING → Phase 6 → Phase 7 (재리뷰 불필요)
@@ -90,7 +91,7 @@ bin/rails db:migrate              # 마이그레이션 정합성 (스키마 변�
 
 ## Phase 7 — 테스트 (Tester 위임)
 
-Rule ID별 정상/경계/예외 시나리오 → minitest 작성·실행. 테스트 코드 자체 정리(미사용 정의·포맷)는 Tester 책임. 실패 시 원인 분류: 코드 버그 → Phase 6, 테스트 오류 → Phase 7 재실행. 산출물: 테스트 파일 + `_workspace/07_test_report.md`.
+Rule ID별 정상/경계/예외 시나리오 → minitest 작성·실행. 테스트 코드 자체 정리(미사용 정의·포맷)는 Tester 책임. 실패 시 원인 분류: 코드 버그 → Phase 6, 테스트 오류 → Phase 7 재실행. 산출물: 테스트 파일 + `_workspace/07_test_report.md`. 스폰 직후 위임 실측(하드 룰 6) — `_workspace/00_delegation_log.md` 기록.
 
 ## Phase 8 — 실행 검증 (오케스트레이터 직접)
 
@@ -103,11 +104,11 @@ bin/rails db:prepare && bin/dev 백그라운드 실행 → 시작 로그 확인
 
 ## Phase 9 — 완료 보고 (오케스트레이터)
 
-변경 파일 요약, 리뷰·테스트·실행검증 결과, 실행 모드·호출된 프로필 명시 → AGENTS.md "구현 진행 상황" 갱신 → `progress.json` 리셋(`currentPhase: null`) → Git 커밋은 사용자 요청 시 `badeuldon-git-deploy` 스킬로.
+변경 파일 요약, 리뷰·테스트·실행검증 결과, 실행 모드·호출된 프로필·위임 실측 결과(`00_delegation_log.md` 요약, 불일치 건 명시) → AGENTS.md "구현 진행 상황" 갱신 → `progress.json` 리셋(`currentPhase: null`) → Git 커밋은 사용자 요청 시 `badeuldon-git-deploy` 스킬로.
 
 ## 데이터 흐름
 
-Phase 간 데이터는 `_workspace/` 파일로 전달: `01_plan.md` → `02_prd_update.md` → `03_implementation.md` → `05_review.md` → `07_test_report.md` → `08_run_report.md`. 서브에이전트는 격리 컨텍스트에서 실행되므로, 지시서에 필요한 산출물 파일을 함께 읽도록 지시하고 `_workspace/`가 있으면 이전 산출물을 읽고 중복 작업을 피하게 한다.
+Phase 간 데이터는 `_workspace/` 파일로 전달: `00_delegation_log.md`(위임 실측 기록) → `01_plan.md` → `02_prd_update.md` → `03_implementation.md` → `05_review.md` → `07_test_report.md` → `08_run_report.md`. 서브에이전트는 격리 컨텍스트에서 실행되므로, 지시서에 필요한 산출물 파일을 함께 읽도록 지시하고 `_workspace/`가 있으면 이전 산출물을 읽고 중복 작업을 피하게 한다.
 
 ## 에러 핸들링
 

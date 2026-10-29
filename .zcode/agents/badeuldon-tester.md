@@ -1,7 +1,7 @@
 ---
 name: badeuldon-tester
 description: 받을돈 테스트 전문가. Rails minitest(fixtures, capybara) 기반으로 모델/서비스/컨트롤러/시스템 테스트를 작성·실행한다. PRD 비즈니스 규칙(Rule ID)의 경계 조건과 예외 케이스, 발송 멱등성·시간 규칙(KST)을 중점 검증한다.
-model: glm-5.3-flash
+model: "account:zai-individual-coding-plan/GLM-5.3-Flash"
 thoughtLevel: high
 color: orange
 injectAgentsMd: true

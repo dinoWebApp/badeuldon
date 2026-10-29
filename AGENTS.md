@@ -157,6 +157,7 @@ bin/jobs             # Solid Queue 잡 프로세스 (웹과 별도 실행)
 | 2026-10-29 | omp → ZCode Desktop 하네스 전환 | 전체 | 런타임 전환 (HARNESS_CONVENTION v4.0.1) — 명령어 2개·공통 스킬·프로필 6개·로컬 플러그인 marketplace·`.zcode/progress.json` 도입, omp 파일 제거 |
 | 2026-10-29 | 플러그인 설치/명령어 발견 실측 수정 | 하네스 | ① marketplace.json `pluginRoot` 미지원 → 루트 기준 상대경로 ② 서브에이전트 프로필을 `.zcode/agents/`로 이동(플러그인 agents 필드는 미실행 실측) — 새 세션에서 명령어·에이전트 발견 확인 필요 |
 | 2026-10-29 | 플러그인 → 워크스페이스 전용 리소스 전환 | 하네스 | 플러그인이 워크스페이스 스코프 없이 전역 적용됨이 실측됨(HARNESS_CONVENTION v4.0.3) — 명령어를 `.zcode/commands/`, 스킬을 `.zcode/skills/`로 이동, 플러그인 언인스톨·마켓플레이스 등록 제거, `.zcode/harness-marketplace/` 삭제. git clone만으로 하네스 완결 |
+| 2026-10-29 | 규약 v4.0.5 동기화 | 하네스 | ① 명령어·프로필 `model`을 `providerId/modelId` 슬래시 형식으로 전환 — bare 이름은 model·thoughtLevel이 조용히 탈락(실측, §1.4 제약 3) ② Phase 3·5·7 위임 실측 절차·`_workspace/00_delegation_log.md` 신설(§4.6·§8.1) |
 
 ## 배포 인프라 (운영 — 2026-10-14 구성 · **첫 배포 완료 7f9be0e**)
 

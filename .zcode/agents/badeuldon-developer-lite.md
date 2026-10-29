@@ -1,7 +1,7 @@
 ---
 name: badeuldon-developer-lite
 description: 받을돈 기능 구현 전문가. Rails 8.1(ERB + Hotwire + Tailwind, minitest) 기반의 마이그레이션, 모델, 서비스/폼/쿼리, 컨트롤러, 뷰, 잡를 PRD 및 ARCHITECTURE_CONVENTION 규칙에 맞게 생성/수정한다.
-model: glm-5.3-flash
+model: "account:zai-individual-coding-plan/GLM-5.3-Flash"
 thoughtLevel: low
 color: green
 injectAgentsMd: true
