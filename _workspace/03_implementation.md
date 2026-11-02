@@ -1,172 +1,141 @@
-# 03_implementation.md — 토스 → 포트원(KG이니시스) 결제 게이트웨이 전환
+# 03_implementation
 
-- **일자**: 2026-10-15
-- **Rule ID**: PLAN-5 (§6.10), PLAN-2/4 연동부, §6.19 EXT — PRD v0.21
-- **범위**: 래퍼 재작성 · 컬럼 rename · 서비스 · 웹훅 · UI SDK 교체 (크린 컷오버)
+## 3a 랜딩
 
----
+### 변경 파일
 
-## 1. API 매핑 표 (토스 → 포트원)
-
-| 구분 | 기존 (토스페이먼츠 코어 V1) | 신규 (포트원 V2 — `api.portone.io`) |
-|:---|:---|:---|
-| 인증 | Basic Auth (secret_key) | `Authorization: PortOne {api_secret}` |
-| 공통 파라미터 | — | `storeId` (credentials `portone.store_id`) |
-| 멱등키 | orderId 선기록(주문 UUID) | `Idempotency-Key: "{uuid}"` (POST, RFC 8941 따옴표) + paymentId 재사용 거부 |
-| 타임아웃 | 10초 | 60초 (포트원 권장 — PG 응답 지연 고려) |
-| 단건 승인 | `POST /v1/payments/confirm` (orderId·paymentKey·amount) | `POST /payments/{paymentId}/confirm` (storeId·paymentToken) |
-| 빌링키 발급 | `POST /v1/billing/authorizations/issue` (customerKey·authKey) | `POST /billing-keys/confirm` (storeId·billingIssueToken·channelKey·customer{id}) — 응답 `billingKey` |
-| 자동결제 차감 | `POST /v1/billing/{customerKey}` | `POST /payments/{paymentId}/billing-key` (billingKey·channelKey·orderName·amount{total}·currency=KRW·customer{id}) |
-| 결제 조회 | `GET /v1/payments/{paymentKey}` | `GET /payments/{paymentId}?storeId=` |
-| 결제 취소 | (미사용 — 콘솔 수동) | `POST /payments/{paymentId}/cancel` (storeId·reason) — 신규 |
-| 오류 본문 | `{ code, message }` | `{ type, message }` (PG 기인 시 `pgCode`·`pgMessage`, `failure` 객체) → `PortOne::ApiError(status·code·message·pg_code·pg_message)` |
-| 결제 상태 | DONE·CANCELED·ABORTED·EXPIRED… | PAID·CANCELLED·PARTIAL_CANCELLED·CONSOLE_CANCELLED·FAILED·READY·PAY_PENDING… |
-| 웹훅 이벤트 | `paymentStatusChanged` | `Transaction.Paid`(승인)·`Transaction.Cancelled`(취소)·`Transaction.Failed`(실패)·`Transaction.PartialCancelled`(부분취소) — 플랜 문구의 TransactionConfirmed/Cancelled/Failed에 해당하는 [포트원 웹훅 v2(2024-04-25) 공식 type](https://developers.portone.io/opi/ko/integration/webhook/readme-v2?v=v2). 그 외(Ready·PayPending·CancelPending·BillingKey.*·미지원 신규 type)는 규격대로 흡수 |
-| UI SDK | `js.tosspayments.com/v1/payment` (리다이렉트 successUrl/failUrl) | `cdn.portone.io/v2/browser-sdk.js` (Promise 응답 — paymentId·paymentToken·billingIssueToken을 JS가 콜백으로 전달) |
-| 채널 | — | `channel_key_normal`(INIpayTest — 수금 패스 단건)·`channel_key_billing`(INIBillTst — 구독 빌링) |
-
-**매핑 원칙**: 포트원 paymentId = 서버가 채번한 주문 번호(`pg_order_id`)를 그대로 사용한다(위젯·빌링키 결제 공통). 따라서 웹훅의 `data.paymentId`로 곧바로 주문 조회가 가능하고, 토스식 `paymentKey` 별도 보관은 `pg_payment_id` 스냅샷으로 대체한다.
-
-**수동 승인 토큰**: SDK 성공 응답의 `paymentToken`은 수동 승인 채널에서만 온다(스키마 optional). 있으면 승인 API로 확정, 없으면(즉시 승인 채널) `get_payment` 재조회로 PAID 확정 — 기존 이슈 #1 재확인 패턴 재사용.
-
-## 2. 컬럼 rename 표 (데이터 유지 — `rename_column`)
-
-| 테이블 | 기존 | 신규 | 비고 |
-|:---|:---|:---|:---|
-| orders | `toss_order_id` (NOT NULL, unique) | `pg_order_id` | 서버 채번 UUID — 포트원 paymentId로 사용 |
-| orders | `toss_payment_key` | `pg_payment_id` | 포트원 결제 ID 스냅샷 |
-| orders | `toss_billing_key` | `pg_billing_key` | |
-| orders | index `index_orders_on_toss_order_id` | `index_orders_on_pg_order_id` | rename_index |
-| orders | index `index_orders_on_toss_payment_key` | `index_orders_on_pg_payment_id` | rename_index |
-| subscriptions | `toss_customer_key` | `pg_customer_key` | 포트원 customer.id (부분 고유 인덱스 유지) |
-| subscriptions | `toss_billing_key` | `pg_billing_key` | |
-| subscriptions | index `idx_subscriptions_on_toss_customer_key_uniq` | `idx_subscriptions_on_pg_customer_key_uniq` | WHERE 절 포함 — drop+create로 재정의(§6 참조) |
-
-마이그레이션: `db/migrate/20261015000003_rename_toss_columns_to_pg.rb` (up/down 왕복 실측 완료 — §7)
-
-## 3. 변경 파일
-
-### 신규
-| 파일 | 내용 |
+| 파일 | 변경 |
 |:---|:---|
-| `app/services/port_one/client_service.rb` | 포트원 V2 래퍼 — confirm·빌링키 발급·차감·조회·취소. 순수 Ruby(AR 무의존, stub 가능), Idempotency-Key(POST), 타임아웃 60초 |
-| `app/services/port_one/api_error.rb` | status·code·message·pg_code·pg_message + `ambiguous?`(TIMEOUT/CONNECTION) |
-| `app/controllers/webhooks/portone_controller.rb` | `POST /webhooks/portone` — 비인증·CSRF 면제·항상 200. 이벤트 type 분기 → get_payment 재조회로 무결성 확정 → Order 상태 반영(pending→paid는 상품별 확정 동반: 패스 발급·settle_renewal) |
-| `app/javascript/controllers/portone_billing_controller.js` | `requestIssueBillingKey({storeId, channelKey, billingKeyMethod:"CARD", customer{customerId}})` → billingIssueToken을 card_callback으로 전달. SDK 미로드 시 무영향(테스트 환경 스텁 처리) |
-| `app/javascript/controllers/portone_payment_controller.js` | `requestPayment({storeId, channelKey, paymentId, orderName, totalAmount, currency:"KRW", payMethod:"CARD"})` → paymentId·paymentToken(수동 승인) 또는 code·message(실패)를 callback으로 전달. SDK 미로드 시 무영향 |
-| `test/test_helpers/fake_portone_client.rb` | ClientService 테스트 대역(5 메서드 — cancel 포함) |
-| `test/test_helpers/portone_stubbing.rb` | `with_portone_client`·`with_http_transport` |
-| `test/test_helpers/fake_toss_client.rb`·`toss_stubbing.rb` | **[Phase 7 대기 로드 호용]** 삭제된 토스 이름으로 기존 테스트 파일이 로드되도록 별칭/위임만 제공(`FakeTossClient = FakePortOneClient`, `with_toss_client` → `with_portone_client`). 기존 테스트 파일 수정 금지 제약 하에 러너 전체 중단(LoadError)을 막기 위한 최소 파일 — Phase 7 테스트 갱신 시 제거 |
+| `app/views/landing/index.html.erb` | 섹션 렌더 순서 갱신(scenarios·control 신규 삽입) + DESIGN-8 배경 리듬 주석 |
+| `app/views/landing/_hero.html.erb` | 히어로 좌우 비대칭 분할 재구성 + 청구서 뷰어 정적 목업(우측) |
+| `app/views/landing/_message_samples.html.erb` | 버블 파셜 추출 + 스텝 페이저(시퀀스 타임라인·단계 n/4 인디케이터) 추가 |
+| `app/views/landing/_message_bubble.html.erb` | 신규 — LP-5 카톡 버블 마크업 파셜화(markup 동일 유지) |
+| `app/views/landing/_scenarios.html.erb` | 신규 — LP-14 "모든 상황, 자동으로" 시나리오 카드 4종(2×2) + 미니 메시지 목업 |
+| `app/views/landing/_control.html.erb` | 신규 — LP-15 "자동이되, 통제는 사용자" 3항목 카드 |
+| `app/views/landing/_pain.html.erb` | 카드 hover 디테일 추가(DESIGN-6) |
+| `app/views/landing/_positioning.html.erb` | 섹션 배경 cream 전환, 내부 카드 white + hover |
+| `app/views/landing/_pricing.html.erb` | 섹션 배경 white 전환(배경 리듬) |
+| `app/views/landing/_faq.html.erb` | 섹션 배경 cream 전환(배경 리듬) |
 
-### 수정
-| 파일 | 내용 |
+기능·라우트·컨트롤러·모델 변경 없음. 새 데이터 조회 없음(전부 정적 마크업).
+
+### Rule ID 매핑
+
+- **LP-14** — `_scenarios.html.erb`: 약속 재조정(PROMISE-3)·열람 분기(REM-4·SHARE-5)·부분입금(PAY-2)·입금 회신 정지(PROMISE-7) 4카드, benefit 문장 + 상황별 미니 버블 목업. 미니 목업은 실제 알림톡 버블(#FEE500)과 구분되는 중립 스타일 + "상황 미리보기" 라벨(LP-5 실발신 문구와 혼동 방지, 테스트의 FEE500 버블=4개 불변).
+- **LP-15** — `_control.html.erb`: 발송 당일 아침 사전 알림·원클릭 마감/보류(REM-11), 건당 5통·14일 자동 종료(REM-12·PLAN-3), 발송 기록 보존(P4). 배지·인라인 SVG 아이콘.
+- **LP-1** — `_hero.html.erb`: Q6 헤드라인·서브카피·주/보조 CTA 문구·링크 불변. 레이아웃만 lg:grid-cols-12 비대칭 분할(좌 6 / 우 6 col-start-7), 모바일 세로 스택. 우측 뷰어 목업은 a·button 요소 미사용(span 스타일링), SURF-4 ①→② 진입 링크 불변.
+- **LP-5** — `_message_samples.html.erb` + `_message_bubble.html.erb`: 4단계 버블 문구 원문 불변, 시퀀스 타임라인 페이저 + 카드당 "단계 n/4" 인디케이터(순수 CSS, JS/Stimulus 미사용).
+- **DESIGN-8** — 섹션 배경 리듬(hero gradient → pain white → how cream → features white → scenarios #f4f2ea → samples cream → control white → positioning cream → pricing white → faq cream → closing white), 카드 hover 섀도 승격(sm→md, 200ms), 라운드 2xl 유지, 토큰 내 색상(stone·emerald·cream·#f4f2ea)만 사용.
+- **SURF-4/6** — 신규 섹션·목업에 앵커·버튼 인터랙션 없음, 쿼리 없음, 랜딩 앵커 집합 불변(가입 2 + 로그인 1 + 법적 고지 3).
+- **LP-12/P5** — 신규 문구 전체 과장·수치 인용(5통 등 규칙 사실 제외)·공포 조장 없음, "100% 보장"·"마지막 알림" 등 금지 표현 미사용(테스트 회귀 통과).
+
+### 새로 추가한 문구 전문 (Reviewer LP-12 검증용)
+
+**LP-14 섹션**
+- 섹션 리드: "일정이 어긋나거나, 일부만 받거나, 상황이 달라져도 — 시퀀스는 그에 맞춰 조용히 이어갑니다."
+- ① 약속 재조정: "거래처가 '이번 주까지'라고 답하면, 리마인더 일정이 그 약속에 맞춰 다시 짜입니다." / "등록된 약속일 하루 전에 안내하고, 약속이 지나가면 다음 날 한 번 다시 여웁니다." / 목업: "약속해주신 입금 예정일이 내일입니다. 오늘까지 확인 부탁드립니다."
+- ② 열람 분기: "열어본 거래처와 아직 못 본 거래처, 받는 안내가 다릅니다." / "아직 못 연 거래처에게는 확인 요청이, 이미 열어본 거래처에게는 입금 안내가 갑니다." / 목업: "'오즈디자인'의 입금이 아직 확인되지 않았습니다. — 확인하신 내역 기준으로 안내드립니다"
+- ③ 부분입금: "일부만 받았어도, 잔액 기준으로 조용히 이어갑니다." / "받은 금액은 기록에 반영되고, 남은 잔액 기준으로만 안내가 이어집니다." / 목업: "일부 입금이 확인되었습니다. 남은 잔액 기준으로 안내드리겠습니다."
+- ④ 입금 회신: "거래처가 '이미 입금했어요'를 누르면 발송이 즉시 멈춥니다. 마감은 당신의 확인으로만." / "회신은 발행인에게 전달되고, 수금 완료 처리는 발행인의 확인으로 이뤄집니다." / 목업: "'이미 입금했어요' 응답을 받았습니다. 자동 발송을 멈추고 발행인님께 전달드립니다."
+- 목업 라벨: "상황 미리보기 · {약속일 하루 전|열어본 거래처에게|부분입금 확인 후|입금 회신 직후}"
+
+**LP-15 섹션**
+- 섹션 리드: "자동 발송이라고 던져 두는 게 아닙니다. 보내기 전에 알고, 정해진 만큼만 보내고, 다 기록으로 남깁니다."
+- ① "발송 당일 아침, 미리 알려드립니다" — "자동 발송이 예정된 날에는 당일 아침에 알려드립니다. 원클릭으로 그날 발송을 마감하거나 보류할 수 있습니다." (배지: 사전 알림)
+- ② "청구 건당 최대 5통, 14일 후 자동 종료" — "시퀀스는 청구 건당 최대 5통(대체 SMS 포함)으로 제한되고, 발행 후 14일이 지나면 자동으로 종료됩니다. 그 이상은 발송되지 않습니다." (배지: 발송 상한)
+- ③ "모든 발송은 기록으로 남고 지워지지 않습니다" — "보낸 모든 안내는 발송 이력으로 남습니다. 언제 무엇을 보냈는지 대시보드에서 그대로 확인할 수 있습니다." (배지: 기록 보존)
+
+**히어로 뷰어 목업(표시 전용)**: "받을돈을 통해 오세안님이 보낸 청구서입니다" / 청구번호 INV-2026-0042 · 만기일 2026-11-05 / 품목 2행(1,500,000원·500,000원) / 청구 총액 2,200,000원 / 응답 버튼(표시 전용): "이미 입금했어요"·"입금 예정일 알리기" / 고지문: VIEW-5 원문 / 떠있는 배지: "열람을 확인했어요"
+
+### 검증 결과
+
+- `bin/rubocop -a` — 136 files, no offenses
+- `bin/rails zeitwerk:check` — 통과
+- `bin/rails test test/controllers/landing_controller_test.rb` — 21 runs, 271 assertions, 0 failures (기존 assertion 무수정 통과)
+
+## 3b /app 대시보드
+
+### 변경 파일
+
+| 파일 | 변경 |
 |:---|:---|
-| `db/migrate/20261015000003_rename_toss_columns_to_pg.rb` | 컬럼·인덱스 rename (§2) |
-| `app/models/order.rb` | `pg_order_id` 검증·주석 |
-| `app/models/subscription.rb` | `pg_customer_key` 검증·before_create, `activate!`/`expire!`의 `pg_billing_key` |
-| `app/services/subscriptions/upgrade_service.rb` | PortOne 클라이언트 주입, `issue_token:` 파라미터, `portone_channel_key_billing` 헬퍼(발급·차감 모두 정기결제 채널), charge 시그니처(payment_id·channel_key·customer_id·order_name), `pg_*` 저장, 결제 ID 멱등 주석 |
-| `app/services/orders/purchase_service.rb` | `confirm_payment(payment_id:, payment_token:)`, 토큰 없으면 get_payment 재확인, `PendingApprovalError`(승인 전 — pending 유지·웹훅 회복), 모호 실패 재확인 합류 유지 |
-| `app/services/orders/fulfill_pass_service.rb` | `payment_id:` 파라미터, `pg_payment_id` 저장 |
-| `app/controllers/app/billings_controller.rb` | `pg_order_id` 체크아웃 조회, `@portone_store_id`·`@portone_channel_key_normal`·`@portone_channel_key_billing` 적재 |
-| `app/controllers/app/orders_controller.rb` | callback이 포트one 위젯 결과(code·paymentId·paymentToken) 수신, 소유권 격리 `pg_order_id` |
-| `app/controllers/app/subscriptions_controller.rb` | `auth_key` → `issue_token`(빌링키 발급 토큰) |
-| `app/jobs/subscription_trial_expiry_job.rb` | `pg_billing_key: nil` |
-| `app/jobs/subscription_renewal_job.rb` | 주석 갱신 |
-| `config/routes.rb` | `/webhooks/toss` 제거 → `/webhooks/portone` 추가 |
-| `config/initializers/inflections.rb` | `inflect.acronym "PortOne"` — `portone_controller.rb` → `Webhooks::PortOneController` (zeitwerk 정규화) |
-| `app/views/app/billings/show.html.erb` | PortOne SDK 스크립트, portone-billing 컨트롤러 데이터 속성(storeId·channelKey·customerId·callbackUrl), 수동 등록 폼 `issue_token`, 안내 문구 |
-| `app/views/app/billings/_checkout.html.erb` | portone-payment 컨트롤러 데이터 속성, `pg_order_id` |
-| `test/fixtures/orders.yml`·`subscriptions.yml` | 속성 키만 rename(toss_*→pg_*) — 값 무변경. `fixtures :all`이 모든 테스트에서 전체 fixture를 적재하므로 미갱신 시 결제 무관 테스트까지 전부 FixtureError로 붕괴 → §4 실패 목록의 의미가 소실되어 갱신(테스트 로직 무변경) |
-| `PRD.md` | §6.10 PLAN-5 본문 + §6.19 결제 행 — 포트원 전환 반영(02_prd_update.md 명시분. 버전 행만 v0.21로 올라가 있고 본문이 미반영 상태였음) |
+| `app/views/app/dashboards/show.html.erb` | DASH-1 히어로 카드 위계(미수 총액 sm:col-span-2·text-5xl·emerald 액센트 링, 보조 2종 text-3xl), DASH-2 카드형 리스트(아이콘 타일·상태 뱃지·우측 액션 버튼), 빈 상태 일러스트 아이콘, DESIGN-8 focus 링·150ms 트랜지션 |
+| `app/helpers/app/base_helper.rb` | `app_nav_link_classes` 활성 상태 딥 그린 인디케이터 바(before: 의사요소)·focus-visible 링 추가, `dash_action_badge(kind)`·`dash_action_icon_path(kind)` 신설(DASH-2 뱃지·아이콘 — 뷰 표현 로직 헬퍼화) |
+| `app/views/layouts/app.html.erb` | 헤더 프로필 칩(첫 글자 아바타+표시명), 로그아웃·해시버거 focus-visible 링·duration-150, 사이드바 nav 여백 리듬(px-3 py-4) |
+| `app/views/app/invoices/_invoice.html.erb` | 행 hover 디테일(stone-50/80·duration-150), 청구번호 링크 focus-visible 링 |
 
-### 삭제 (크린 컷오버)
-| 대상 | 비고 |
+컨트롤러·모델·라우트·쿼리 변경 없음. 새 데이터 조회 없음. DASH-4 정렬·스코프 불변. 레이아웃 meta(noindex) 미접촉.
+
+### Rule ID 매핑
+
+- **DASH-1** — 요약 3종 위계: 미수 총액 히어로 카드(최상위·큰 tabular numerals), 연체·7일 내 만기는 보조 카드. 빈 상태 문구·`—` 슬롯·0원 미표기 규칙 유지.
+- **DASH-2** — 카드형 리스트: 유형별 아이콘(마감 체크 녹색 타일·문의 대화 주황 타일) + DESIGN-2 상태 뱃지(마감 대기 green/답변 대기 orange) + 우측 액션 버튼(sm:flex-row). 문구·링크 불변.
+- **DASH-4** — 정렬(연체일 내림차순)·상위 5건 불변, 행 hover·연체일 주황 강조·링크 focus 링만 개선.
+- **DESIGN-2** — 상태색 3종(연체 주황/대기 중립/완료 녹색)만 사용, 신규 색상 없음.
+- **DESIGN-3** — tabular-nums 유지·히어로 수치 타이포 확대(sm:text-5xl).
+- **DESIGN-5** — 액션 유형 시각화(아이콘 타일·뱃지), 목록 상태 뱃지 체계 유지.
+- **DESIGN-8** — hover 섀도 승격(sm→md)·focus-visible 딥 그린 링·150~200ms 트랜지션 — 3a 랜딩과 동일 문법.
+- **SURF-3** — 레이아웃 head/meta 미접촉.
+
+### 3a와의 일관성 결정
+
+- 트랜지션 duration-150, focus-visible outline-emerald-700, 카드 rounded-2xl·섀도 sm→md hover 승격 — 3a 랜딩 카드 문법 그대로.
+- 표면②는 DESIGN-4(정보 밀도·장식 최소)에 따라 배경 톤 변주 없이(cream 유지) 카드·뱃지·타이포 위계로만 승격. 아이콘은 랜딩 LP-3(step_icon_path)과 같은 인라인 SVG stroke 문법 재사용.
+
+### 검증 결과
+
+- `bin/rubocop -a` — 136 files, no offenses
+- `bin/rails zeitwerk:check` — 통과
+- `bin/rails test test/controllers/app/` — 164 runs, 1155 assertions, 0 failures (기존 assertion 무수정 통과 — 요약 카드 수치·액션 문구·링크 경로·nav aria 구조 불변)
+
+## 3c 뷰어
+
+### 변경 파일
+
+| 파일 | 변경 |
 |:---|:---|
-| `app/services/toss_payments/` (client_service.rb·api_error.rb) | PortOne 래퍼로 대체 |
-| `app/controllers/webhooks/toss_controller.rb` | PortOne 웹훅으로 대체 |
-| `app/javascript/controllers/toss_billing_controller.js`·`toss_payment_controller.js` | PortOne 컨트롤러로 대체 |
-| `test/controllers/webhooks/toss_controller_test.rb` | 대상 컨트롤러 삭제에 따른 동반 삭제(존재하지 않는 라우트·컨트롤러 테스트) |
-| `test/services/toss_payments/client_service_test.rb` | 대상 래퍼 삭제에 따른 동반 삭제 |
-| `test/test_helpers/fake_toss_client.rb`·`toss_stubbing.rb` | PortOne 버전으로 갱신(§3 신규 참조) — 위 로드 호용 파일명으로 재생성 |
-| `POST /webhooks/toss` 라우트 | `/webhooks/portone`으로 대체 |
+| `app/views/viewer/show.html.erb` | 전부 class 수준 조정 — 헤더 VIEW-2 표기 위계(워드마크 축소·하단 구분선), 메타 dl 라벨 위계·행 리듬, 품목 표 thead 상하 보더·행 라벨 톤 정돈, 청구 총액 강조(text-3xl/4xl·이중 보더 border-t-2), 원천징수 하위 블록 구분선, 입금 계좌 카드 복사 배지 강조·계좌번호 확대·hover 디테일(duration-150·shadow-md), PAY-3 입금자명 강조, 응답 버튼 4종 min-h-12(48px·DESIGN-6 터치 타깃)·주/보조 위계·active·hover·focus-visible 디테일, 폼 입력 py-3, 섹션 간격 리듬(mt-4→mt-5 체계화), 고지문 가독성(text-[13px] leading-loose) |
 
-## 4. 실패 예상 테스트 (Phase 7 갱신 대상 — 기존 테스트 파일 무수정)
+`app/views/viewer/expired.html.erb`·`promise_thanks.html.erb`·`layouts/viewer.html.erb`·Stimulus(clipboard)·컨트롤러·라우트·모델 미접촉. 기본 글자 크기는 레이아웃의 17px(DESIGN-6)를 현행 유지 확인.
 
-`bin/rails test` 전수 실행 결과: **463 runs, 2574 assertions, 4 failures, 41 errors, 0 skips**.
-실패 45건 **전부** F-PLAN 결제·구독 표면(컬럼 rename·래퍼 교체·파라미터명 변경)이며, 그 외 도메인(인증·청구·거래처·뷰어 등)은 전부 통과.
+### Rule ID 매핑
 
-| 테스트 파일 | 건수 | 원인 |
-|:---|:---:|:---|
-| `test/models/order_test.rb` | 3 | `toss_order_id` → `pg_order_id` (UnknownAttributeError·NoMethodError) |
-| `test/models/subscription_test.rb` | 6 | `toss_customer_key`·`toss_billing_key` |
-| `test/services/orders/purchase_service_test.rb` | 6 | `toss_order_id` 생성부 + `FakeTossClient` 시그니처(order_id·payment_key) + `TossPayments::ApiError` |
-| `test/services/orders/purchase_service_concurrency_test.rb` | 1 | 상동 |
-| `test/services/subscriptions/upgrade_service_test.rb` | 14 | `toss_billing_key`·`auth_key:`→`issue_token:`·`TossPayments::ApiError`·토스 응답 해시(paymentKey·billingKey) |
-| `test/controllers/app/orders_controller_test.rb` | 6 | `toss_order_id`·`paymentKey` 파라미터 |
-| `test/controllers/app/subscriptions_controller_test.rb` | 3 | `auth_key`/`authKey` 파라미터·토스 응답 해시·안내 문구 |
-| `test/controllers/app/billings_controller_test.rb` | 2 | `data-controller=toss-payment` 셀렉터 → `portone-payment` |
-| `test/f_plan_review_fix_test.rb` (FPlanReviewFixTest·HttpTest) | 4 | `toss_order_id`·`paymentKey` 보존 단언·`authKey` 문구 |
+- **VIEW-2** — 헤더: 워드마크 text-base→text-sm(위계: 문장이 주인공), mt-8→mt-5, 하단 구분선. 문구 원문 불변(h1 exact 텍스트 유지 — 컨트롤러 테스트 assert_select 통과).
+- **VIEW-3·DESIGN-3** — 청구번호·발행일·만기일 메타 라벨 위계(xs·semibold·tracking-wide), 품목 표 thead border-y·숫자 우측 tabular-nums, 청구 총액 text-3xl→sm:text-4xl + border-t-2 border-stone-900 이중 규칙선(문서적 강조 — 색 추가 없음), 원천징수·입금하실 금액 하위 구분선 정렬.
+- **VIEW-3·PAY-3** — 계좌 카드: 계좌번호 text-2xl/sm:text-[1.7rem] 확대, "탭하여 복사" 배지화(emerald-800/10 배경 — 현행 토큰 내 톤), hover:border-emerald-700/40·shadow-md·duration-150. Stimulus 로직·data-target·fallback 동작 불변("복사됨"/"선택됨" 피드백 유지). 입금자명 strong을 extrabold·stone-900으로 위계만 강화.
+- **PROMISE-1·DESIGN-6** — 응답 버튼 4종 min-h-11→min-h-12(48px), 주 액션(에메랄드 fill·text-[15px]·hover/active 섀도 위계) vs 보조 액션(보더·hover 배경 톤) 구분, focus-visible 링 유지. 라벨·개수·button_to/form 구조 불변.
+- **VIEW-5** — 고지문 문구 원문 불변, text-xs→text-[13px]·leading-loose 가독성만 개선.
+- **DESIGN-4** — 흰 배경·색 최소 유지: 신규 색상 0(emerald/stone 기존 토큰 내), 배경색 변경 없음, 장식 없음 — 보더·타이포·여백만.
+- **DESIGN-8** — 3a·3b와 동일 문법(duration-150, focus-visible outline, hover shadow 승격 sm→md)을 문서 톤으로 축소 적용.
+- **SURF-3/4·VIEW-8** — head/meta·레이아웃 미접촉, 앵커 추가 없음(시스템 테스트 `assert_empty page.all("a")` 통과).
 
-갱신 방향(Phase 7): `pg_*` 속성, `FakePortOneClient` 시그니처(payment_id·payment_token·channel_key·customer_id·order_name), `PortOne::ApiError`, 웹퍼 `Transaction.Paid` 이벤트 본문, `portone-payment` 셀렉터, `issue_token` 파라미터.
+### VIEW-8 화이트리스트 준수 확인
 
-## 5. 후속 제외 (플랜 합의)
-- 토스 credentials 키 제거 — 라이브 전환 확정 시
-- 포트원 SDK 브라우저 실측(빌링키 발급 성공·단건 결제 성공) — 배포 후 브라우저에서 확인
-- AGENTS.md 로드맵 — Phase 9
-- 신규 포트원 테스트 작성 — Phase 7
+- **추가한 요소 없음** — 모든 변경이 기존 요소의 class 문자열 수정이며, 새 요소·새 텍스트·새 링크·새 인터랙션 0건. 내비·마케팅·가입 유도·랜딩 링크 없음(기존과 동일).
+- 문구 변경 0건 — 라벨·고지문·안내 문구 전부 원문 유지.
+- 컨트롤러·라우트·모델·인증 변경 0건, 클립보드 Stimulus JS 미접촉.
 
-## 6. 구현 중 발견·결정 사항
-1. **SQLite 부분 고유 인덱스**: SQLite는 인덱스 정의(WHERE 절)를 원문 보관 → 컬럼 rename 테이블 재구축 시 `WHERE toss_customer_key`가 남아 실패. up: rename **전에** 인덱스 선삭제 후 재생성, down도 동일 순서로 수정.
-2. **Zeitwerk inflection**: `portone_controller.rb`의 기본 camel화는 `PortoneController` — 명세의 `Webhooks::PortOneController` 유지를 위해 `inflect.acronym "PortOne"` 추가(서비스 모듈 `PortOne::`와 표기 일관).
-3. **웹훅 이벤트 type**: 플랜 문구(TransactionConfirmed 등)는 포트원 실제 규격(`Transaction.Paid` 등)으로 구현 — §1 표 각주.
-4. **즉시 승인 채널 폴백**: paymentToken 미수신(즉시 승인 채널) 시 get_payment로 승인 확정 — 수동 승인 채널 의존 제거(기존 이슈 #1 재확인 패턴 재사용).
-5. **PRD 본문**: v0.21 버전 행만 갱신되고 PLAN-5 본문·§6.19가 토스로 남아 있어 Phase 2 명시분(02_prd_update.md)대로 보완.
+### 검증 결과
 
-## 7. 자체 점검 결과
+- `bin/rubocop -a` — 136 files, no offenses
+- `bin/rails zeitwerk:check` — 통과
+- `bin/rails test test/system/viewer_test.rb test/system/viewer_promise_test.rb test/controllers/viewer_controller_test.rb test/controllers/viewer_promises_test.rb test/controllers/viewer_promises_rate_limit_test.rb` — 44 runs, 328 assertions, 0 failures (기존 assertion 무수정 통과 — h1/dd/td/p 텍스트·section[aria-label]·앵커 0개·클립보드 피드백 불변)
 
-| 점검 | 결과 |
-|:---|:---|
-| `bin/rubocop` | **0 offenses** (136 files) |
-| `bin/rails zeitwerk:check` | 통과 (`Webhooks::PortOneController`·`PortOne::ClientService` 상수 확인) |
-| `bin/rails db:migrate` | 성공 — `db/schema.rb` 갱신(pg_* 컬럼·인덱스) |
-| 마이그레이션 롤백 실측 | `db:rollback STEP=1` → 데이터 유지 확인(`toss_order_id: "retest-order-2"`) → 재적용 → 데이터 유지 확인(`pg_order_id: "retest-order-2"`) — **rename 왕복 데이터 무손실** |
-| `bin/rails test` (최종) | 463 runs — 4 failures·41 errors, 전부 §4의 예상 갱신 대상. 무관 도메인 0건 |
-| 포트원 API 러너 실측(실패 경로) | 5 엔드포인트 전수: get_payment·confirm_payment·cancel_payment = `404 PAYMENT_NOT_FOUND`, charge_billing_key·issue_billing_key = `404 BILLING_KEY_NOT_FOUND` — 인증 헤더·경로·storeId·오류 정규화(code=type) 실측 확인. **성공 경로는 브라우저 위젯 필요 — 배포 후 실측 항목(§5)** |
-| PurchaseService 러너 실측(FakePortOneClient — 신규 코드 전 경로) | ①토큰 confirm 확정(paid+패스 발급+metadata) ②즉시 승인 채널(토큰 없음) 조회 확정 ③미승인(READY) → pending 유지+지연 안내 PurchaseError ④모호 실패→재확인 PAID 합류(paid+발급) ⑤모호 실패→재확인도 실패 → pending 유지 ⑥명확 실패 → failed+pg_code·pg_message 보존 — **6/6 통과** |
-| UpgradeService 러너 실측(신규 코드 갱신·회복 경로) | ①갱신: 정기결제 채널(channel_key_billing)·billing_key·customer_id·amount 9,900·payment_id=주문번호로 차감 → paid+1개월 연장 ②settle_renewal: 재조회 payment{id}로 paid+연장 ③모호 차감 → 구독 유지 ④명확 차감 → failed(pg_code 보존)+즉시 만료 ⑤모호 이력 스티키 가드(재시도 거절 만료 금지 — 이슈 #4) — **5/5 통과** |
-| 웹훅 러너 실측 | `Transaction.Paid` → 주문 paid·패스 발급(200), 재시도 → 멱등(패스 추가 발급 없음), 위조 결합(타 paymentId 재조회) → 흡수 무변경, 미지원 type(BillingKey.Issued)·깨진 JSON → 200 흡수. 라우트 `POST /webhooks/portone` 확인 |
-| `TossPayments` 상수 | `defined?(TossPayments)` → nil — 완전 제거 확인 |
-| 토스 잔여 참조 | `app/`·`config/` 0건 (과거 마이그레이션 `20261015000001`은 이력 보존상 무수정 — rename이 전제) |
+## 6 리뷰 반영 수정
 
-### 7.1 러너 검증에서 발견해 수정한 버그
-1. **`PurchaseService#recover_from_recheck!` 발급 누락** — 재작성 시 재확인 합류 경로에서 `FulfillPassService` 호출이 빠져 있었다(모호 실패→재확인 PAID 시 주문만 pending 잔류). 실측 ④에서 포착 → 재조회 응답으로 FulfillPassService 호출하도록 수정 + `PendingApprovalError`도 흡수하도록 rescue 확장.
-2. **`UpgradeService#record_charge_failure!` PG 원문 미보존** — 실패 주문 metadata에 pg_code·pg_message가 빠져 CS 조사 근거가 없었다. PurchaseService#record_failure!와 정렬해 보존하도록 수정(실측 ④에서 포착).
+`_workspace/05_review.md` 이슈 6건 전체 반영 완료 (2026-11-02). 지적 파일·라인만 최소 수정.
 
-## 8. 러너 실측 시 주의(운영 무관)
-러너에서 integration 세션으로 POST 후 같은 스레드에서 모델 쿼리를 날리면 Rails 8.1 QueryLogs의 ExecutionContext 판독(nil)으로 크래시 — 러너+integration 조합 한정 아티팩트. 앱 요청·테스트 러너(별도 프로세스)에는 영향 없음. 실측 스크립트는 raw SQL 판독으로 회피했으며 임시 스크립트는 삭제함.
+| # | 심각도 | 요약 | 반영 내용 |
+|---|--------|------|-----------|
+| 1 | CRITICAL | 자동 종료 기준일 "발행 후 14일" 오기재(REM-12·PLAN-3은 만기 D+14) | `_control.html.erb` — 제목 "청구 건당 최대 5통, 만기일로부터 14일 후 자동 종료", 본문 "만기일로부터 14일 뒤인 최종 안내까지 발송된 뒤 자동으로 종료됩니다"로 교정. 기존 랜딩 테스트에 해당 문자열 assertion 없음 확인 후 수정 |
+| 2 | WARNING (확인 요청) | 사전 통보 범위가 모든 자동 발송일로 읽힘(REM-11은 연체 단계 한정) | **반영** — "연체 단계의 자동 발송이 예정된 날에는"으로 한정. 근거: PRD REM-11 원문이 "D+1·D+7·D+14 각 연체 단계"로 명백히 한정하며, LP-15의 포괄 문언은 규칙 원문이 우선한다고 판단. LP-12 과대 약속 소지 해소 |
+| 3 | WARNING (확인 요청) | 발송 이력 대시보드 열람 무조건부 문장(PLAN-2는 Plus 기능으로 명시) | **반영(보수안)** — "보낸 모든 안내는 발송 이력으로 남고, 언제 무엇을 보냈는지 지워지지 않고 기록됩니다"로 변경해 기록 보존(P4·REM-6) 사실만 서술. 근거: PLAN-2가 발송 이력을 Plus 기능으로 명시하므로 플랜 게이트 미확정 상태에서 열람 보장 문장 제거가 안전. P4 기록 보존은 전 플랜 사실 |
+| 4 | WARNING | 히어로 목업 버튼 "입금 예정일 알리기" → 실제 라벨(PROMISE-1)은 "입금 예정일 지정" | `_hero.html.erb:100` 라벨 텍스트만 수정(마크업 구조 불변) |
+| 5 | WARNING | 목업 청구번호 "INV-2026-0042" → 실제 채번 형식은 BD-YYYYMMDD-NNN(INV-1) | `_hero.html.erb:64`를 "BD-20261105-001"로 수정(만기일 2026-11-05와 정합) |
+| 6 | WARNING | 푸터 법적 고지 링크 터치 타깃 44px 미달(DESIGN-6) | `layouts/landing.html.erb:46-48` — 링크 3종에 `inline-flex min-h-11 items-center` 추가 |
 
----
+### 검증 결과
 
-## 수정 이력 (Phase 6) — 리뷰 BLOCKER 1건 + CRITICAL 2건
-
-- **일자**: 2026-10-15 · **대상 리뷰**: `_workspace/05_review.md` 이슈 B1·C1·C2 — 1:1 대응
-- **스펙 재실측**: 포트원 `browser-sdk.yml` 스키마(IssueBillingKeyRequestBase·OfferPeriod)·KG이니시스 V2 문서 재조회 — `customer.fullName` 항상 필수, `phoneNumber`·`email` PC 필수/모바일 선택, `issueId`(ASCII만)·`issueName` 필수, `offerPeriod`(형식 `${number}m`) 모바일 빌링키 발급 필수/PC 선택 확인
-
-| 이슈 | 수정 내용 | 파일 |
-|:---|:---|:---|
-| **B1** BLOCKER — KG이니시스 필수 파라미터 미전달 | `requestPayment`에 `customer { fullName, phoneNumber, email }` 전달(fullName은 항상, PC 필수 phone·email은 값이 있을 때만). `requestIssueBillingKey`에 `issueId`(서버 채번 UUID — ASCII 제약 충족)·`issueName`("받을돈 정기결제 등록")·`customer { customerId, fullName, phoneNumber }`·`offerPeriod { interval: "1m" }`(월 구독 — 모바일 발급 필수) 전달. 사용자 표시명·연락처·이메일은 billings 컨트롤러가 적재해 `data-portone-*-customer-*-value`·`data-portone-billing-issue-id-value`로 뷰→위젯 전달(표시명은 프로필 완료 가드 AUTH-1.3, 이메일은 AUTH-1.4로 항상 존재) | `app/javascript/controllers/portone_payment_controller.js` · `portone_billing_controller.js` · `app/controllers/app/billings_controller.rb` · `app/views/app/billings/_checkout.html.erb` · `app/views/app/billings/show.html.erb` |
-| **C1** CRITICAL — confirm 재시도 `ALREADY_PAID`가 명확 실패로 확정 | `PortOne::ApiError#already_paid?` 추가(code에 ALREADY_PAID 포함 — 실패가 아닌 결제 완료의 확정 신호로 분류). `PurchaseService` rescue에서 모호 실패와 함께 `recover_from_recheck!` 합류 대상으로 확장 — 재조회 PAID면 paid+패스 발급 경로로 합류, 재조회마저 실패하면 pending 유지(웹훅 `settle_paid` 회복). 명확한 비즈니스 거부의 failed 확정은 유지. 갱신 차감의 스티키 가드(upgrade_service 187-196)와 단건 경로 대칭화 | `app/services/port_one/api_error.rb` · `app/services/orders/purchase_service.rb` |
-| **C2** CRITICAL — `redirectUrl` 미설정(반환값 방식 — 모바일 결제창 미표시) | `requestPayment`·`requestIssueBillingKey` **모두**에 `redirectUrl: callbackUrl` 전달로 페이지 이동 방식 전환. PC 위젯이 Promise로 응답하는 환경용 기존 수동 이동은 폴백으로 유지. SDK 리다이렉트가 응답 필드명 그대로 쿼리 전달 → ① 결제 콜백(`paymentId`·`paymentToken`·`code`·`message`)은 기존 수신 그대로 호환 ② 빌링 콜백은 `billingIssueToken` 파라미터명 수용 추가(`issue_token` 폴백 병존) | `app/javascript/controllers/portone_payment_controller.js` · `portone_billing_controller.js` · `app/controllers/app/subscriptions_controller.rb` |
-
-**비고**
-- C1 리뷰의 "부차" 경로(웹훅 `failed→paid` 상태만 뒤집는 전환)는 수정 제안 ②가 아니라 채택된 ①(ALREADY_PAID 합류)로 C1 시나리오의 재현 경로(ALREADY_PAID→failed 확정)가 소멸해 더 이상 도달하지 않는다 — 웹훅 코드 무변경.
-- B1에서 모바일 필수 `offerPeriod`는 리뷰 이슈 표에 명시된 요건으로 지시문 예시에 없더라도 C2(모바일 주류)와 직결되어 함께 반영했다. `issueId`는 매 페이지 렌더마다 서버가 새로 채번한다(발급 건 고유 — 별도 보관 컬럼 없음).
-
-### 자체 점검 (Phase 6)
-
-| 점검 | 결과 |
-|:---|:---|
-| `bin/rubocop` | **0 offenses** (136 files) |
-| `bin/rails zeitwerk:check` | 통과 |
-| `bin/rails test` | **490 runs, 2984 assertions, 0 failures, 0 errors, 0 skips** — 기준선(490 runs 전체 통과) 유지 |
-| C1 러너 실측(FakePortOneClient — 실외부 호출 없음, 실측 후 행 정리) | ① confirm `ALREADY_PAID` + 재조회 PAID → **paid 확정 + 패스 1회 발급**(재조회 1회, 실패 메타 없음) ② `ALREADY_PAID` + 재조회 TIMEOUT → pending 유지·`pending_recovery: true`·발급 0회(웹훅 회복 경로) ③ 명확 거부(PG_PROVIDER_ERROR) → failed + pg_code 보존(기존 동작 회귀 없음) — **3/3 통과** |
+- `bin/rubocop -a` — 136 files, no offenses
+- `bin/rails zeitwerk:check` — 통과
+- `bin/rails test test/controllers/landing_controller_test.rb` — 21 runs, 271 assertions, 0 failures

@@ -2,7 +2,9 @@
 
 <%# 표면 ② 대시보드 — DASH-1 요약 실데이터(F-INV 전환), DASH-2 빈 상태(REM·PROMISE 이벤트 부재),
     ONB-1 CTA 실링크(청구서 유무에 따라 발행·목록으로 전환), DASH-4 목록(연체일 내림차순 상위 5건).
-    청구서 0건 사용자는 기존 빈 상태를 유지한다(거짓 0원 금지 — 02_prd_update 결정). %>
+    청구서 0건 사용자는 기존 빈 상태를 유지한다(거짓 0원 금지 — 02_prd_update 결정).
+    퍼블리싱 리뉴얼(3b): DASH-1 미수 총액 히어로 카드 위계(DESIGN-3 tabular numerals),
+    DASH-2 액션 카드형 리스트(DESIGN-5 아이콘·상태 뱃지), DESIGN-8 인터랙션 문법(3a 랜딩 동일). %>
 <div class="py-8">
   <header>
     <h1 class="text-2xl font-bold tracking-tight text-emerald-900">대시보드</h1>
@@ -11,53 +13,59 @@
     </p>
   </header>
 
-  <%# ── DASH-1 상단 요약 — 미수 총액·연체 건수·금액·7일 내 만기(DESIGN-5 큰 숫자 카드) ── %>
+  <%# ── DASH-1 상단 요약 — 미수 총액 히어로 카드(큰 tabular numerals) + 보조 카드 2종.
+      히어로는 sm 2열에서 전체 폭, lg 3열에서 1열 — 숫자 크기·섀도·딥 그린 액센트로 위계를 만든다. ── %>
   <section aria-labelledby="dash-summary" class="mt-8">
     <h2 id="dash-summary" class="text-base font-bold text-stone-800">수금 요약</h2>
-    <div class="mt-3 grid gap-4 sm:grid-cols-3">
+    <div class="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <% if @has_invoices %>
-        <article class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
-          <h3 class="flex items-center gap-2 text-sm font-semibold text-stone-500">
+        <article class="rounded-2xl border border-emerald-700/15 bg-white p-6 shadow-md shadow-emerald-900/5 ring-1 ring-emerald-700/10 transition duration-200 sm:col-span-2 lg:col-span-1 lg:p-7">
+          <h3 class="flex items-center gap-2 text-sm font-semibold text-emerald-800/80">
             <span class="h-2 w-2 rounded-full bg-emerald-700" aria-hidden="true"></span>
             미수 총액
           </h3>
-          <p class="mt-3 text-4xl font-extrabold tracking-tight tabular-nums text-stone-800">
+          <p class="mt-4 text-4xl font-extrabold tracking-tight tabular-nums text-emerald-900 sm:text-5xl">
             <%= won(@unsettled_total) %>
           </p>
-          <p class="mt-3 text-sm leading-relaxed text-stone-500">발행 후 수금이 완료되지 않은 청구의 남은 잔액 합계입니다.</p>
+          <p class="mt-4 text-sm leading-relaxed text-stone-500">발행 후 수금이 완료되지 않은 청구의 남은 잔액 합계입니다.</p>
         </article>
-        <article class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+        <article class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm transition duration-200 hover:shadow-md sm:p-6">
           <h3 class="flex items-center gap-2 text-sm font-semibold text-stone-500">
             <span class="h-2 w-2 rounded-full bg-orange-500" aria-hidden="true"></span>
             연체 건수·금액
           </h3>
-          <p class="mt-3 text-4xl font-extrabold tracking-tight tabular-nums text-orange-600">
+          <p class="mt-4 text-3xl font-extrabold tracking-tight tabular-nums text-orange-600">
             <%= number_with_delimiter(@overdue_count) %>건
           </p>
-          <p class="mt-3 text-sm leading-relaxed text-stone-500">
+          <p class="mt-4 text-sm leading-relaxed text-stone-500">
             연체 금액 <span class="font-bold tabular-nums text-orange-600"><%= won(@overdue_total) %></span>
           </p>
         </article>
-        <article class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+        <article class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm transition duration-200 hover:shadow-md sm:p-6">
           <h3 class="flex items-center gap-2 text-sm font-semibold text-stone-500">
             <span class="h-2 w-2 rounded-full bg-stone-400" aria-hidden="true"></span>
             7일 내 만기
           </h3>
-          <p class="mt-3 text-4xl font-extrabold tracking-tight tabular-nums text-stone-800">
+          <p class="mt-4 text-3xl font-extrabold tracking-tight tabular-nums text-stone-800">
             <%= number_with_delimiter(@due_soon_count) %>건
           </p>
-          <p class="mt-3 text-sm leading-relaxed text-stone-500">일주일 안에 만기가 도래하는 미수 청구입니다.</p>
+          <p class="mt-4 text-sm leading-relaxed text-stone-500">일주일 안에 만기가 도래하는 미수 청구입니다.</p>
         </article>
       <% else %>
-        <%# 청구서 0건 — 빈 상태 유지(수치 슬롯 대시, 0원 미표기) %>
-        <% [ "bg-emerald-700", "bg-orange-500", "bg-stone-400" ].each_with_index do |dot, index| %>
-          <article class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+        <%# 청구서 0건 — 빈 상태 유지(수치 슬롯 대시, 0원 미표기). 히어로 카드 자리만 액센트를 유지한다. %>
+        <% cards = [
+             [ "미수 총액", "bg-emerald-700", "border-emerald-700/15 ring-emerald-700/10 shadow-emerald-900/5 sm:col-span-2 lg:col-span-1 lg:p-7" ],
+             [ "연체 건수·금액", "bg-orange-500", "border-stone-200 shadow-sm sm:p-6" ],
+             [ "7일 내 만기", "bg-stone-400", "border-stone-200 shadow-sm sm:p-6" ]
+           ] %>
+        <% cards.each do |(label, dot, card_classes)| %>
+          <article class="rounded-2xl border bg-white p-5 sm:p-6 <%= card_classes %>">
             <h3 class="flex items-center gap-2 text-sm font-semibold text-stone-500">
               <span class="h-2 w-2 rounded-full <%= dot %>" aria-hidden="true"></span>
-              <%= [ "미수 총액", "연체 건수·금액", "7일 내 만기" ][index] %>
+              <%= label %>
             </h3>
-            <p class="mt-3 text-4xl font-extrabold tracking-tight tabular-nums text-stone-300" aria-hidden="true">—</p>
-            <p class="mt-3 text-sm leading-relaxed text-stone-500">청구서를 발행하면 여기에 표시됩니다.</p>
+            <p class="mt-4 text-3xl font-extrabold tracking-tight tabular-nums text-stone-300 sm:text-4xl" aria-hidden="true">—</p>
+            <p class="mt-4 text-sm leading-relaxed text-stone-500">청구서를 발행하면 여기에 표시됩니다.</p>
           </article>
         <% end %>
       <% end %>
@@ -66,48 +74,63 @@
 
   <%# ── DASH-2 오늘의 액션 — 첫 실데이터(F-PROMISE): 마감 대기(입금 완료 회신·미마감 —
       PROMISE-7)·답변 대기(무답변 문의 — PROMISE-6). REM 이벤트(발송 예정 등)는 F-REM
-      구현 전까지 비표시. 어느 쪽도 없을 때만 기존 빈 상태를 유지한다(거짓 0건 금지). %>
+      구현 전까지 비표시. 어느 쪽도 없을 때만 기존 빈 상태를 유지한다(거짓 0건 금지).
+      카드형 리스트(DESIGN-5): 유형 아이콘 + 상태 뱃지(DESIGN-2) + 우측 액션 버튼. ── %>
   <section aria-labelledby="dash-actions" class="mt-8">
     <h2 id="dash-actions" class="text-base font-bold text-stone-800">오늘의 액션</h2>
     <% if @closure_awaiting_invoices.any? || @awaiting_answer_inquiries.any? %>
       <div class="mt-3 grid gap-4 sm:grid-cols-2">
         <% @closure_awaiting_invoices.each do |invoice| %>
           <%# PROMISE-7 — 마감 대기. 마감 자체는 PAY에서 U1 확인으로만 이루어진다. %>
-          <article class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
-            <h3 class="flex items-center gap-2 text-sm font-semibold text-stone-500">
-              <span class="h-2 w-2 rounded-full bg-emerald-700" aria-hidden="true"></span>
-              마감 대기
-            </h3>
-            <p class="mt-3 text-base font-bold text-stone-800">
-              <%= invoice.client.name %> · <span class="tabular-nums"><%= won(invoice.total_amount) %></span>
-            </p>
-            <p class="mt-2 text-sm leading-relaxed text-stone-500">
-              거래처가 「이미 입금했어요」라고 회신했습니다. 확인 후 마감해 주세요.
-            </p>
+          <article class="flex flex-col gap-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm transition duration-200 hover:shadow-md sm:flex-row sm:items-center sm:gap-5 sm:p-6">
+            <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-green-50 text-green-700" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-6 w-6">
+                <path stroke-linecap="round" stroke-linejoin="round" d="<%= dash_action_icon_path("closure") %>" />
+              </svg>
+            </div>
+            <div class="min-w-0 flex-1">
+              <%= dash_action_badge("closure") %>
+              <h3 class="mt-2 truncate text-base font-bold text-stone-800">
+                <%= invoice.client.name %> · <span class="tabular-nums"><%= won(invoice.total_amount) %></span>
+              </h3>
+              <p class="mt-1.5 text-sm leading-relaxed text-stone-500">
+                거래처가 「이미 입금했어요」라고 회신했습니다. 확인 후 마감해 주세요.
+              </p>
+            </div>
             <%= link_to "청구서 확인", app_invoice_path(invoice),
-                  class: "mt-4 inline-flex min-h-11 items-center rounded-xl border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-600 transition hover:border-stone-400 hover:text-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+                  class: "inline-flex min-h-11 shrink-0 items-center justify-center self-start rounded-xl border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-600 transition duration-150 hover:border-stone-400 hover:text-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 sm:self-center" %>
           </article>
         <% end %>
         <% @awaiting_answer_inquiries.each do |promise| %>
           <%# PROMISE-6 — 답변 대기. 답변 등록은 청구서 상세의 응답 이력에서 한다. %>
-          <article class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
-            <h3 class="flex items-center gap-2 text-sm font-semibold text-stone-500">
-              <span class="h-2 w-2 rounded-full bg-orange-500" aria-hidden="true"></span>
-              답변 대기
-            </h3>
-            <p class="mt-3 text-base font-bold text-stone-800"><%= promise.invoice.client.name %>의 문의</p>
-            <p class="mt-2 whitespace-pre-line text-sm leading-relaxed text-stone-500">
-              <%= truncate(promise.memo, length: 60) %>
-            </p>
+          <article class="flex flex-col gap-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm transition duration-200 hover:shadow-md sm:flex-row sm:items-center sm:gap-5 sm:p-6">
+            <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-6 w-6">
+                <path stroke-linecap="round" stroke-linejoin="round" d="<%= dash_action_icon_path("answer") %>" />
+              </svg>
+            </div>
+            <div class="min-w-0 flex-1">
+              <%= dash_action_badge("answer") %>
+              <h3 class="mt-2 truncate text-base font-bold text-stone-800"><%= promise.invoice.client.name %>의 문의</h3>
+              <p class="mt-1.5 whitespace-pre-line text-sm leading-relaxed text-stone-500">
+                <%= truncate(promise.memo, length: 60) %>
+              </p>
+            </div>
             <%= link_to "문의에 답변하기", app_invoice_path(promise.invoice),
-                  class: "mt-4 inline-flex min-h-11 items-center rounded-xl border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-600 transition hover:border-stone-400 hover:text-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+                  class: "inline-flex min-h-11 shrink-0 items-center justify-center self-start rounded-xl border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-600 transition duration-150 hover:border-stone-400 hover:text-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 sm:self-center" %>
           </article>
         <% end %>
       </div>
     <% else %>
-      <article class="mt-3 rounded-2xl border border-dashed border-stone-300 bg-white/60 p-6 text-center sm:p-8">
-        <p class="text-base font-bold text-stone-800">오늘 할 일이 없습니다</p>
-        <p class="mt-2 text-sm leading-relaxed text-stone-500">
+      <%# 빈 상태 — 일러스트성 아이콘 + 안내 문구(기존 문구 유지) %>
+      <article class="mt-3 rounded-2xl border border-dashed border-stone-300 bg-white/60 p-6 text-center sm:p-10">
+        <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-stone-100 text-stone-400" aria-hidden="true">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-6 w-6">
+            <path stroke-linecap="round" stroke-linejoin="round" d="<%= dash_action_icon_path("empty") %>" />
+          </svg>
+        </div>
+        <p class="mt-4 text-base font-bold text-stone-800">오늘 할 일이 없습니다</p>
+        <p class="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-stone-500">
           첫 청구서를 발행하면 오늘 발송 예정·약속일 도래 같은 처리할 일이 카드로 표시됩니다.
         </p>
       </article>
@@ -123,7 +146,7 @@
       </p>
       <div class="mt-7">
         <%= link_to "청구서 전체 보기", app_invoices_path,
-              class: "inline-flex min-h-11 items-center rounded-xl bg-white px-8 text-lg font-bold text-emerald-900 shadow-sm transition hover:bg-emerald-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white" %>
+              class: "inline-flex min-h-11 items-center rounded-xl bg-white px-8 text-lg font-bold text-emerald-900 shadow-sm transition duration-150 hover:bg-emerald-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white" %>
       </div>
     <% else %>
       <h2 id="dash-onboarding" class="text-xl font-extrabold tracking-tight text-white sm:text-2xl">3분이면 첫 청구서를 발행합니다</h2>
@@ -132,12 +155,12 @@
       </p>
       <div class="mt-7">
         <%= link_to "첫 청구서 발행하기", new_app_invoice_path,
-              class: "inline-flex min-h-11 items-center rounded-xl bg-white px-8 text-lg font-bold text-emerald-900 shadow-sm transition hover:bg-emerald-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white" %>
+              class: "inline-flex min-h-11 items-center rounded-xl bg-white px-8 text-lg font-bold text-emerald-900 shadow-sm transition duration-150 hover:bg-emerald-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white" %>
       </div>
     <% end %>
   </section>
 
-  <%# ── DASH-4 청구서 목록 — 연체일 내림차순(만기일 오름차순) 상위 5건 ── %>
+  <%# ── DASH-4 청구서 목록 — 연체일 내림차순(만기일 오름차순) 상위 5건. 정렬·스코프 불변, 읽기 디테일만. ── %>
   <section aria-labelledby="dash-invoices" class="mt-8">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <h2 id="dash-invoices" class="text-base font-bold text-stone-800">청구서</h2>
@@ -149,7 +172,7 @@
           <li class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-green-600" aria-hidden="true"></span>수금 완료</li>
         </ul>
         <% if @has_invoices %>
-          <%= link_to "전체 보기", app_invoices_path, class: "text-xs font-bold text-emerald-800 transition hover:underline" %>
+          <%= link_to "전체 보기", app_invoices_path, class: "text-xs font-bold text-emerald-800 transition duration-150 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
         <% end %>
       </div>
     </div>

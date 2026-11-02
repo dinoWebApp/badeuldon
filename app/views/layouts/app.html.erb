@@ -14,7 +14,7 @@
           <span class="text-lg font-extrabold tracking-tight text-emerald-900">받을돈</span>
         </div>
 
-        <nav class="flex-1 space-y-1 overflow-y-auto p-3" aria-label="대시보드 메뉴">
+        <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-4" aria-label="대시보드 메뉴">
           <% app_nav_items.each do |item| %>
             <% if item[:disabled] %>
               <%# 미구현 메뉴 — 링크 없이 준비 중 배지로 노출(플랜 결정 #2: 서비스 구조 안내) %>
@@ -55,7 +55,7 @@
           <div class="flex items-center gap-1">
             <button type="button" data-sidebar-target="toggle" data-action="sidebar#toggle"
                   aria-controls="app-sidebar" aria-expanded="false"
-                  class="inline-flex h-11 w-11 items-center justify-center rounded-lg text-stone-600 transition hover:bg-stone-200/60 hover:text-stone-800 lg:hidden">
+                  class="inline-flex h-11 w-11 items-center justify-center rounded-lg text-stone-600 transition duration-150 hover:bg-stone-200/60 hover:text-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 lg:hidden">
               <span class="sr-only">메뉴 열기</span>
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="h-6 w-6" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
@@ -65,11 +65,15 @@
           </div>
 
           <div class="flex items-center gap-2 sm:gap-3">
-            <%# 프로필 설정 화면은 완료 가드 skip이라 표시명이 공백일 수 있다 — 공백 시 플레이스홀더 노출(Phase 5 리뷰 #2) %>
-            <span class="max-w-40 truncate text-sm font-semibold text-stone-700"><%= Current.user.display_name.presence || "프로필 완성 중" %></span>
+            <%# 프로필 설정 화면은 완료 가드 skip이라 표시명이 공백일 수 있다 — 공백 시 플레이스홀더 노출(Phase 5 리뷰 #2).
+                프로필 칩 — 표시명 첫 글자 아바타 + 표시명(DESIGN-8 여백·섀도 디테일) %>
+            <span class="flex h-9 items-center gap-2 rounded-full border border-stone-200 bg-white py-1 pl-1.5 pr-3 shadow-sm">
+              <span class="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-800/10 text-[11px] font-bold text-emerald-900" aria-hidden="true"><%= Current.user.display_name.presence&.first || "?" %></span>
+              <span class="max-w-40 truncate text-sm font-semibold text-stone-700"><%= Current.user.display_name.presence || "프로필 완성 중" %></span>
+            </span>
             <%= button_to "로그아웃", session_path, method: :delete,
                   data: { turbo_confirm: "로그아웃하시겠습니까?" },
-                  class: "inline-flex min-h-11 cursor-pointer items-center rounded-lg border border-stone-300 bg-white px-3 text-sm font-semibold text-stone-600 transition hover:border-stone-400 hover:text-stone-800" %>
+                  class: "inline-flex min-h-11 cursor-pointer items-center rounded-lg border border-stone-300 bg-white px-3 text-sm font-semibold text-stone-600 transition duration-150 hover:border-stone-400 hover:text-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
           </div>
         </header>
 

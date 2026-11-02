@@ -5,47 +5,47 @@
     ③→① 링크·가입 유도·마케팅 요소는 일절 없다(SURF-4). 원천징수 표기는 지급액 기준 안내(P1 톤). %>
 
 <%# VIEW-2 — 발행인 표기 + 받을돈 워드마크(링크 아님 — SURF-4) %>
-<header>
-  <p class="text-base font-extrabold tracking-tight text-emerald-900">받을돈</p>
-  <h1 class="mt-8 text-xl font-bold leading-relaxed text-stone-900">
+<header class="border-b border-stone-100 pb-6">
+  <p class="text-sm font-extrabold tracking-tight text-emerald-900">받을돈</p>
+  <h1 class="mt-5 text-xl font-bold leading-relaxed text-stone-900">
     받을돈을 통해 <strong class="font-extrabold"><%= @invoice.issuer_display_name %></strong>님이 보낸 청구서입니다
   </h1>
 </header>
 
 <%# VIEW-3 — 청구 내용(문서 카드). DESIGN-4 문서 무결성 — 흰 배경·타이포 위계·색 최소. %>
-<section class="mt-6 rounded-2xl border border-stone-200 bg-white p-5 sm:p-6" aria-label="청구 내용">
-  <dl class="space-y-2 text-sm">
-    <div class="flex items-baseline justify-between gap-4">
-      <dt class="text-stone-400">청구번호</dt>
+<section class="mt-6 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7" aria-label="청구 내용">
+  <dl class="space-y-1.5 text-sm">
+    <div class="flex items-baseline justify-between gap-4 py-1">
+      <dt class="text-xs font-semibold tracking-wide text-stone-400">청구번호</dt>
       <dd class="font-semibold tabular-nums text-stone-700"><%= @invoice.issue_number %></dd>
     </div>
-    <div class="flex items-baseline justify-between gap-4">
-      <dt class="text-stone-400">발행일</dt>
+    <div class="flex items-baseline justify-between gap-4 py-1">
+      <dt class="text-xs font-semibold tracking-wide text-stone-400">발행일</dt>
       <dd class="tabular-nums text-stone-700"><%= display_date(@invoice.issued_at) %></dd>
     </div>
-    <div class="flex items-baseline justify-between gap-4">
-      <dt class="text-stone-400">만기일</dt>
+    <div class="flex items-baseline justify-between gap-4 py-1">
+      <dt class="text-xs font-semibold tracking-wide text-stone-400">만기일</dt>
       <dd class="font-semibold tabular-nums text-stone-700"><%= display_date(@invoice.due_on) %></dd>
     </div>
   </dl>
 
   <%# VIEW-3 — 품목 표(설명·수량·단가·금액) %>
-  <div class="mt-5 overflow-x-auto">
+  <div class="mt-6 overflow-x-auto">
     <table class="w-full min-w-[420px] text-left text-sm">
       <thead>
-        <tr class="border-b border-stone-200 text-xs font-bold text-stone-400">
-          <th scope="col" class="py-2.5 pr-3">품목</th>
-          <th scope="col" class="py-2.5 pr-3 text-right">수량</th>
-          <th scope="col" class="py-2.5 pr-3 text-right">단가</th>
-          <th scope="col" class="py-2.5 text-right">금액</th>
+        <tr class="border-y border-stone-200 text-xs font-bold tracking-wide text-stone-400">
+          <th scope="col" class="py-2.5 pr-3 font-bold">품목</th>
+          <th scope="col" class="py-2.5 pr-3 text-right font-bold">수량</th>
+          <th scope="col" class="py-2.5 pr-3 text-right font-bold">단가</th>
+          <th scope="col" class="py-2.5 text-right font-bold">금액</th>
         </tr>
       </thead>
       <tbody>
         <% @invoice.items.each do |item| %>
           <tr class="border-b border-stone-100 last:border-0">
             <td class="py-3 pr-3 font-medium text-stone-700"><%= item.description %></td>
-            <td class="py-3 pr-3 text-right tabular-nums text-stone-600"><%= number_with_delimiter(item.quantity) %></td>
-            <td class="py-3 pr-3 text-right tabular-nums text-stone-600"><%= won(item.unit_price) %></td>
+            <td class="py-3 pr-3 text-right tabular-nums text-stone-500"><%= number_with_delimiter(item.quantity) %></td>
+            <td class="py-3 pr-3 text-right tabular-nums text-stone-500"><%= won(item.unit_price) %></td>
             <td class="py-3 text-right font-semibold tabular-nums text-stone-800"><%= won(item.quantity * item.unit_price) %></td>
           </tr>
         <% end %>
@@ -55,7 +55,7 @@
 
   <%# VIEW-3 — 금액 분해(INV-2). 총액은 크게(tabular). 원천징수 건은 실지급액 관점으로
       안내한다 — 채무자가 입금할 금액이 무엇인지가 기준(P1 톤). %>
-  <dl class="mt-6 space-y-2.5 text-sm">
+  <dl class="mt-7 space-y-2.5 text-sm">
     <div class="flex items-baseline justify-between gap-4">
       <dt class="text-stone-500">공급가액</dt>
       <dd class="tabular-nums text-stone-700"><%= won(@invoice.subtotal) %></dd>
@@ -64,18 +64,18 @@
       <dt class="text-stone-500">부가세</dt>
       <dd class="tabular-nums text-stone-700"><%= won(@invoice.tax_amount) %></dd>
     </div>
-    <div class="flex items-baseline justify-between gap-4 border-t border-stone-200 pt-3">
+    <div class="mt-3 flex items-center justify-between gap-4 border-t-2 border-stone-900 pt-4">
       <dt class="text-base font-bold text-stone-900">청구 총액</dt>
-      <dd class="text-2xl font-extrabold tabular-nums tracking-tight text-stone-900 sm:text-3xl"><%= won(@invoice.total_amount) %></dd>
+      <dd class="text-3xl font-extrabold tabular-nums tracking-tight text-stone-900 sm:text-4xl"><%= won(@invoice.total_amount) %></dd>
     </div>
     <% if @invoice.withholding_enabled? %>
-      <div class="flex items-baseline justify-between gap-4">
+      <div class="mt-3 flex items-baseline justify-between gap-4 border-t border-stone-100 pt-3">
         <dt class="text-stone-500">원천징수 (공급가액의 3.3%)</dt>
         <dd class="tabular-nums text-stone-600">−<%= won(@invoice.withholding_amount) %></dd>
       </div>
-      <div class="flex items-baseline justify-between gap-4">
+      <div class="flex items-baseline justify-between gap-4 border-t border-stone-200 pt-3">
         <dt class="text-base font-bold text-stone-900">입금하실 금액</dt>
-        <dd class="text-xl font-extrabold tabular-nums tracking-tight text-emerald-900 sm:text-2xl"><%= won(@invoice.net_amount) %></dd>
+        <dd class="text-2xl font-extrabold tabular-nums tracking-tight text-emerald-900 sm:text-3xl"><%= won(@invoice.net_amount) %></dd>
       </div>
       <p class="text-xs leading-relaxed text-stone-400">
         원천징수 3.3%는 제외한 「입금하실 금액」만 입금해 주세요.
@@ -87,18 +87,18 @@
 <%# VIEW-3 — 입금 계좌 카드(토스 송금 UX 벤치마크 — 큰 영역·복사 피드백). 카드 전체가
     복사 버튼이며, 클립보드 API 불가 환경(비보안 컨텍스트 등)에서는 fallback으로 계좌를
     선택 상태로 만들어 수동 복사를 유도한다. %>
-<section class="mt-4" aria-label="입금 계좌" data-controller="clipboard"
+<section class="mt-5" aria-label="입금 계좌" data-controller="clipboard"
          data-clipboard-text-value="<%= "#{@invoice.bank_name} #{@invoice.account_number} #{@invoice.account_holder}" %>">
   <button type="button" data-action="clipboard#copy"
-          class="block w-full rounded-2xl border border-stone-200 bg-white p-5 text-left shadow-sm transition hover:border-stone-300 hover:shadow active:bg-stone-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 sm:p-6">
+          class="block w-full rounded-2xl border border-stone-200 bg-white p-5 text-left shadow-sm transition duration-150 hover:border-emerald-700/40 hover:shadow-md active:bg-stone-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 sm:p-6">
     <span class="flex items-center justify-between gap-3">
-      <span class="text-sm font-bold text-stone-500">입금 계좌</span>
-      <span data-clipboard-target="label" class="text-xs font-bold text-emerald-700">탭하여 복사</span>
+      <span class="text-xs font-bold tracking-wide text-stone-500">입금 계좌</span>
+      <span data-clipboard-target="label" class="rounded-full bg-emerald-800/10 px-2.5 py-1 text-xs font-bold text-emerald-800">탭하여 복사</span>
     </span>
-    <span class="mt-3 block text-xl font-extrabold tabular-nums tracking-tight text-stone-900">
+    <span class="mt-3 block text-2xl font-extrabold tabular-nums tracking-tight text-stone-900 sm:text-[1.7rem]">
       <%= @invoice.bank_name %> <%= @invoice.account_number %>
     </span>
-    <span class="mt-1 block text-sm text-stone-600">예금주 <%= @invoice.account_holder %></span>
+    <span class="mt-1.5 block text-sm font-medium text-stone-600">예금주 <%= @invoice.account_holder %></span>
   </button>
   <%# 클립보드 fallback 수동 선택용 소스 — 화면에는 노출되지 않는다 %>
   <input type="text" readonly tabindex="-1" data-clipboard-target="source" aria-label="입금 계좌 전체"
@@ -108,15 +108,15 @@
 
 <%# PAY-3 — 입금자명 표준 힌트 %>
 <p class="mt-3 rounded-xl bg-stone-50 px-4 py-3 text-sm leading-relaxed text-stone-600 ring-1 ring-inset ring-stone-200">
-  입금 시 입금자명을 '<strong class="font-bold text-stone-800"><%= @invoice.client.name %></strong>'으로 입력해 주세요.
+  입금 시 입금자명을 '<strong class="font-extrabold text-stone-900"><%= @invoice.client.name %></strong>'으로 입력해 주세요.
 </p>
 
 <%# PROMISE-6 — 답변 등록된 문의(1문의 1답변). 서비스 경유 확인이며 발행인 연락처는
     노출하지 않는다(P2). 무답변 문의는 표시하지 않는다(채무자가 보낸 내용이므로). %>
 <% if @answered_inquiries.any? %>
-  <section class="mt-4 space-y-3" aria-label="발행인 답변">
+  <section class="mt-5 space-y-3" aria-label="발행인 답변">
     <% @answered_inquiries.each do |inquiry| %>
-      <article class="rounded-2xl border border-stone-200 bg-white p-5 sm:p-6">
+      <article class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
         <h2 class="text-sm font-bold text-stone-500">발행인 답변</h2>
         <p class="mt-2 whitespace-pre-line text-[15px] leading-relaxed text-stone-800"><%= inquiry.answer %></p>
         <p class="mt-4 border-t border-stone-100 pt-3 text-xs leading-relaxed text-stone-400">
@@ -132,9 +132,9 @@
     개인정보 입력 없이 버튼 선택만으로 접수된다(PROMISE-2). 즉시 응답 2종은 button_to,
     입력이 필요한 2종은 <details> 네이티브 접기로 JS 없이 카카오톡 인앱에서도 동작한다(VIEW-1).
     date input은 네이티브 UI에 위임(min=오늘 — 어제 이전 차단의 1차 방어, 서버가 재검증). %>
-<section class="mt-4 rounded-2xl border border-stone-200 bg-white p-5 sm:p-6" aria-label="응답 보내기">
+<section class="mt-5 rounded-2xl border border-stone-200 bg-white p-5 sm:p-7" aria-label="응답 보내기">
   <h2 class="text-base font-bold text-stone-800">이 청구서에 응답하기</h2>
-  <p class="mt-1 text-xs leading-relaxed text-stone-400">
+  <p class="mt-1 text-[13px] leading-relaxed text-stone-400">
     응답은 바로 발행인에게 전달되며, 가입이나 개인정보 입력은 필요하지 않습니다.
   </p>
 
@@ -145,19 +145,19 @@
     </p>
   <% end %>
 
-  <div class="mt-4 grid gap-2.5">
+  <div class="mt-5 grid gap-2.5">
     <%# PROMISE-1 「이번 주 내에 입금할게요」 — 선택 즉시 접수(약속일은 서버가 산정 — 결정 #1) %>
     <%= button_to "이번 주 내에 입금할게요", viewer_promises_path(@invoice.token),
           params: { promise: { kind: :this_week } },
-          class: "inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-xl bg-emerald-800 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+          class: "inline-flex min-h-12 w-full cursor-pointer items-center justify-center rounded-xl bg-emerald-800 px-5 text-[15px] font-bold text-white shadow-sm transition duration-150 hover:bg-emerald-900 hover:shadow-md active:bg-emerald-950 active:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
     <%# PROMISE-1 「이미 입금했어요」 — 입금 완료 회신(PROMISE-7 — 상태 변경 없이 발행인 전달) %>
     <%= button_to "이미 입금했어요", viewer_promises_path(@invoice.token),
           params: { promise: { kind: :paid_report } },
-          class: "inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-xl border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-600 transition hover:border-stone-400 hover:text-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-500" %>
+          class: "inline-flex min-h-12 w-full cursor-pointer items-center justify-center rounded-xl border border-stone-300 bg-white px-5 text-[15px] font-semibold text-stone-600 transition duration-150 hover:border-stone-400 hover:bg-stone-50/60 hover:text-stone-800 active:bg-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-500" %>
 
     <%# PROMISE-1 「입금 예정일 지정」 — 네이티브 date input(인앱 브라우저 호환) %>
     <details class="group">
-      <summary class="inline-flex min-h-11 w-full cursor-pointer list-none items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-600 transition hover:border-stone-400 hover:text-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-500 [&::-webkit-details-marker]:hidden">
+      <summary class="inline-flex min-h-12 w-full cursor-pointer list-none items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white px-5 text-[15px] font-semibold text-stone-600 transition duration-150 hover:border-stone-400 hover:bg-stone-50/60 hover:text-stone-800 active:bg-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-500 [&::-webkit-details-marker]:hidden">
         입금 예정일 지정
         <span class="text-stone-400 group-open:hidden" aria-hidden="true">+</span>
       </summary>
@@ -165,15 +165,15 @@
         <%= form.hidden_field :kind, value: "date_selected" %>
         <%= form.date_field :promised_on, value: @promise.promised_on, min: Date.current,
               aria_label: "입금 예정일",
-              class: "block w-full rounded-xl border border-stone-300 bg-white px-3.5 py-2.5 text-stone-800 shadow-sm transition focus:outline-none focus:ring-2 focus:ring-emerald-700/30" %>
+              class: "block w-full rounded-xl border border-stone-300 bg-white px-3.5 py-3 text-stone-800 shadow-sm transition focus:outline-none focus:ring-2 focus:ring-emerald-700/30" %>
         <%= form.submit "등록",
-              class: "inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-xl bg-emerald-800 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+              class: "inline-flex min-h-12 w-full cursor-pointer items-center justify-center rounded-xl bg-emerald-800 px-5 text-[15px] font-bold text-white shadow-sm transition duration-150 hover:bg-emerald-900 hover:shadow-md active:bg-emerald-950 active:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
       <% end %>
     </details>
 
     <%# PROMISE-1 「문의·이의 있어요」 — 자유 메모 → U1 전달(상한 2,000자) %>
     <details class="group">
-      <summary class="inline-flex min-h-11 w-full cursor-pointer list-none items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-600 transition hover:border-stone-400 hover:text-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-500 [&::-webkit-details-marker]:hidden">
+      <summary class="inline-flex min-h-12 w-full cursor-pointer list-none items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white px-5 text-[15px] font-semibold text-stone-600 transition duration-150 hover:border-stone-400 hover:bg-stone-50/60 hover:text-stone-800 active:bg-stone-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-500 [&::-webkit-details-marker]:hidden">
         문의·이의 있어요
         <span class="text-stone-400 group-open:hidden" aria-hidden="true">+</span>
       </summary>
@@ -182,17 +182,17 @@
         <%= form.text_area :memo, value: @promise.memo, rows: 4, maxlength: Promise::MEMO_MAX_LENGTH,
               placeholder: "궁금한 점이나 이의가 있다면 자유롭게 적어 주세요.",
               aria_label: "문의 내용",
-              class: "block w-full rounded-xl border border-stone-300 bg-white px-3.5 py-2.5 text-stone-800 shadow-sm transition placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-emerald-700/30" %>
+              class: "block w-full rounded-xl border border-stone-300 bg-white px-3.5 py-3 text-stone-800 shadow-sm transition placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-emerald-700/30" %>
         <%= form.submit "등록",
-              class: "inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-xl bg-emerald-800 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+              class: "inline-flex min-h-12 w-full cursor-pointer items-center justify-center rounded-xl bg-emerald-800 px-5 text-[15px] font-bold text-white shadow-sm transition duration-150 hover:bg-emerald-900 hover:shadow-md active:bg-emerald-950 active:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
       <% end %>
     </details>
   </div>
 </section>
 
 <%# VIEW-5 — 하단 고지(P5 — 채무자 오인 방지). ③→① 링크 없음(SURF-4). %>
-<footer class="mt-10 border-t border-stone-100 pt-6">
-  <p class="text-center text-xs leading-relaxed text-stone-400">
+<footer class="mt-12 border-t border-stone-100 pt-8">
+  <p class="text-center text-[13px] leading-loose text-stone-400">
     본 청구서는 발행인이 직접 발행했습니다.<br />
     본 서비스는 채권 추심 업무를 수행하지 않습니다.
   </p>

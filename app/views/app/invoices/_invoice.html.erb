@@ -1,7 +1,8 @@
 <%# 청구서 목록 행 — index·대시보드(DASH-4) 공용. 상태 뱃지(DESIGN-2)·연체일 수치 강조(DESIGN-5). %>
-<tr class="border-b border-stone-100 transition last:border-0 hover:bg-stone-50">
+<tr class="border-b border-stone-100 transition duration-150 last:border-0 hover:bg-stone-50/80">
   <td class="whitespace-nowrap px-4 py-3.5 text-sm font-semibold text-stone-700">
-    <%= link_to invoice.issue_number || "초안", app_invoice_path(invoice), class: "transition hover:text-emerald-800" %>
+    <%= link_to invoice.issue_number || "초안", app_invoice_path(invoice),
+          class: "rounded transition duration-150 hover:text-emerald-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
   </td>
   <td class="max-w-36 truncate px-4 py-3.5 text-sm text-stone-600"><%= invoice.client.name %></td>
   <td class="whitespace-nowrap px-4 py-3.5 text-sm tabular-nums text-stone-600"><%= display_date(invoice.due_on) %></td>

@@ -1,0 +1,35 @@
+<%# LP-5 카톡 버블 파셜 — _message_samples(4단계 시퀀스) 전용.
+    REM-1 서비스 명의 · REM-3 발송 창 내 수신 시간 표기.
+    버블 구조: 프로필 아이콘(텍스트 원형) + 발신자명 → 인사말 → 본문(청구 내역·안내) → 링크 표시 개행 구분,
+    수신 시간은 버블 우측 하단에 작게 표기. [ ]는 발송 시 채워지는 자리(링크 토큰 포함).
+    링크는 표시 전용 텍스트 — ① 표면 앵커·외부 링크 금지(SURF-4).
+    locals: stage, label, time, button, body %>
+<div class="flex items-center gap-2">
+  <span class="rounded-full bg-emerald-800/10 px-2.5 py-1 text-xs font-bold text-emerald-800"><%= stage %></span>
+  <span class="text-xs font-semibold text-stone-500"><%= label %></span>
+</div>
+
+<%# 발신자 — REM-1 서비스 명의. 프로필 아이콘은 텍스트 원형 %>
+<div class="mt-3.5 flex items-start gap-2.5">
+  <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-800 text-sm font-bold text-white" aria-hidden="true">받</span>
+  <div class="min-w-0 flex-1">
+    <p class="text-xs font-semibold text-stone-500">받을돈</p>
+
+    <%# LP-5 카톡 버블 — 노란색(#FEE500) 배경·라운딩·좌측 꼬리(before 회전 사각형).
+        본문은 개행(whitespace-pre-line) — 알림톡 템플릿 등록 본문과 동일 구조.
+        하단 링크는 실제 알림톡 버튼 컴포넌트 표현(표시 전용 — SURF-4 앵커 금지). %>
+    <div class="relative mt-1.5 w-fit max-w-full rounded-2xl rounded-tl-sm bg-[#FEE500] px-4 py-3 before:absolute before:-left-1 before:top-3 before:h-2.5 before:w-2.5 before:rotate-45 before:bg-[#FEE500] before:content-['']">
+      <p class="text-sm font-medium leading-relaxed text-stone-900">안녕하세요. 받을돈입니다.</p>
+      <p class="mt-1.5 whitespace-pre-line text-sm font-medium leading-relaxed text-stone-900"><%= body %></p>
+      <div class="mt-2.5 border-t border-black/15 pt-2 text-center">
+        <span class="inline-flex items-center gap-1.5 text-[13px] font-bold text-stone-900">
+          <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5"/></svg>
+          <%= button %>
+        </span>
+      </div>
+    </div>
+
+    <%# 수신 시간 — 수신 버블 스타일(좌측 정렬). REM-3 발송 창 09~18시 내 예시 %>
+    <p class="mt-1 pl-1 text-[10px] text-stone-400"><%= time %></p>
+  </div>
+</div>

@@ -1,37 +1,110 @@
-<%# LP-1 히어로 — Q6 확정 문구·CTA 링크 불변, 디자인 고도화(타이포 위계·배지·CTA 디테일·크림→화이트 그라데이션). %>
+<%# LP-1 히어로 — Q6 확정 문구·CTA 링크 불변. DESIGN-8 좌우 비대칭 분할:
+    좌측 헤드라인·서브카피·CTA / 우측 청구서 뷰어(표면③) 정적 목업.
+    목업은 ERB+Tailwind 재현물 — 실제 링크·이미지·인터랙션 없음(SURF-4 ①→② 단일 진입 유지,
+    a·button 요소 미사용). 모바일에서 세로 스택. 크림→화이트 그라데이션 배경 유지. %>
 <section class="relative overflow-hidden">
   <div class="pointer-events-none absolute inset-0 bg-gradient-to-b from-cream via-[#f4f2ea] to-white" aria-hidden="true"></div>
 
-  <div class="relative mx-auto flex max-w-3xl flex-col items-center px-4 py-20 text-center sm:px-6 sm:py-28">
-    <p class="inline-flex items-center rounded-full border border-emerald-800/15 bg-white/80 px-3.5 py-1.5 text-xs font-bold text-emerald-800 shadow-sm">
-      프리랜서 수금 자동화
-    </p>
+  <div class="relative mx-auto grid max-w-6xl items-center gap-12 px-4 py-16 sm:px-6 sm:py-24 lg:grid-cols-12 lg:gap-8 lg:py-28">
+    <%# 좌측 — 헤드라인·서브카피·CTA %>
+    <div class="lg:col-span-6">
+      <p class="inline-flex items-center rounded-full border border-emerald-800/15 bg-white/80 px-3.5 py-1.5 text-xs font-bold text-emerald-800 shadow-sm">
+        프리랜서 수금 자동화
+      </p>
 
-    <%# LP-1 헤드라인 — PRD 확정 문구(Q6) 그대로 %>
-    <h1 class="mt-6 text-4xl leading-tight font-extrabold tracking-tight text-emerald-900 sm:text-5xl sm:leading-tight">
-      독촉하기 어려울 때,<br>
-      받을돈이 대신합니다
-    </h1>
+      <%# LP-1 헤드라인 — PRD 확정 문구(Q6) 그대로 %>
+      <h1 class="mt-6 text-4xl leading-tight font-extrabold tracking-tight text-emerald-900 sm:text-5xl sm:leading-tight">
+        독촉하기 어려울 때,<br>
+        받을돈이 대신합니다
+      </h1>
 
-    <%# LP-1 서브카피 — 수금 루프 한 문장 요약 %>
-    <p class="mt-6 text-base leading-relaxed text-stone-600 sm:text-lg">
-      청구 링크 → 열람 추적 → 자동 리마인더 → 입금 약속 수집까지, 수금 루프 전체를 받을돈이 대신합니다.
-    </p>
+      <%# LP-1 서브카피 — 수금 루프 한 문장 요약 %>
+      <p class="mt-6 text-base leading-relaxed text-stone-600 sm:text-lg">
+        청구 링크 → 열람 추적 → 자동 리마인더 → 입금 약속 수집까지, 수금 루프 전체를 받을돈이 대신합니다.
+      </p>
 
-    <div class="mt-10 flex flex-col items-center gap-3">
-      <%# SURF-4 ①→② 단일 진입 CTA — 이메일/비밀번호 회원가입 화면으로 연결(AUTH-1) %>
-      <%# LP-1 주 CTA 확정 문구: 「무료로 시작하기」 %>
-      <%= link_to new_registration_path,
-            class: "rounded-xl bg-emerald-800 px-8 py-4 text-lg font-bold text-white shadow-lg shadow-emerald-900/15 transition hover:-translate-y-0.5 hover:bg-emerald-900 hover:shadow-xl hover:shadow-emerald-900/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 active:translate-y-0" do %>
-        무료로 시작하기
-      <% end %>
-      <p class="text-sm font-medium text-emerald-800">무료 · 카드등록 없음 · 3분</p>
+      <div class="mt-10 flex flex-col items-start gap-3">
+        <%# SURF-4 ①→② 단일 진입 CTA — 이메일/비밀번호 회원가입 화면으로 연결(AUTH-1) %>
+        <%# LP-1 주 CTA 확정 문구: 「무료로 시작하기」 %>
+        <%= link_to new_registration_path,
+              class: "rounded-xl bg-emerald-800 px-8 py-4 text-lg font-bold text-white shadow-lg shadow-emerald-900/15 transition hover:-translate-y-0.5 hover:bg-emerald-900 hover:shadow-xl hover:shadow-emerald-900/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 active:translate-y-0" do %>
+          무료로 시작하기
+        <% end %>
+        <p class="text-sm font-medium text-emerald-800">무료 · 카드등록 없음 · 3분</p>
+      </div>
+
+      <%# LP-1 보조 CTA — 작동 방식 섹션으로의 인페이지 이동은 SURF-4 앵커 규칙과 충돌해 비활성 유지 %>
+      <button type="button" aria-disabled="true" disabled
+            class="mt-8 cursor-not-allowed rounded-xl border border-emerald-800 px-6 py-3 text-base font-semibold text-emerald-800 opacity-60">
+        작동 방식 보기
+      </button>
     </div>
 
-    <%# LP-1 보조 CTA — 작동 방식 섹션으로의 인페이지 이동은 SURF-4 앵커 규칙과 충돌해 비활성 유지 %>
-    <button type="button" aria-disabled="true" disabled
-          class="mt-8 cursor-not-allowed rounded-xl border border-emerald-800 px-6 py-3 text-base font-semibold text-emerald-800 opacity-60">
-      작동 방식 보기
-    </button>
+    <%# 우측 — 청구서 뷰어(③) 정적 목업. 뷰어 화면 구조(발행인 안내 → 청구 내역 카드 →
+        금액 강조 → 응답 버튼 → 하단 고지문)를 재현. 표시 전용이며 링크·버튼 요소 없음. %>
+    <div class="relative mx-auto w-full max-w-md lg:col-span-6 lg:col-start-7">
+      <%# 열람 추적 떠있는 배지 — 장식(데코레이션) %>
+      <p class="absolute -top-3.5 right-4 z-10 inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-md ring-1 ring-emerald-800/10">
+        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
+        열람을 확인했어요
+      </p>
+
+      <div class="rounded-3xl border border-stone-200 bg-white p-5 shadow-xl shadow-emerald-900/10 sm:p-6">
+        <%# 뷰어 헤더 — 받을돈 워드마크(링크 아님) %>
+        <p class="text-sm font-extrabold tracking-tight text-emerald-900">받을돈</p>
+        <p class="mt-4 text-sm font-bold leading-relaxed text-stone-900">
+          받을돈을 통해 <strong class="font-extrabold">오세안</strong>님이 보낸 청구서입니다
+        </p>
+
+        <%# 청구 내역 카드 — 문서 무결성 느낌(흰 배경·타이포 위계) %>
+        <div class="mt-4 rounded-2xl border border-stone-200 bg-white p-4">
+          <dl class="space-y-1.5 text-xs">
+            <div class="flex items-baseline justify-between gap-3">
+              <dt class="text-stone-400">청구번호</dt>
+              <dd class="font-semibold tabular-nums text-stone-600">BD-20261105-001</dd>
+            </div>
+            <div class="flex items-baseline justify-between gap-3">
+              <dt class="text-stone-400">만기일</dt>
+              <dd class="font-semibold tabular-nums text-stone-600">2026-11-05</dd>
+            </div>
+          </dl>
+
+          <table class="mt-3 w-full text-left text-xs">
+            <thead>
+              <tr class="border-b border-stone-200 text-[11px] font-bold text-stone-400">
+                <th scope="col" class="py-1.5 pr-2">품목</th>
+                <th scope="col" class="py-1.5 text-right">금액</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="border-b border-stone-100">
+                <td class="py-2 pr-2 font-medium text-stone-700">11월 랜딩 페이지 디자인</td>
+                <td class="py-2 text-right font-semibold tabular-nums text-stone-700">1,500,000원</td>
+              </tr>
+              <tr>
+                <td class="py-2 pr-2 font-medium text-stone-700">상세 페이지 서브컨텐츠</td>
+                <td class="py-2 text-right font-semibold tabular-nums text-stone-700">500,000원</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="mt-3 flex items-baseline justify-between gap-3 border-t border-stone-200 pt-3">
+            <p class="text-xs font-bold text-stone-500">청구 총액</p>
+            <p class="text-xl font-extrabold tabular-nums tracking-tight text-stone-900">2,200,000원</p>
+          </div>
+        </div>
+
+        <%# 응답 버튼 — 표시 전용(span 스타일링, 인터랙션 없음) %>
+        <div class="mt-4 flex flex-col gap-2">
+          <span class="rounded-xl bg-emerald-800 px-4 py-2.5 text-center text-sm font-bold text-white">이미 입금했어요</span>
+          <span class="rounded-xl border border-emerald-800/30 bg-white px-4 py-2.5 text-center text-sm font-bold text-emerald-800">입금 예정일 지정</span>
+        </div>
+
+        <%# VIEW-5 고지문 — 뷰어 하단 고지 재현 %>
+        <p class="mt-4 rounded-xl bg-cream px-3.5 py-2.5 text-[11px] leading-relaxed text-stone-400">
+          본 청구서는 발행인이 직접 발행했습니다. 본 서비스는 채권 추심 업무를 수행하지 않습니다.
+        </p>
+      </div>
+    </div>
   </div>
 </section>

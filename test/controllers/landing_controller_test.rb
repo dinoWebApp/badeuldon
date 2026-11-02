@@ -223,6 +223,78 @@ class LandingControllerTest < ActionDispatch::IntegrationTest
     assert_no_match(/개업일/, text)
   end
 
+  test "LP-14 시나리오 섹션이 4개 카드와 식별 문구로 렌더된다 (LP-14 정상)" do
+    get root_url
+    # 섹션 헤딩 + 리드
+    assert_select "h2", text: /모든 상황, 자동으로/
+    assert_select "p", text: /시퀀스는 그에 맞춰 조용히 이어갑니다/
+    # 4개 시나리오 카드 배지 — 약속 재조정(PROMISE-3)·열람 분기(REM-4·SHARE-5)·부분입금(PAY-2)·입금 회신(PROMISE-7)
+    %w[약속 재조정 열람 분기 부분입금 입금 회신].each do |badge|
+      assert_select "p", text: /#{badge}/
+    end
+    # 카드별 핵심 benefit 문구 1개씩
+    assert_select "h3", text: /리마인더 일정이 그 약속에 맞춰 다시 짜입니다/
+    assert_select "h3", text: /열어본 거래처와 아직 못 본 거래처, 받는 안내가 다릅니다/
+    assert_select "h3", text: /일부만 받았어도, 잔액 기준으로 조용히 이어갑니다/
+    assert_select "h3", text: /발송이 즉시 멈춥니다\. 마감은 당신의 확인으로만/
+    # 미니 목업 라벨 4종 — 실제 알림톡 버블(LP-5)과의 혼동 방지 표기
+    assert_select "p", text: /상황 미리보기/, count: 4
+  end
+
+  test "LP-14 시나리오 문구는 약속 시 리마인더가 완전히 멈춘다는 과장을 하지 않는다 (LP-14 사실성 — PROMISE-3)" do
+    get root_url
+    # 실제 동작은 재조정(약속일 D-1 안내 + 도과 시 D+1 재요청)이므로 '약속하면 멈춤' 서술은 과장
+    assert_no_match(/약속하면.*멈춥/m, response.body)
+    # 열람 여부와 무관하게 동일 안내라는 서술도 REM-4·SHARE-5 분기와 모순 — 부재 확인
+    assert_no_match(/열어본 거래처와 아직 못 본 거래처, 받는 안내가 같습니다/, response.body)
+  end
+
+  test "LP-14 미니 목업 버블은 실제 알림톡 버블(#FEE500)로 렌더되지 않는다 (LP-5 혼동 방지)" do
+    get root_url
+    # LP-5 버블 테스트가 FEE500 총 4개를 검증하므로, 시나리오 미니 목업이 카톡 노란색이면 5개 이상으로 실패함
+    assert_select "div[class*='FEE500']", count: 4
+    # 시나리오 목업 본문은 실발신 문구 템플릿과 구분 — 미니 목업 전용 문구가 LP-5 버블 문구와 겹치지 않음
+    assert_select "p", text: /약속해주신 입금 예정일이 내일입니다/
+  end
+
+  test "LP-15 통제 섹션이 사전 알림·발송 상한·기록 보존을 표기한다 (LP-15 정상)" do
+    get root_url
+    assert_select "h2", text: /자동이되, 통제는 사용자에게 있습니다/
+    # 3항목 배지
+    %w[사전 알림 발송 상한 기록 보존].each do |badge|
+      assert_select "p", text: /#{badge}/
+    end
+    # ① REM-11 — 연체 단계 한정 사전 알림 + 원클릭 마감/보류
+    assert_select "p", text: /연체 단계의 자동 발송이 예정된 날에는 당일 아침에 알려드립니다/
+    assert_select "p", text: /원클릭으로 그날 발송을 마감하거나 보류할 수 있습니다/
+    # ② REM-12·PLAN-3 — 5통 상한 + 만기일 기준 14일(리뷰 CRITICAL 회귀 방지)
+    assert_select "h3", text: /청구 건당 최대 5통, 만기일로부터 14일 후 자동 종료/
+    assert_select "p", text: /만기일로부터 14일 뒤인 최종 안내까지 발송된 뒤 자동으로 종료됩니다/
+    # ③ P4 — 기록 보존(열람 범위 보장 문구 없이 사실만 서술)
+    assert_select "h3", text: /모든 발송은 기록으로 남고 지워지지 않습니다/
+  end
+
+  test "LP-15 자동 종료 기준은 만기일 기준이며 '발행 후 14일' 오기재가 없다 (LP-15, REM-12 회귀 — 리뷰 이슈 #1)" do
+    get root_url
+    # REM-12·PLAN-3은 만기일 D+14 — '발행 후' 기준 표기는 규칙 오기재(리뷰 CRITICAL)이므로 부재를 검증
+    assert_no_match(/발행 후 14일/, response.body)
+    assert_no_match(/발행 후\s*14/, response.body)
+    # 만기일 기준 표기 존재
+    assert_match(/만기일로부터 14일/, response.body)
+  end
+
+  test "LP-12 '추심' 표현은 부정 문맥에서만 등장한다 (LP-12, P5 — 문맥 필터)" do
+    get root_url
+    # LP-6 고지문·FAQ의 부정 서술('~아닙니다', '수행하지 않습니다')과 의문문(FAQ 질문)은 허용,
+    # 긍정 문맥의 추심 대행 서술은 금지
+    contexts = response.body.scan(/[^<>]*추심[^<>]*/)
+    assert contexts.any?, "뷰어 고지문(VIEW-5)·FAQ의 추심 부정 서술이 존재해야 한다"
+    contexts.each do |context|
+      assert context.match?(/아닙니다|수행하지 않|아닌|\?\s*\z/),
+        "추심 표현은 부정·의문 문맥에서만 허용된다: #{context.strip}"
+    end
+  end
+
   test "LP-10 최종 CTA는 신규 헤드라인을 반복 노출한다 (LP-10, LP-1)" do
     get root_url
     # 히어로 h1과 동일 문구를 closing h2에서 반복 — <br> 개행 포함 매칭

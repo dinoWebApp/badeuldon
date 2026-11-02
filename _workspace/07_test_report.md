@@ -1,84 +1,40 @@
-# 07_test_report.md — 포트원 전환 테스트 (Phase 7)
+# 07_test_report — 표면①②③ 퍼블리싱 리뉴얼 (Phase 7)
 
-- **일자**: 2026-10-15
-- **범위**: 기존 실패 4 failures·41 errors 갱신(전부 결제·구독) + 포트원 신규 시나리오
-- **기준**: `_workspace/03_implementation.md` §1(API 매핑)·§2(컬럼 rename)·§3(변경 파일)·§4(갱신 대상), PLAN-5·PLAN-2/4·이슈 #1·#4 회복 경로
-- **제약 준수**: 포트원 API 실호출 0건(FakePortOneClient 주입 + `with_http_transport` 전송 계층 대역), 앱 코드 수정 0건
+- **실행일**: 2026-11-02
+- **결과 요약**: 전체 **496 runs / 3,078 assertions, 0 failures** · 시스템 4 runs 0F · RuboCop 136 files no offenses
+- **신규 테스트**: 6건 (랜딩 컨트롤러 — `test/controllers/landing_controller_test.rb`에 추가)
+- **실패 이력**: 작성 중 테스트 오류 3건 자체 수정 후 재실행 통과 (코드 버그 0건)
 
----
+## 테스트 오류 원인 분류 (자체 수정)
 
-## 1. 최종 결과
+| 증상 | 분류 | 수정 |
+|:---|:---|:---|
+| LP-14/15 배지 `%w` 분할로 단어 단위 매칭 시도 | 테스트 오류 | 배지 전체 문구 정규식 매칭으로 교정 |
+| LP-12 추심 문맥 필터가 FAQ 의문문·답변 변형("수행하지 않으며") 오탐 | 테스트 오류 | 허용 문맥에 의문문(`?\s*\z`)·`수행하지 않` 추가 |
+| 문맥 캡처에 태그 직전 개행 포함 | 테스트 오류 | 정규식 `\?\s*\z`로 흡수 |
 
-| 점검 | 결과 |
-|:---|:---|
-| `bin/rails test` | **490 runs, 2,984 assertions, 0 failures, 0 errors, 0 skips** |
-| `bin/rails test:system` | 4 runs, 25 assertions, 0 failures (뷰어 무가입 플로우 — 결제 변경 무영향 확인) |
-| `bin/rubocop` | **0 offenses** (136 files) |
+## Rule ID별 커버 매핑 (신규 6건)
 
-기존 463 runs(4F·41E) → 490 runs(0F·0E). 증가 27건은 신규 시나리오(§3)에서 추가된 테스트다.
+| 테스트 | Rule ID | 검증 내용 |
+|:---|:---|:---|
+| LP-14 시나리오 섹션 렌더 | LP-14 정상 | h2·리드 + 4배지(약속 재조정/열람 분기/부분입금/입금 회신) + benefit 문구 4종 + "상황 미리보기" 라벨 4개 |
+| LP-14 사실성 부정 | LP-14 예외 | "약속하면~멈춥"(PROMISE-3 모순 과장)·열람 무관 동일 안내 서술 부재 |
+| LP-14 미니 목업 비-카톡 버블 | LP-5 구분 | `div[class*='FEE500']` 총 4개 불변(목업이 카톡 버블로 오인 렌더되지 않음) |
+| LP-15 통제 섹션 렌더 | LP-15 정상 | 3배지(사전 알림/발송 상한/기록 보존) + REM-11 연체 단계 한정 문구 + 원클릭 마감/보류 + 5통·만기일 기준 14일 + 기록 보존 |
+| LP-15 종료 기준 회귀 | LP-15·REM-12 (리뷰 이슈 #1 CRITICAL) | `발행 후 14일` 부재 + `만기일로부터 14일` 존재 — CRITICAL 재발 방지 |
+| LP-12 추심 문맥 필터 | LP-12·P5 | "추심" 등장 문맥 전수 검사 — 부정(아닙니다/수행하지 않)·의문문(FAQ) 외 금지 |
 
-## 2. 기존 실패 갱신 내역 (9개 파일 — §4 전 항목)
+## 기존 회귀 (리뷰 제안 반영)
 
-| 테스트 파일 | 갱신 내용 | 결과 |
-|:---|:---|:---:|
-| `test/models/order_test.rb` | `toss_order_id`→`pg_order_id`, 고유성 검증 키 교체 | 통과 |
-| `test/models/subscription_test.rb` | `toss_customer_key`→`pg_customer_key`·`toss_billing_key`→`pg_billing_key` | 통과 |
-| `test/services/orders/purchase_service_test.rb` | `payment_key:`→`payment_token:`, 응답 해시 DONE→PAID, `TossPayments::ApiError`→`PortOne::ApiError`, confirm 호출 기록 `{ payment_id:·payment_token:·store_id: }` | 통과 |
-| `test/services/orders/purchase_service_concurrency_test.rb` | FakePortOneClient·payment_token 교체 (스레드 격리 유지) | 통과 |
-| `test/services/subscriptions/upgrade_service_test.rb` | `auth_key:`→`issue_token:`, 차감 응답 `{ payment: {...} }` 스냅샷, charge 기록 `{ payment_id:·billing_key:·channel_key:·order_name: }`, PG 원문(pg_code·pg_message) 단언 | 통과 |
-| `test/controllers/app/orders_controller_test.rb` | 콜백 파라미터 `paymentKey/orderId`→`paymentToken/paymentId`, `with_portone_client` 스텁 | 통과 |
-| `test/controllers/app/subscriptions_controller_test.rb` | `auth_key/authKey`→`issue_token`(JS 콜백과 동일 snake_case — `portone_billing_controller.js` §33 확인) | 통과 |
-| `test/controllers/app/billings_controller_test.rb` | 셀렉터 `[data-controller=toss-payment]`→`portone-payment`, `data-portone-payment-payment-id-value` | 통과 |
-| `test/f_plan_review_fix_test.rb` | 이슈 #1 시나리오의 paymentKey 보존→paymentId(pg_order_id) 보존, 미승인 상태 ABORTED→READY, GET 가드 알림 문구 `/발급 토큰/` | 통과 |
+- **뷰어 VIEW-5·VIEW-8**: 신규 작성 없음 — 기존 `viewer_test.rb` 등 회귀 실행만(전체 스위트에 포함, 통과)
+- **DASH-1/2**: 신규 작성 없음 — `app/` 컨트롤러 테스트 회귀 실행만(통과)
+- **SURF-4 랜딩 앵커 화이트리스트**: 기존 테스트 유지·통과 — scenarios/control/히어로 목업의 a·button 신규 추가 없음 확인
+- **LP-5 FEE500 버블 4개·LP-3 `ol li` 5·FAQ summary 8**: 기존 assertion 무수정 통과
 
-**구 헬퍼 삭제(03 §3 명시분)**: `test/test_helpers/fake_toss_client.rb`·`toss_stubbing.rb` 삭제 — 전소스 grep으로 참조 0건 확인 후 제거. 로드 호용 별칭(`FakeTossClient =`·`with_toss_client`) 소멸.
+## 실행 기록
 
-## 3. 신규 테스트 (24건 + 보강 2건)
-
-### 3.1 `test/services/port_one/client_service_test.rb` — 13건 (신규)
-전송 계층(`Net::HTTP.start`)을 `with_http_transport`로 교체해 요청 구성·응답 파싱·오류 정규화를 5 엔드포인트 전수 검증. 성공·실패·타임아웃 커버리지:
-
-| 메서드 | 성공 | 실패 | 타임아웃/접속 |
-|:---|:---:|:---:|:---:|
-| confirm_payment | ✔ 경로·Authorization(`PortOne` 스킴)·Content-Type·멱등 키(RFC 8941 따옴표 UUID·POST 전용)·본문 | ✔ 404 `PAYMENT_NOT_FOUND` → `ApiError(status·code)` | ✔ TIMEOUT(모호) |
-| issue_billing_key | ✔ `billingIssueToken`·`channelKey`·`customer{id}` 본문 | ✔ 최상위 `pgCode/pgMessage` 운반 | — |
-| charge_billing_key | ✔ `amount{total}`·`currency=KRW`·`orderName`·멱등 결제 ID 경로 | ✔ `failure` 객체 중첩 pgCode 보완 | ✔ CONNECTION(모호) |
-| get_payment | ✔ storeId 질의 GET·멱등 키 없음·body 없음 | ✔ 404 | — |
-| cancel_payment | ✔ `reason` 본문 | ✔ 404 | — |
-
-+ 전송 계층 구성(호스트 `api.portone.io`·TLS·open/read 60초), `ApiError#ambiguous?` 분류(TIMEOUT/CONNECTION만 true — 이슈 #1·#4 재확인 대상).
-
-### 3.2 `test/controllers/webhooks/portone_controller_test.rb` — 11건 (신규)
-- **Transaction.Paid**: pending 수금 패스 주문 → 재조회 PAID 확정 → paid·패스 10건 발급(200), paymentId로 정확히 1회 재조회
-- **멱등 재시도**: 동일 이벤트 2회 → 패스 1회 발급(SEC 멱등)
-- **위조 결합 차단**: 재조회 응답 id ≠ 주문 pg_order_id → 무변경 흡수(이벤트 값 미신뢰)
-- **Transaction.Paid → settle_renewal**: pending Plus 갱신 주문 → paid·주기 연장(2026-10-31→11-30)
-- **Transaction.Cancelled / PartialCancelled**: paid → cancelled 동기화(콘솔 환불)
-- **Transaction.Failed**: pending → failed 동기화·발급 없음
-- **미지원 type**(`BillingKey.Issued`)·paymentId 공란·미지 결제 ID·깨진 JSON: 전부 200 흡수·재조회 없음
-
-### 3.3 보강 (기존 파일 내)
-- **빌링키 발급(issue_token 방식)**: `upgrade_service_test` — 발급 성공 시 `pg_billing_key` 저장·Subscription active·정기결제 채널(`channel_key_billing`)·구독 고객 키(customer.id) 라우팅 기록 단언 / 컨트롤러 PATCH·GET 콜백 양 경로 HTTP 검증
-- **차감(charge_billing_key)**: 성공 → Order paid·주기 1개월 연장·`pg_payment_id` = 주문번호 / 명확 실패 → failed 주문(PG 원문 보존)·즉시 만료 / 모호 실패 → pending 유지·구독 유지·`ambiguous` 이력 / 잔존 pending 주문 같은 결제 ID 재사용
-- **컬럼 rename 데이터 유지**: `order_test` — fixture 고정값 조회 + `pg_order_id`·`pg_payment_id`·`pg_billing_key` 쓰기→재적재 라운드트립
-- **즉시 승인 채널 폴백**: `purchase_service_test`·`orders_controller_test` — paymentToken 없으면 승인 API 호출 없이 get_payment 1회로 확정(03 §1 수동 승인 토큰 명세)
-
-## 4. 실패 원인 분류
-
-최종 실패 0건. 과정 중 1건 테스트 오류(코드 버그 아님):
-- 수동 생성 `Net::HTTPOK` 응답의 body를 `Net::HTTP.start` 블록 밖에서 읽어 `IOError: attempt to read body out of block` — 테스트 대역 구성 문제. 읽기 완료 플래그(`@read`) 설정으로 해결 후 전건 통과.
-
-앱 코드에서 발견·수정한 사항 없음(구현 보고 §7.1 수정분이 이미 반영된 상태 — 회복 경로 합류·PG 원문 보존 포함 재검증 완료).
-
-## 5. 회귀 확인
-
-- 구독 생명주기(`subscription_test` 15건)·한도 전환(`plan_limit_transition_test`)·수금 패스 사용·동시성(`payment_pass_test`·`payment_pass_concurrency_test`·`purchase_service_concurrency_test`) 전부 통과
-- 무관 도메인(인증·청구·거래처·뷰어·프로미스) 기존 통과 유지 — fixture는 03 §3 명세대로 `pg_*` 키만 갱신된 상태를 사용
-
-## 6. Tester 자체 점검
-
-- [x] 포트원 API 실호출 0건 — 테스트 전체가 FakePortOneClient·FakePortOneTransport 경유만 사용
-- [x] 테스트 소스 미사용 정의 0건 · `bin/rubocop` 0 offenses · 2칸 들여쓰기
-- [x] `bin/rails test` 전체 회귀 통과(490 runs) + `test:system` 통과(4 runs)
-- [x] 구 헬퍼(`fake_toss_client.rb`·`toss_stubbing.rb`) 삭제 — 토스 식별자 테스트 내 잔존 0건(전소스 grep 검증)
-- [x] 실패 원인 분류 기재(§4)
+```
+bin/rails test          → 496 runs, 3078 assertions, 0 failures, 0 errors, 0 skips
+bin/rails test:system   → 4 runs, 25 assertions, 0 failures
+bin/rubocop             → 136 files, no offenses
+```

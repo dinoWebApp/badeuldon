@@ -1,14 +1,10 @@
-# 05_review.md — 토스 → 포트원(KG이니시스) 전환 리뷰
-
-- **일자**: 2026-10-15 · **리뷰어**: PortOneReviewer
-- **대상**: git 변경분 전수(래퍼 2 신규·웹훅 1 신규·JS 2 신규·서비스 3·컨트롤러 3·모델 2·잡 2·마이그레이션·fixtures·테스트 헬퍼·PRD·routes)
-- **기준**: PRD v0.21 §6.10 PLAN-5 · §6.19 EXT · 검증기준 6항(결제 무결성·래퍼 보안·컬럼 rename·웹훅·크린 컷오버·UI)
-- **외부 근거**: 포트원 공식 문서 실조회 — [인증 결제 연동](https://developers.portone.io/opi/ko/integration/start/v2/checkout?v=v2) · [빌링키 발급](https://developers.portone.io/opi/ko/integration/start/v2/billing/issue?v=v2) · [수동 승인](https://developers.portone.io/opi/ko/extra/manual-confirm/readme-v2?v=v2) · [웹훅 v2](https://developers.portone.io/opi/ko/integration/webhook/readme-v2?v=v2) · [REST V2 결제 API](https://developers.portone.io/api/rest-v2/payment?v=v2) · [KG이니시스 V2 연동](https://developers.portone.io/opi/ko/integration/pg/v2/inicis-v2?v=v2) · npm `@portone/browser-sdk@0.1.13` 타입 실측
-- **이전 리뷰 추적**: `_workspace_prev/05_review.md`(F-PLAN 최초) 이슈 #1~#7은 본 전환에서 구조적으로 해소 확인(§이전 이슈 해소 매핑). #8·#10·#11은 하단 참조.
+# 05_review.md — 표면①②③ 퍼블리싱 리뉴얼 (3a 랜딩 · 3b /app · 3c 뷰어)
 
 ## Status: CHANGES_REQUESTED
 
-**BLOCKER 1건(위젯 파라미터)** — 수정 후 해당 경로 재리뷰 대상. 이하 CRITICAL 2건도 결제 정합성·주요 플랫폼 동작에 직결되어 수정 권고. 기존 테스트 4 failures + 41 errors는 전환으로 인한 예상 갱신 대상(Phase 7 합의)으로 리뷰 이슈에서 제외.
+- **판단 근거**: BLOCKER 0건, **CRITICAL 1건**(사용자 노출 문구가 REM-12 제품 규칙과 사실관리가 다름 — LP-15 "사실적 나열" 명백 위반). 수정은 문구 1~2행이므로 Developer 수정 후 재리뷰(해당 파일 한정)로 신속 통과 가능.
+- 검증 방식: git working tree 전체 diff 대조 + PRD §6~7·§9·Q2 원문 대조 + 테스트 재현 실행.
+- 테스트 재현 결과(Reviewer 실행): `landing_controller_test` 21 runs / 271 assertions 0F · `viewer_* controller` 40 runs / 303 assertions 0F · `app/` controller 164 runs / 1155 assertions 0F — 구현 보고(03_implementation)의 수치와 일치.
 
 ---
 
@@ -16,96 +12,91 @@
 
 | # | Severity | Rule ID | File:Line | 설명 | 수정 제안 |
 |---|----------|---------|-----------|------|-----------|
-| B1 | **BLOCKER** | PLAN-5 | `app/javascript/controllers/portone_payment_controller.js:18-26` · `portone_billing_controller.js:19-24` · `app/views/app/billings/_checkout.html.erb:5-10` | **KG이니시스 채널 필수 파라미터 미전달 — 위젯 요청이 PG에서 거부될 수 있음.** 포트원 공식 KG이니시스 V2 문서 기준 필수: ① `requestPayment` — `customer.fullName`(또는 first+last) **필수**, PC 결제 시 `customer.phoneNumber`·`customer.email` **필수**(모바일은 optional). ② `requestIssueBillingKey` — `issueId`(발급 건 고유 ID)·`issueName` **필수**, `customer.fullName` **필수**, PC 발급 시 `customer.phoneNumber` 필수, **모바일 발급 시 `offerPeriod` 필수**. 현재 구현은 어느 쪽도 전달하지 않는다(payment: storeId·channelKey·paymentId·orderName·totalAmount·currency·payMethod만 / billing: +customerId만). 채널(INIpayTest·INIBillTst)이 KG이니시스 모듈이므로 단건 결제·카드 등록 모두 결제창 단계에서 거부 가능성 — 금전 기능 전체 불능. [INFERENCE] 최종 확정은 배포 후 브라우저 실측(§5 후속)이 필요하나 문서가 "필수 입력해야 합니다"로 명시하는 결정적 누락. 러너 실측(03 §7)은 전부 오류 경로(404)라 위젯 성공 경로를 커버하지 못했다. | ① 결제 컨트롤러·뷰에 `customer: { fullName: 표시명, phoneNumber, email }` 데이터 속성 추가(프로필·User에서 적재) ② 빌링 발급에 `issueId: SecureRandom.uuid` 상당(ASCII), `issueName: "받을돈 Plus 자동결제"`, `customer` 동일 + 모바일 `offerPeriod` 전달 ③ 수정 후 KG이니시스 테스트 채널로 위젯 E2E 실측 |
-| C1 | **CRITICAL** | PLAN-5 (SEC-5 준용) | `app/services/orders/purchase_service.rb:42-48,96-104` · `app/controllers/webhooks/portone_controller.rb:71-76`(부차) | **confirm 재시도의 `ALREADY_PAID`가 명확 실패로 확정 — 결제는 됐는데 패스 미발급.** 시나리오: ① 승인 요청 타임아웃(모호 실패) + 재조회도 실패(일시적 장애) → pending 유지 ② 사용자가 콜백 URL 새로고침/재클릭(콜백은 GET — 재실행 쉬움) → 포트원 `POST /payments/{id}/confirm`은 이미 승인된 결제에 `AlreadyPaidError`(400, type `ALREADY_PAID` — 공식 API 문서 ConfirmPaymentError 구성원 확인) 반환 ③ `e.ambiguous?`가 아니므로 `record_failure!`로 **failed 확정** ④ 이후 웹훅 `Transaction.Paid`가 와도 `apply_status`는 `pending→paid`만 확정(FulfillPassService)하고 `failed→paid`는 상태만 뒤집어 **발급 없는 paid 주문** 잔류. "모호 실패를 failed로 굳히면 결제는 됐는데 패스는 없는 상태"(파일 상단 주석)가 비모호 코드 하나에서 재현되는 구조. 갱신 차감에는 같은 상황을 막는 스티키 가드(`metadata["ambiguous"]`, upgrade_service.rb:187-196)가 있어 단건과 비대칭. 토스 시절에도 동일 갭이 있었으나(구 purchase_service 확인) 이번 재작성 코드에 그대로 이식됨. | ① `PurchaseService`에서 `e.code == "ALREADY_PAID"`(confirm)는 "이미 결제됨 = 성공 신호"로 `recover_from_recheck!` 합류(실패 기록 금지) — 갱신 스티키 가드와 대칭화 ② `apply_status`의 `failed→paid` 전환은 상품 확정(패스 발급·주기 연장) 또는 최소 CS 감지 가능한 metadata 기록을 동반하도록 ③ 시나리오 테스트(Phase 7) |
-| C2 | **CRITICAL** | PLAN-5 | `app/javascript/controllers/portone_payment_controller.js:15-39` · `portone_billing_controller.js:15-34` | **`redirectUrl` 미설정 반환값(Promise) 방식 — 공식 문서상 모바일에서 결제 UI가 표시되지 않을 수 있음.** "redirectUrl이 설정되지 않은 경우(반환값 방식) — **모바일 결제 UI가 제대로 표시되지 않을 수 있습니다. PC 결제 UI로 충분할 때만 사용**하십시오"(인증 결제 연동 문서). 수동 리다이렉트(`window.location.href`)는 이 제약을 해소하지 못한다. 받을돈 /app 대시보드는 모바일 웹 사용이 주류인 U1 표면 — 단건 결제·카드 등록 모두 모바일에서 결제창 미표시 = 구매 불가 위험. KG이니시스는 PC/모바일 모듈이 분리된 PG라 문서 경고의 직접 대상. | `requestPayment`·`requestIssueBillingKey`에 `redirectUrl: (기존 callback URL)` 전달(필요 시 `forceRedirect` 또는 SDK 자동 환경 전환 사용). 단, SDK 리다이렉트는 응답 필드명 그대로 쿼리 전달 → ① 결제 콜백은 `paymentId`/`paymentToken`/`code`/`message` 수신 이미 호환 ② 빌링 콜백은 `billingIssueToken` 파라미터명 수용 추가(`params[:issue_token]` 또는 `params[:billingIssueToken]`) 필요. 변경 후 모바일 실기기 E2E |
-| W1 | WARNING | PLAN-5 | `app/services/subscriptions/upgrade_service.rb:52-57,122-130` · `portone_billing_controller.js:33` | **카드 등록 플로우가 빌링 채널 '수동 승인' 설정에 하드 의존.** `billingIssueToken`은 채널에 수동 승인이 **켜져 있을 때만** 반환(수동 승인 문서 — 꺼져 있으면 빌링키가 즉시 발급되고 토큰 없음). INIBillTst에 수동 승인이 꺼져 있으면 `issue_token=""` → 서버 가드 "카드 인증 정보(발급 토큰)가 없습니다"로 **카드 등록이 항상 실패**한다. 코드·03 어디에도 이 채널 설정 전제가 명시돼 있지 않다. 단건 채널은 토큰 유무 양쪽을 처리해 안정적. | 배포 체크리스트에 "INIBillTst 채널 수동 승인 ON" 명시(03 §5 후속 목록에 추가). 라이브 전환 시 채널 설정-코드 전제 일치 재확인 |
-| W2 | WARNING | PLAN-5 | `app/services/subscriptions/upgrade_service.rb:122-130` | **빌링키 발급의 모호 실패 회복 경로 부재(비대칭).** 발급 confirm 타임아웃 시 즉시 "카드 등록에 실패했습니다" 안내 — 발급이 실제로는 성공했을 수 있어도 재등록(신규 토큰→신규 빌링키)으로만 자가 회복된다. `BillingKey.*` 웹훅 흡수는 설계 합의 사항이라 위반으로 보지 않되, 승인·차감에만 회복 경로가 있는 비대칭은 운영 인지 필요(고아 빌링키가 포트원 콘솔에 축적). | 수용 가능. 03 구현 판단 기록에 "발급 모호 실패는 재등록으로 회복, 고아 빌링키는 콘솔 정리" 명시 권고 |
-| W3 | WARNING | PLAN-5(크린 컷오버) | `config/routes.rb:32` | **잔존 주석** — `# 카드 인증 위젯 successUrl(토스가 GET 리다이렉트) — authKey 수신 전용(이슈 #5).` 토스·authKey(구 파라미터) 용어가 그대로 남아 크린 컷오버 명세와 불일치(동작 영향 없음). | 포트원 SDK 콜백·`billingIssueToken` 용어로 주석 갱신 |
-| W4 | WARNING | PLAN-5 | `app/controllers/webhooks/portone_controller.rb:32-38,46-61` | **재조회 `get_payment`의 `PortOne::ApiError` 미처리 → 500.** 상단 명세 "응답은 항상 200"과 불일치(구 #8 계열). 포트원은 5xx를 재시도하므로 일시 장애 회복에는 오히려 유리하나, 예외 통보·로그 노이즈와 명세-구현 괴리가 남는다. | 수용 시 "재조회 실패는 5xx로 재시도 유도"로 명세 수정, 또는 `ApiError` rescue 후 200 + 재처리 큐. 판단 기록 권고 |
-| W5 | WARNING | 아키텍처(성능) | `app/services/subscriptions/upgrade_service.rb:84-96,105-115` · `app/services/orders/purchase_service.rb:30-37` | **잠금 순서 비대칭 + 잠금 내 60초 외부 호출.** renew는 subscription→order 순으로, settle_renewal(웹훅)은 order→subscription 순으로 잠금 — SQLite(현행, 단일 라이터)에선 무해하나 PG 이식 시 동일 사용자 갱신 건에 데드락 여지. 타임아웃 10초→60초로 잠금 내 외부 호출 최대 시간도 6배 증가(구 #10의 연장). | 현 규모 수용 가능. PG 이식 시 잠금 순서 통일(주문 우선) 또는 외부 호출 잠금 밖 이탈 구조 검토 — 03 제약 사항으로 기록 |
-| W6 | WARNING | PLAN-5 | `app/views/app/billings/_checkout.html.erb:5-10` | **체크아웃 파셜의 채널 키 가드 부재.** 카드 등록 섹션은 `@portone_channel_key_billing.present?` 분기가 있으나 체크아웃은 `channel_key_normal`이 nil이어도 렌더되어(빈 데이터 속성) 클릭 시점에 위젯 오류가 난다. 미설정 환경에서 사전 안내(결제 채널이 설정되지 않았습니다)와 정합성 있는 처리 권장. | 컨트롤러/뷰에서 `channel_key_normal` 부재 시 체크아웃 미노출 또는 안내문 전환 |
+| 1 | **CRITICAL** | REM-12·PLAN-3·LP-15 | `app/views/landing/_control.html.erb:31,33` | 자동 종료 기준일을 **"발행 후 14일"**로 표기 — 실제 규칙은 **만기일 D+14**(REM-2 기준, 기본 만기 +30일이면 발행 후 약 44일). PRD LP-15 ② 원문도 "D+14 자동 종결"이며, 같은 페이지 LP-5 샘플(D-1~D+14 = 결제 예정일 기준)과도 모순. 통제 섹션의 설득력이 '사실적 나열'에서 나오는 만큼 규칙 오기재는 LP-15의 전제를 훼손함 | 문장을 만기일 기준으로 교정. 예: "시퀀스는 만기일로부터 14일 뒤인 최종 안내(D+14)까지 발송되고, 그 이후 자동으로 종료됩니다. 그 이상은 발송되지 않습니다." 제목도 "청구 건당 최대 5통, 만기일로부터 14일 후 자동 종료" 등으로 정렬 |
+| 2 | WARNING (확인 요청) | REM-11 | `app/views/landing/_control.html.erb:21-24` | "자동 발송이 **예정된 날에는** 당일 아침에 알려드립니다" — REM-11 원문은 **D+1·D+7·D+14 연체 단계** 한정 사전 통보. 문구상 모든 자동 발송일(D-1 만기 예고 포함)이 사전 통보 대상으로 읽혀 과대 약속 소지. 다만 PRD LP-15 ① 자체가 "각 단계 발송 당일 아침 사전 통보(REM-11)"로 기술해 구현 문구는 LP-15 문언과는 일치 — **PRD 내부(REM-11 vs LP-15)의 긴장**이라 확신 부족 | F-REM 구현 전에 사전 통보 대상 범위를 확정하고 정렬. 연체 단계 한정이 유지되면 "연체 단계의 발송이 예정된 날에는"으로 한정하거나, PRD LP-15/REM-11 중 하나를 갱신 |
+| 3 | WARNING (확인 요청) | P4·PLAN-2 | `app/views/landing/_control.html.erb:41-44` | "언제 무엇을 보냈는지 **대시보드에서 그대로 확인할 수 있습니다**" — PLAN-2는 '발송 이력'을 Plus 포함 기능으로 명시. Free 사용자의 발송 이력 열람 범위가 미확정 상태에서 무조건부 문장이면 과대 약속 가능. 전반부 "기록으로 남고 지워지지 않습니다"(P4·REM-6)는 전 플랜 사실로 정확 | 발송 이력 UI의 플랜 게이트 범위 확정 후 조정. 보수적으로는 "발송 이력으로 남습니다"(기록 보존 사실만)로 마무리하거나 플랜 조건을 병기 |
+| 4 | WARNING | PROMISE-1·정합성 | `app/views/landing/_hero.html.erb:100` | 히어로 뷰어 목업의 응답 버튼 문구 **"입금 예정일 알리기"** — 실제 뷰어 버튼(PROMISE-1)은 **"입금 예정일 지정"**. 목업이 '뷰어(③) 재현'임을 자칭하므로 실제 라벨과 일치해야 함(잠재 U1이 실제 화면과 다르다고 느끼는 지점). 같은 목업의 "이미 입금했어요"는 원문 일치 | 목업 두 번째 버튼 텍스트를 "입금 예정일 지정"으로 수정(마크업 구조 변화 없음, 테스트 영향 없음) |
+| 5 | WARNING | INV-1·정합성 | `app/views/landing/_hero.html.erb:64` | 목업 청구번호 **"INV-2026-0042"** — 실제 채번은 `BD-YYYYMMDD-NNN`(Invoice#assign_issue_number, INV-1). 존재하지 않는 형식을 '뷰어 재현'으로 노출 | "BD-20261105-001" 등 실제 채번 형식으로 수정(만기일 2026-11-05와 정합) |
+| 6 | WARNING (기존 요소) | DESIGN-6 | `app/views/layouts/landing.html.erb:46-48` | 푸터 법적 고지 링크 3종(이용약관·개인정보처리방침·환불 정책)에 최소 터치 타깃 높이 없음(text-xs 실측 높이 ~16px, 모바일 44px 미달). **본 변경에서 새로 도입된 것은 아니나** 리뷰 범위 파일·UI 품질 기준 항목이라 기록 | 링크에 `inline-flex min-h-11 items-center` 또는 `py-3` 추가(레이아웃 변화 최소) |
 
-### 확인 요청(위양성 방지 — 판단 보류)
-
-| 항목 | 내용 |
-|---|---|
-| Q1 | **체험 미사용자의 카드 직접 등록 시 첫 1개월 무료** — `activate!`가 선차감 없이 `base+1개월` 주기를 부여한다(base=now). PLAN-2는 "첫 14일 무료 체험"인데, 체험을 건너뛰고 카드를 등록하면 사실상 1개월 무료 Plus가 된다(갱신 잡이 주기 종료 시 첫 차감). 토스 시절과 동일한 **diff 외 사전 존재** 동작이나 이전 리뷰에서도 미지적 — 의도된 정책인지 확인 필요 |
-| Q2 | **privacy.html 토스페이먼츠 잔존** — `app/views/pages/privacy.html.erb:85,97` 위탁사 목록 "토스페이먼츠 / 포트원(KG이니시스)". 과거 토스 결제 이력 보존 목적이라면 유효하나, 테스트 단계(실과금 이력 없음)라면 정리 검토 — 법무 확인 영역 |
-| Q3 | **`Transaction.PartialCancelled` → 주문 'cancelled' 전환** — 부분 취소 시 주문 상태가 통째로 cancelled가 된다(paid_at은 유지). 수금 패스·구독 모두 전액 환불만 존재한다면 도달 불가라 무해하나, PLAN-6(콘솔 수동 환불) 운영 시 부분 취소가 발생하면 보고서 왜곡 여지 — 정책 확인 |
+> BLOCKER 0건 — 보안·무결성·런타임 리스크 없음(아래 집중 검증 참조). 이슈 #1은 CRITICAL이나 문구 교정만으로 해소.
 
 ---
 
-## 결제 무결성 검증표 (검증기준 ①)
+## 집중 검증 결과 ① — VIEW-8 뷰어 화이트리스트 (최우선)
 
-| 검증 항목 | 결과 | 근거(File:Line) |
+**결과: 통과 (위반 0건)**
+
+`app/views/viewer/show.html.erb` diff 전수 대조 결과:
+
+- [통과] **새 요소·새 텍스트 0건** — 모든 변경이 기존 요소의 class 문자열 수정(위계·간격·터치 타깃)임. 03_implementation의 자기 선언과 diff가 정확히 일치.
+- [통과] 요소 구성이 VIEW-8 화이트리스트와 일치: 청구 내용(dl·품목 표·금액 분해) / 입금 계좌 복사(VIEW-3) / PAY-3 입금자명 힌트 / PROMISE-6 발행인 답변 / 응답 액션 4종(PROMISE-1) / VIEW-5 고지문. 화이트리스트 외 요소 없음.
+- [통과] **VIEW-2 문구 원문 유지**: "받을돈을 통해 [발행인]님이 보낸 청구서입니다" (h1 변경 없음 — 컨트롤러 테스트 assert_select 통과 재현).
+- [통과] **VIEW-5 고지문 원문 유지**: "본 청구서는 발행인이 직접 발행했습니다. / 본 서비스는 채권 추심 업무를 수행하지 않습니다."
+- [통과] **SURF-4**: ③→① 링크·내비·가입 유도·마케팅 0건 — 시스템 테스트 `assert_empty page.all("a")` 전제 유지(뷰어 내 앵커 요소 0개, button_to 폼만).
+- [통과] 인증 요구 추가 없음(P3), Stimulus(clipboard)·컨트롤러·라우트 미접촉.
+- [통과] DESIGN-6 — 응답 버튼 4종 `min-h-11→min-h-12`(48px), 폼 입력 py-3 확대, 레이아웃 17px 기본 글자 크기 유지.
+
+## 집중 검증 결과 ② — LP-12 신규 창작 문구 전수 검증
+
+**결과: 핵심 통과 — 단, LP-15 카드 1건이 규칙 오기재(이슈 #1)**
+
+신규 문구 전체(03_implementation "새로 추가한 문구 전문"과 실제 렌더 대조·전수 확인):
+
+- [통과] **확정 보장 계열 없음** — "100%", "보장" 문자열 페이지 전체 부재(테스트 `assert_no_match` 재현 통과). "마감은 당신의 확인으로만"(scenarios ④)은 PROMISE-7 사실 서술로 보장 표현 아님.
+- [통과] **공포 조장 없음** — scenarios 리드 "조용히 이어갑니다", control 리드 "던져 두는 게 아닙니다" 등 모두 온기·통제 톤(P1). 압박·협박 뉘앙스 0건.
+- [통과] **'추심 대행' 오인 소지 없음** — 신규 문구 전체에서 받을돈의 역할은 "안내 전달·발송"으로만 서술. positioning의 VIEW-5 원문 인용·LP-6 4요소 불변. 법적 조치 언급(Q2 준용) 0건 — D+14 샘플 "정기 리마인더를 마무리하겠습니다" 유지.
+- [통과] **근거 없는 수치 인용 없음** — 등장하는 수치는 5통·14일·3.3%·5건·9,900원·4,000원 등 규칙 사실(PLAN-1/2/3/4·INV-2)뿐. 히어로 목업 금액(2,200,000원 등)은 가상 예시로 측정 근거 불요.
+- [통과] **발신자 혼동 방지** — scenarios 미니 목업은 실제 알림톡(#FEE500)과 다른 중립 버블 + "상황 미리보기" 라벨로 LP-5 실발신 문구와 구분. FEE500 버블 4개 불변(테스트 재현 통과).
+- [위반→이슈 #1] control ②의 "발행 후 14일" 기준일 오기재(REM-12는 만기 D+14). 과장이 아니라 축소·오기재라 LP-12 금지 표현 목록 자체에는 없으나, LP-15 "사실적 나열" 요건 위반이자 REM-12 재현 오류로 CRITICAL 처리.
+
+## 집중 검증 결과 ③ — LP-14·LP-15 내용 정합 (PRD 사실 대조)
+
+- [통과] LP-14 ① 약속 재조정 = PROMISE-3(약속일 D-1 안내 1회 + 도과 시 D+1 재요청 1회) — "하루 전에 안내하고, 지나가면 다음 날 한 번" 정확.
+- [통과] LP-14 ② 열람 분기 = REM-4·SHARE-5(미열람→확인 요청, 열람→입금 안내) 정확.
+- [통과] LP-14 ③ 부분입금 = PAY-2(잔액 재계산·잔액 기준 시퀀스) 정확.
+- [통과] LP-14 ④ 입금 회신 = PROMISE-7(발송 즉시 정지 + 마감은 발행인 확인으로만) 정확 — 채무자가 마감 상태를 바꾼다는 오독 여지 없음.
+- [통과] LP-15 ① 원클릭 마감/보류 = REM-11 액션 조합 정확(범위 문구만 이슈 #2 확인 요청).
+- [위반→이슈 #1] LP-15 ② 자동 종료 기준일(발행 vs 만기).
+- [통과] LP-15 ③ 기록 보존 = P4·REM-6("지워지지 않는다" = 사용자 임의 삭제 불가) — 열람 범위 문장만 이슈 #3 확인 요청.
+
+## 집중 검증 결과 ④ — DESIGN-2·4·8 및 보안·아키텍처
+
+- [통과] DESIGN-2 — 신규 색상 토큰 0건. `#f4f2ea`(ivory)는 기존 히어로 그라디언트에 존재하던 값이 섹션 배경으로 승격된 것이고, `#FEE500`은 기존 LP-5 버블 값의 파셜 이동. 녹색/주황은 DESIGN-2 상태색 3종 사용.
+- [통과] DESIGN-4 강도 차 — ① 랜딩: 뷰어 목업·스텝 페이저·배지·hover로 강화 / ② /app: 배경 톤 변주 없이(cream 유지) 카드·뱃지·타이포 위계만 / ③ 뷰어: 흰 배경 유지, 보더·타이포·여백만(색 추가 0). 다크 요소 없음, ④ 관리자 콘솔 미접촉.
+- [통과] DESIGN-8 — 섹션 배경 리듬(cream/ivory/white)이 3a에 적용됐고 ②에는 의도대로 미적용. 카드 hover 섀도 승격(sm→md)·150~200ms 트랜지션·focus-visible 링이 3a/3b/3c 동일 문법.
+- [통과] 보안 — `raw`/`html_safe` 0건(grep 전수, "drawer" 오탐 제외), 사용자 입력 출력 전부 ERB 이스케이프, 외부 URL·에셋 신규 도입 0건(Pretendard CDN 기존 유지), data 속성은 `data-clipboard-text-value` 기존 그대로(ERB 이스케이프 경로), scenarios/control 목업은 하드코딩 정적 데이터(인젝션 표면 없음).
+- [통과] 아키텍처 — 뷰에서 DB 쿼리·모델 클래스 호출 0건(대시보드는 @인스턴스 변수만), 표현 로직 헬퍼화 완료(`dash_action_badge`·`dash_action_icon_path` 신설 — content_tag 사용), Stimulus 신규 추가 0건(순수 CSS), 들여쓰기 2칸 스페이스 확인, SURF-3 noindex 경로(`noindex?`) 미접촉, SURF-4 랜딩 앵커 집합 불변(가입 2 + 로그인 1 + 법적 고지 3 — 테스트 화이트리스트 재현 통과).
+- [통과] 테스트 충돌 — LP-3 `ol li`=5, FEE500 버블=4, 버블 부모 p 구조(발신자명·수신 시간), FAQ summary 8, 앵커 href 화이트리스트 등 기존 assertion 전부 무수정 통과를 재현 실행으로 확인.
+
+---
+
+## Rule ID 준수 매핑 (구현이 반영한 Rule)
+
+| Rule | 구현 위치 | 판정 |
 |:---|:---|:---|
-| paymentId 멱등 — 서버 채번 | **방어됨** | `pg_order_id` = 서버 UUID(NOT NULL·고유 인덱스, schema.rb:88)를 위젯 paymentId·confirm·차감·웹훅 매칭 공통 키로 사용. 포트원 문서 "같은 paymentId에 결제 성공은 단 한 번"(중복 결제 방지)과 정합 |
-| paymentId 멱등 — 단건 동시 콜백 | **방어됨** | `purchase_service.rb:30-37` with_lock + pending 재판정 → 2번째 호출 "이미 처리된 결제입니다"; `fulfill_pass_service.rb:14-22` pending 재판정 + 트랜잭션(콜백·웹훅 경합 1회 발급 — SEC-5 준용) |
-| 빌링키 차감 이중 방어 | **방어됨** | 1차 포트원 paymentId 거부 + 2차 `renew`의 with_lock·`renewal_due?` 재판정(업그레이드 서비스 84-96) + 선주문 pending 재사용(`prepare_renewal_order!` 154-160) — 크래시 후 재실행도 같은 paymentId |
-| 빌링키 차감 재시도 거절(이미 결제됨) | **방어됨** | 스티키 가드 `metadata["ambiguous"]`(187-196) — 모호 이력 있는 주문의 ALREADY_PAIED 거절은 만료하지 않고 pending 유지→웹훅 `settle_renewal` 회복 |
-| 승인 모호 실패(TIMEOUT/CONNECTION) 회복 | **방어됨(단건·갱신)** | `ApiError#ambiguous?`(api_error.rb:22-24) → 재조회 합류·pending 유지·웹훅 회복. **예외: 비모호 `ALREADY_PAID` — 이슈 C1** |
-| PendingApprovalError(승인 전) | **방어됨** | `recheck_payment!`가 PAID 아니면 PendingApprovalError → pending 유지 + 지연 안내(74-79,39-41) — 즉시 승인 채널 폴백과 동일 경로 |
-| 웹훅 무결성 — 값 미신뢰 | **방어됨** | 이벤트 값 폐기·`get_payment` 재조회 확정(53-59) + `payment[:id] != order.pg_order_id` 결합 차단(56) + paymentId 부재·미지원 type·깨진 JSON 200 흡수(32-38). 공식 문서가 권장하는 재조회 전략과 일치 |
-| 웹훅 멱동 | **방어됨** | 같은 상태 무변경(72)·pending 재판정 확정점 공유. dev 러너 실측 "재시도 → 패스 추가 발급 없음"(03 §7) |
-| 금액 변조 | **방어됨** | 주문 생성 서버 정가(`Order.amount_for`)·차감 `PLUS_MONTHLY_PRICE` 상수 단일 지점·콜백 파라미터 금액 무시. 포트원 confirm이 위젯 요청 당시 금액 검증 |
-| 소유권 격리 | **방어됨** | `orders_controller.rb:34-36` `Current.user.orders.find_by!` — 타인 paymentId 위조 콜백 차단. 빌링 페이지 체크아웃도 본인 pending만(billings_controller 8-10) |
-| api_secret 노출 경로 | **없음** | credentials만 참조(client_service 16-17)·Authorization 헤더·로그 미출력. 뷰에는 storeId·channelKey(공개 값)만. ApiError 메시지는 포트원 응답 code/message·PG 원문만 운반 |
-| 멱등키 헤더 형식 | **준수** | `Idempotency-Key: "<uuid>"`(82) — 공식 "RFC 8941에 따라 쌍따옴표로 감싸세요"와 일치. 단 요청마다 신규 UUID라 헤더 자체의 재시도 중복 제거는 기대하지 않는 구조(실제 멱등 축은 paymentId — 설계상 문제 없음) |
-| 타임아웃 | **준수** | 60초(13, 95-97) — 공식 "최소 60초 읽기 타임아웃 권장" 일치 |
+| LP-1 | `_hero.html.erb` — Q6 헤드라인·서브카피·주 CTA·보조 CTA 비활성 유지, 비대칭 분할 | 준수(문구 불변) |
+| LP-2 | `_pain.html.erb` — PRD 지정 인용 3종 원문 | 준수 |
+| LP-3 | `_how_it_works.html.erb` — 미변경(5단계) | 준수 |
+| LP-5 | `_message_samples`·`_message_bubble` — 4단계 문구 원문·#FEE500 버블·스텝 페이저 | 준수(파셜 추출, 마크업 등가) |
+| LP-6 | `_positioning.html.erb` — 4요소+VIEW-5 원문, 배경 톤만 변경 | 준수 |
+| LP-7 | `_pricing.html.erb` — PLAN-1/2/3/4 수치·부가세 명시, 가격 CTA 없음 | 준수 |
+| LP-8 | `_faq.html.erb` — 8항목, 답변 내용이 P2/P3/P5·PLAN·INV-2와 일치 | 준수 |
+| LP-9 | 미표기(후기 미보유 — 빈 후기 금지) | 준수 |
+| LP-10 | `_closing`·`layouts/landing` 푸터 — 사업자 4종+문의 채널 | 준수 |
+| **LP-14** | `_scenarios.html.erb` — 4카드가 PROMISE-3·REM-4/SHARE-5·PAY-2·PROMISE-7과 일치 | 준수 |
+| **LP-15** | `_control.html.erb` — REM-11·REM-12/PLAN-3·P4 | **부분 위반(이슈 #1~3)** |
+| LP-12 | 신규 문구 전수 검사 | 준수(확정 보장·공포·추심 오인 0건) |
+| DASH-1/2/4 | `dashboards/show` — 요약 위계·액션 카드·정렬 불변 | 준수 |
+| DESIGN-2/3/5/6/8 | 3a·3b·3c 공통 문법, 상태색 3종, tabular-nums, 48px 타깃 | 준수 |
+| SURF-2/3/4·VIEW-8 | 뷰어 화이트리스트·noindex·표면 이동 규칙 | 준수 |
+| VIEW-2/3/5·PAY-3·PROMISE-1/2/6/7 | 뷰어 문구·구조 원문 유지 | 준수 |
+| P1~P5 | 신규 문구·목업 전체 톤 검증 | 준수 |
 
-## 래퍼 보안·API 정합 (검증기준 ②)
+## Tester에게 제안하는 중점 테스트 영역
 
-- 엔드포인트·바디 전항목 공식 문서와 대조 — `POST /payments/{id}/confirm`(storeId·paymentToken = ConfirmPaymentBody)·`POST /billing-keys/confirm`(billingIssueToken = ConfirmBillingKeyBody)·`POST /payments/{id}/billing-key`(billingKey·channelKey·orderName·customer.id·amount.total·currency=KRW)·`GET /payments/{id}?storeId=`·`POST /payments/{id}/cancel` — **전부 일치**.
-- 오류 본문 `{ type, message }`(+`pgCode`·`pgMessage`, failure 객체) 정규화·`code = payload[:code] || payload[:type]` — 문서 규격과 일치. `escape()`로 경로 파라미터 인젝션 방지.
-- `Authorization: PortOne {secret}` 형식·storeId 필수 포함 — 문서 일치.
-- JS SDK 파라미터 — `requestPayment`(storeId·channelKey·paymentId·orderName·totalAmount·payMethod)·`requestIssueBillingKey`(billingKeyMethod:"CARD"·customer.customerId)·응답(paymentId·paymentToken·billingIssueToken·code·message)·`currency:"KRW"`(npm 0.1.13 PaymentCurrency="KRW" 실측 — 문서 예시의 `CURRENCY_KRW`도 허용 타입) — **일치. 단 KG이니시스 필수 파라미터 누락은 B1**.
-
-## 컬럼 rename 완전성 (검증기준 ③)
-
-- 마이그레이션 up/down 대칭·부분 고유 인덱스 SQLite 재정의 순서(선삭제→rename→재생성) 타당 — 스키마에 `pg_*` 전면 반영(schema.rb:81-89,142-148), dev 왕복 롤백 데이터 무손실 실측.
-- `app/`·`config/`의 `toss_`/`TossPayments` 잔존: **0건**(라틴 문자열 기준 — routes 주석 1건은 W3). `test/`의 toss 참조는 Phase 7 대기 합의 파일(별칭 헬퍼)·갱신 대상 구테스트로 범위 외. fixtures는 `pg_*`로 갱신(값 무변경).
-
-## 크린 컷오버 (검증기준 ⑤)
-
-- `app/services/toss_payments/`·`webhooks/toss_controller.rb`·`toss_*.js`·`/webhooks/toss` 라우트·동반 테스트 2종 삭제 확인(git 상태 + grep). `TossPayments` 상수 소멸(dev 실측). PRD v0.21 PLAN-5 본문·§6.19 갱신 확인(문서 선행 충족). 잔재: W3 주석·Q2 privacy 표기.
-
-## UI 정합 (검증기준 ⑥)
-
-- SDK 스크립트 `https://cdn.portone.io/v2/browser-sdk.js`(show.html.erb:6) — 공식 CDN 경로 일치. Stimulus 데이터 속성 ↔ values(storeId·channelKey·paymentId·amount:Number·callbackUrl / customerId) 정합, eagerLoad 자동 등록 확인. **단 B1(필수 파라미터)·C2(redirectUrl)가 우선 해결 과제.**
-
-## 이전 이슈 해소 매핑 (vs _workspace_prev/05_review.md)
-
-| 구 이슈 | 해소 확인 |
-|---|---|
-| #1 모호 실패 미발급·회복 불가 | ambiguous 분류 + 재조회 합류 + pending→웹훅 회복으로 해소 (단 C1 잔존) |
-| #2 무한 재체험 / #3 activate! 주기 기준 | `used_trial` 플래그·`base = [now, trial_ends_at, period_end].max`(subscription.rb:55-72) 해소 |
-| #4 갱신 이중 결제 | with_lock + 선주문 + paymentId 멱등(포트원 거부) 해소 |
-| #5 GET 해지 CSRF | card_callback(GET)은 토큰 수신 전용·해지 PATCH 전용 — 구조 해소 |
-| #6 Free 해지 | `plus? && (active?||trialing?)` 가드 해소 |
-| #7 패스 미소비 | `monthly_invoice_limit_reached?`의 usable 패스 분기로 연결 |
-| #8 웹훅 견고성 | paymentId 가드·JSON 파싱 rescue 해소 — ApiError 500은 W4로 잔존 |
-| #10 with_lock 내 HTTP / #11 토큰 URL | 60초로 증가(W5)·issue_token URL 동일 패턴 유지(일회용 토큰, 수용) |
-
-## Rule ID 준수 매핑
-
-| Rule | 구현 반영 | 판정 |
-|---|---|---|
-| PLAN-5 (결제 PG·빌링키·단건·웹훅 반영) | 래퍼 5 메서드 + 웹훅 재조회 + 빌링키 발급/차감/해지 유지 | 준수 (B1·C1·C2·W1 예외) |
-| PLAN-2 (Plus 9,900·14일 체험 1회) | `PLUS_MONTHLY_PRICE`·`TRIAL_DAYS`·used_trial 가드 유지 | 준수 (Q1 확인) |
-| PLAN-4 (수금 패스 10건 4,000원) | `PRODUCT_AMOUNTS`·FulfillPassService 10건/90일 유지 | 준수 |
-| PLAN-6 (환불 콘솔 수동) | 웹훅 취소는 상태 동기화만 — 정책 유지 | 준수 |
-| SEC-5 준용(발송 멱등성 원칙) | 결제 확정점 단일화(with_lock+pending 재판정)·웹훅 멱등 | 준수 (C1 경로 제외) |
-| P4(거래 기록 영구) | 갱신·실패·회복 이력 전부 Order로 기록, metadata에 PG 원문 보존 | 준수 |
-| ARCHITECTURE §4(외부 API wrapper 캡슐화) | 포트원 API는 `PortOne::ClientService` 경유만 — grep 확인, 도메인 서비스는 주입 | 준수 |
-| TIME-1 | 결제 시각 `Time.current`·주기 산정 앱 TZ 기준 유지 | 준수 |
-
-## Tester에게 제안하는 중점 테스트 영역 (Phase 7)
-
-1. **B1 수정 후 위젯 E2E(최우선)** — KG이니시스 테스트 채널로 ① 수금 패스 결제 ② 카드 등록 성공 경로. PC·모바일 각각(customer 필수 항목·offerPeriod 분기 포함). 현재 테스트는 전부 Fake 클라이언트라 이 결함을 잡지 못한다.
-2. **C1 시나리오** — ① ambiguous 실패(get_payment도 실패) → 콜백 재시도 → confirm이 `ALREADY_PAID`(401/400, code="ALREADY_PAID") 반환 케이스: 발급 보장 여부 ② 웹훅이 failed 주문에 Transaction.Paid 전달 시 동작.
-3. **C2 수정 후 모바일 실측** — 리다이렉트 방식 전환 시 콜백 쿼리(paymentId·paymentToken·code·message·billingIssueToken) 파싱 호환성.
-4. **웹훅 시스템 테스트 갱신** — `Transaction.Paid/Cancelled/Failed/PartialCancelled` 본문, 재조회 위조 결합(paymentId 불일치) 흡수, 재발송 멱등(패스 중복 발급 없음), `BillingKey.Issued`·깨진 JSON 200.
-5. **래퍼 단위 테스트 갱신** — `FakePortOneClient` 시그니처(payment_id·payment_token·channel_key·customer_id·order_name)로 전환, `PortOne::ApiError`(status·code·pg_code·ambiguous?) 분기, Idempotency-Key quoted UUID·타임아웃 60초 전송 계층 stub 검증.
-6. **회귀** — 갱신 멱등(같은 pending 재사용)·스티키 가드·`settle_renewal` 연장 1회·체험만료 잡 `pg_billing_key: nil` 조건.
-7. **설정 확인(테스트 전제)** — INIBillTst 채널 수동 승인 ON 여부가 카드 등록 테스트의 하드 전제(W1).
+1. **이슈 #1 수정 회귀** — 랜딩 본문에 /발행 후 14일/ 부재 + /만기일.*14일|최종 안내/ 존재 assertion 추가 권장(REM-12 문구 정합 회귀 방지).
+2. **뷰어 모바일 뷰포트(390px) 시스템 테스트** — 응답 버튼 min-h-12·계좌번호 `sm:text-[1.7rem]` 줄바꿈·품목 표 min-w-[420px] 가로 스크롤이 인앱 브라우저 폭에서 정상 렌더되는지(VIEW-1 — 실기기 카카오 인앱 QA 전 스크린샷 확인).
+3. **랜딩 인터랙션 화이트리스트 회귀** — scenarios·control·히어로 목업에 a/button 요소가 추가되지 않았는지 기존 href 화이트리스트 테스트 유지 + "span 목업 버튼"이 find(:button) 매칭되지 않는지 확인.
+4. **대시보드 빈 상태 분기** — `@has_invoices == false`에서 cards 배열 렌더(— 슬롯·0원 미표기)와 `@has_invoices == true` 히어로 카드 스냅샷 비교.
+5. **히어로 목업 접근성** — 목업이 링크로 오인되지 않는지(스팬이므로 탭 포커스 대상 아님) 스크린리더/키보드 탐색 확인.
