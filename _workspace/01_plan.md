@@ -1,53 +1,26 @@
-# 01_plan — 표면 ①②③ 퍼블리싱 리뉴얼 + 랜딩 콘텐츠 재작성 (2026-11-02)
+# 01_plan — LP-14 시나리오 커버 보강 (2026-11-02, Standard 파이프라인)
 
-## 요구사항
+## 요구사항 (사용자 확정 — 커버리지 대조 후 보강안 승인)
 
-1. **랜딩 콘텐츠 재작성**: 현재 랜딩은 4단계 시퀀스(LP-5)만 소개. 약속 재스케줄(PROMISE-3)·열람 분기(REM-4)·부분입금(PAY-2)·입금 회신 정지(PROMISE-7)·발송 전 사전 통보·취소(REM-11) 등 "다양한 상황 커버"를 benefit-first로 어필하도록 재작성.
-2. **퍼블리싱 재구성**: 표면 ①랜딩 ②/app ③뷰어 전체. 현재 단조로운 단일 컬럼 나열식 구성을 uibowl 레퍼런스 기반의 위계·깊이 있는 구성으로 교체. **DESIGN-2 팔레트(크림·아이보리 + 딥 그린) 유지 — 구성 강화 방식**.
-3. 기능 변화 없음(퍼블리싱·콘텐츠만). 라우트·모델·마이그레이션 변경 없음.
+랜딩 LP-14 "모든 상황, 자동으로" 섹션이 알림톡 전송 상황 16종 중 7그룹만 커버. 누락분 중 대면 기능 2종을 카드로 추가하고, U1 향 진행 알림은 한 줄 스트립으로 커버한다.
 
-## uibowl 레퍼런스 관찰 (2026-11-02 실측 — 구현 방향 근거)
+1. **카드 ⑤ "발행 안내"** — 발행 즉시 서비스 명의 안내 발송 옵션(SHARE-6): benefit "청구서를 보내는 첫 안내도, 받을돈 명의로 대신합니다." / detail: 발행 시 직접 카톡 전달과 서비스 명의 안내 중 선택 가능, 내 번호 노출 없음(P2) / 목업 label "발행 직후", body "청구서를 안내드립니다. 아래 버튼에서 내용을 확인하실 수 있습니다."
+2. **카드 ⑥ "마침 알림"** — 마감 감사 알림(PAY-4): benefit "수금이 끝나면, 정중한 마무리 인사까지 대신합니다." / detail: 마감 처리하면 거래처에게 확인·감사 안내 발송 — 기본 켬, 원하면 끌 수 있음 / 목업 label "마감 처리 후", body "입금이 확인되었습니다. 감사합니다."
+3. **U1 알림 스트립** — 섹션 하단 한 줄: "진행 상황도 알림으로 — 열람·약속·입금 회신이 접수되면 바로 알려드립니다"(SHARE-4·PROMISE-4·PROMISE-7·NOTI-1). 카드 아님, 경량 스트립 스타일.
 
-- [알파스퀘어 랜딩](https://uibowl.io/website/%EC%95%8C%ED%8C%8C%EC%8A%A4%ED%80%98%EC%96%B4?patterns=%EB%9E%9C%EB%94%A9%ED%8E%98%EC%9D%B4%EC%A7%80&patternName=%EC%A0%9C%ED%9C%B4%20%EB%A7%88%EC%BC%80%ED%8C%85)(PC·금융): 좌측 설명 텍스트 + 우측 실제 프로덕트 차트 목업의 비대칭 분할, 상단 강한 CTA — **실제 제품 화면을 목업에 담는 신뢰 장치** → 히어로에 뷰어 목업 적용
-- [코빗 랜딩/리서치-구독](https://uibowl.io/website/%EC%BD%94%EB%B9%97?patterns=%EB%9E%9C%EB%94%A9%ED%8E%98%EC%9D%B4%EC%A7%80&patternName=%EB%A6%AC%EC%84%9C%EC%B9%98-%EA%B5%AC%EB%8F%85)(PC·금융): 대형 2줄 헤드라인 타이포 + 하단 3열 카드 그리드 — **타이포 위계 중심의 절제된 B2B 구성** → 시나리오 커버 섹션 카드 그리드로 적용
-- [세이브(SAVE) 온보딩](https://uibowl.io/name/%EC%84%B8%EC%9D%B4%EB%B8%8C%20(SAVE)?patterns=%EC%98%A8%EB%B3%B4%EB%94%A9)(모바일·금융): 실제 화면 목업 위 코치마크·툴팁으로 기능 설명 + 하단 닷 인디케이터 → 상황별 시나리오 섹션의 미니 목업+캡션 구조로 적용
-- [하나원큐 온보딩](https://uibowl.io/name/%ED%95%98%EB%82%98%EC%9B%90%ED%81%90?patterns=%EC%98%A8%EB%B3%B4%EB%94%A9)(모바일·금융): 기능 1개당 목업 1개 + 페이저(1/5) → 4단계 시퀀스 샘플(LP-5)에 스텝 페이저 적용
-- uibowl은 읽기 전용 레퍼런스 DB — 참고 관찰만 반영하고 자체 DESIGN-1~7 시스템 내에서 구현
-
-## 작업 범위
-
-### A. 랜딩(표면①) — 콘텐츠 + 퍼블리싱 (Developer 3a)
-대상: `app/views/landing/`(index·_hero·_pain·_how_it_works·_features·_message_samples·_positioning·_pricing·_faq·_closing) + `layouts/landing.html.erb` + 관련 헬퍼
-- 히어로: 비대칭 분할(대형 타이포 + 실제 뷰어 목업), CTA 위계 강화
-- **신규 섹션 "모든 상황, 자동으로"**: 약속 등록→재조정 / 열람 분기 문구 / 부분입금 잔액 / 입금 회신→자동 정지 4종 시나리오 카드 + 미니 메시지 목업(LP-4 benefit-first, LP-12 준수)
-- **신규/강화 섹션 "자동이되, 통제는 사용자"**: REM-11 사전 통보·원클릭 취소/보류, REM-12 5통 상한·자동 종결, P4 발송 이력 — 오발송 불안 해소가 전환 포인트
-- 메시지 샘플(LP-5): 4단계 유지 + 스텝 페이저·인터랙션 강화
-- 섹션 간 배경 톤 변주(cream/ivory/white 리듬), 카드 섀도·hover·focus 링 등 DESIGN-6 디테일
-
-### B. /app 대시보드(표면②) — 퍼블리싱만 (Developer 3b)
-대상: `app/views/app/**` (대시보드·사이드바·공통 UI)
-- DASH-1 요약 카드 3종 위계 강화(미수 총액 강조 타이포), DASH-2 오늘의 액션 리스트 아이콘·상태색 체계(연체 주황/대기 중립/완료 녹색) 적용
-- 사이드바·헤더 여백 리듬·활성 상태 디테일, 빈 상태(empty state) 스타일
-- 기능 추가 금지(DASH-5/6은 F-DASH 예정 항목 — 스코프 아웃)
-
-### C. 뷰어(표면③) — 화이트리스트 내 퍼블리싱 (Developer 3c)
-대상: `app/views/viewer/**` + `layouts/viewer.html.erb`
-- 타이포 위계·여백·테이블 디테일, 계좌 복사 인터랙션, 응답 버튼 4종(PROMISE-1) 시각 강화
-- **VIEW-8 준수 필수**: 청구 내용·응답 액션·PDF·고지문 외 요소 추가 금지, 내비·마케팅 금지, 전용 레이아웃 유지
-- 인앱 브라우저 실기 QA(VIEW-1)는 이번 파이프라인 밖(기술 부채 유지) — 시스템 테스트로 커버 가능한 범위만
+## 대상 파일
+- `app/views/landing/_scenarios.html.erb` (카드 2종 추가 + 스트립) — 유일한 소스 변경
+- `test/controllers/landing_controller_test.rb` — 신규 문구 assertion (Phase 7 Tester)
+- `PRD.md` LP-14 원문 갱신(4종→6종+스트립), 버전 v0.24 — 구현 전 오케스트레이터 직접 수행
 
 ## 관련 Rule ID
-LP-4·LP-5·LP-12, DESIGN-1~7, SURF-2·SURF-4, VIEW-1·VIEW-8, DASH-1·DASH-2·DASH-4, PROMISE-3·PROMISE-7(소구 문구 정합성), REM-11·REM-12(동일), P1~P5
+LP-14(확장)·LP-12·P2, SHARE-6, PAY-4, SHARE-4·PROMISE-4·PROMISE-7·NOTI-1(스트립)
 
-## Phase 진행 (Full 파이프라인, 절약 모드)
-0✅ → 1✅ → ✋승인게이트 → 2(PRD 갱신: LP·DESIGN 리뉴얼 기록, 버전 up) → 3(Developer-lite 3회 순차 위임: 3a 랜딩 → 3b /app → 3c 뷰어, 각 스폰 직후 위임 실측 기록) → 4(rubocop·zeitwerk 직접 검증) → 5(Reviewer-lite) → 6(수정, 필요 시) → 7(Tester-lite — 기존 회귀 + 시나리오 문구 검증) → 8(bin/dev 부트 + /·/app·뷰어 응답 확인) → 9(완료 보고·AGENTS.md 갱신)
+## 진행 (Standard: Phase 1→✋→3→5→7 + 마감 보고)
+1✅ → ✋ → 문서 선반영(PRD v0.24) → 3(Developer-lite 1회) → 5(Reviewer-lite) → 6(필요 시) → 7(Tester-lite) → 완료 보고·progress 리셋. 커밋·배포는 사용자 요청 시.
 
-## 리스크·모호점
-- 뷰어(③)는 마케팅 무결성 제약(VIEW-8·SURF-2)이 커서 리뷰 BLOCKER 가능성 최대 — Reviewer 지시에 집중 항목으로 명시
-- 신규 창작 문구(시나리오 섹션 카피)는 LP-12·P5 필터 대상 — Reviewer 집중 검증(AGENTS.md 문구 원칙)
-- 알림톡 문구 자체는 스코프 아님(ALIMTALK_TEMPLATES.md 별도 진행 중)
-- 미커밋 `config/credentials.yml.enc`(사용자가 등록한 솔라피 template_ids)는 본 파이프라인에서 미접촉 — 커밋은 별도 요청으로 처리
-- 대시보드·뷰어 파일 수가 많아 3b·3c 지시서는 Developer가 현행 구조를 먼저 파악하도록 지시
-
-## 이전 산출물
-F-PLAN 산출물은 `_workspace_prev_fplan/`으로 보존함(2026-11-02, git mv).
+## 리스크
+- 기존 LP-14 테스트가 카드 수·문구를 assertion 중 — Tester가 회귀 확인·보강
+- ol li 카운트 테스트(LP-3) 충돌 회피 — 스트립은 ul/div 사용(3a 선례 준수)
+- 카드 6개가 2열 그리드에서 홀수 행 문제 없음(3열 전환은 모바일 고려해 유지)
+- 미니 목업 문구는 템플릿 원문이 아닌 요약 표시 문구(기존 카드와 동일 원칙 — ALIMTALK_TEMPLATES.md 원문과 혼동 금지)

@@ -1,40 +1,23 @@
-# 07_test_report — 표면①②③ 퍼블리싱 리뉴얼 (Phase 7)
+# 07_test_report — LP-14 보강 (Phase 7, 2026-11-02, Tester)
 
-- **실행일**: 2026-11-02
-- **결과 요약**: 전체 **496 runs / 3,078 assertions, 0 failures** · 시스템 4 runs 0F · RuboCop 136 files no offenses
-- **신규 테스트**: 6건 (랜딩 컨트롤러 — `test/controllers/landing_controller_test.rb`에 추가)
-- **실패 이력**: 작성 중 테스트 오류 3건 자체 수정 후 재실행 통과 (코드 버그 0건)
+## 결과 요약
+- 신규 테스트 4건 추가 (`test/controllers/landing_controller_test.rb`) — 전부 통과
+- 랜딩 컨트롤러: 31 runs, 376 assertions, 0 failures, 0 errors
+- 전체 회귀: 500 runs, 3113 assertions, 0 failures, 0 errors / 시스템: 4 runs, 0 failures
+- RuboCop: 136 files, no offenses
 
-## 테스트 오류 원인 분류 (자체 수정)
+## 신규 테스트와 Rule ID 커버 매핑
+| 테스트 | Rule ID | 종류 |
+|---|---|---|
+| 카드 ⑤ 발행 안내 detail — "내 번호는 노출되지 않습니다" | LP-14·SHARE-6·P2 | 정상 |
+| 카드 ⑥ 마침 알림 detail — "기본으로 켜져 있고, 원하면 끌 수 있습니다" + '기본 켬만 서술' 부재 검증 | LP-14·PAY-4 | 정상·사실성 |
+| U1 알림 스트립 렌더 — "진행 상황도 알림으로…바로 알려드립니다" | LP-14·SHARE-4·PROMISE-4·PROMISE-7·NOTI-1 | 정상 |
+| 스트립 3종 상황(열람·약속·입금 회신) 개별 단어 누락 검증 | LP-14 사실성·SHARE-4·PROMISE-4·PROMISE-7 | 사실성/경계 |
 
-| 증상 | 분류 | 수정 |
-|:---|:---|:---|
-| LP-14/15 배지 `%w` 분할로 단어 단위 매칭 시도 | 테스트 오류 | 배지 전체 문구 정규식 매칭으로 교정 |
-| LP-12 추심 문맥 필터가 FAQ 의문문·답변 변형("수행하지 않으며") 오탐 | 테스트 오류 | 허용 문맥에 의문문(`?\s*\z`)·`수행하지 않` 추가 |
-| 문맥 캡처에 태그 직전 개행 포함 | 테스트 오류 | 정규식 `\?\s*\z`로 흡수 |
+## 원인 분류
+- 실행 중 1건 실패 발생 → **테스트 오류**(정규식 `[^<]*`가 스트립 내부 `<span>` 태그에서 조기 종료) → `css_select("p")` 텍스트 기반으로 자체 수정 후 재실행 통과
+- 코드 버그: 0건 (Developer 위임 불요)
 
-## Rule ID별 커버 매핑 (신규 6건)
-
-| 테스트 | Rule ID | 검증 내용 |
-|:---|:---|:---|
-| LP-14 시나리오 섹션 렌더 | LP-14 정상 | h2·리드 + 4배지(약속 재조정/열람 분기/부분입금/입금 회신) + benefit 문구 4종 + "상황 미리보기" 라벨 4개 |
-| LP-14 사실성 부정 | LP-14 예외 | "약속하면~멈춥"(PROMISE-3 모순 과장)·열람 무관 동일 안내 서술 부재 |
-| LP-14 미니 목업 비-카톡 버블 | LP-5 구분 | `div[class*='FEE500']` 총 4개 불변(목업이 카톡 버블로 오인 렌더되지 않음) |
-| LP-15 통제 섹션 렌더 | LP-15 정상 | 3배지(사전 알림/발송 상한/기록 보존) + REM-11 연체 단계 한정 문구 + 원클릭 마감/보류 + 5통·만기일 기준 14일 + 기록 보존 |
-| LP-15 종료 기준 회귀 | LP-15·REM-12 (리뷰 이슈 #1 CRITICAL) | `발행 후 14일` 부재 + `만기일로부터 14일` 존재 — CRITICAL 재발 방지 |
-| LP-12 추심 문맥 필터 | LP-12·P5 | "추심" 등장 문맥 전수 검사 — 부정(아닙니다/수행하지 않)·의문문(FAQ) 외 금지 |
-
-## 기존 회귀 (리뷰 제안 반영)
-
-- **뷰어 VIEW-5·VIEW-8**: 신규 작성 없음 — 기존 `viewer_test.rb` 등 회귀 실행만(전체 스위트에 포함, 통과)
-- **DASH-1/2**: 신규 작성 없음 — `app/` 컨트롤러 테스트 회귀 실행만(통과)
-- **SURF-4 랜딩 앵커 화이트리스트**: 기존 테스트 유지·통과 — scenarios/control/히어로 목업의 a·button 신규 추가 없음 확인
-- **LP-5 FEE500 버블 4개·LP-3 `ol li` 5·FAQ summary 8**: 기존 assertion 무수정 통과
-
-## 실행 기록
-
-```
-bin/rails test          → 496 runs, 3078 assertions, 0 failures, 0 errors, 0 skips
-bin/rails test:system   → 4 runs, 25 assertions, 0 failures
-bin/rubocop             → 136 files, no offenses
-```
+## 비고
+- Reviewer(05)가 benefit·배지·count·스트립 문구 레벨은 이미 커버 — 본 추가분은 detail 문구·스트립 단어 단위 누락 검증으로 격차만 메움
+- 외부 API 실호출 0건, 시간 의존 없어 `travel_to` 미사용, 기존 fixtures·스타일 준수

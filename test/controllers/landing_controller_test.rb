@@ -223,13 +223,13 @@ class LandingControllerTest < ActionDispatch::IntegrationTest
     assert_no_match(/개업일/, text)
   end
 
-  test "LP-14 시나리오 섹션이 4개 카드와 식별 문구로 렌더된다 (LP-14 정상)" do
+  test "LP-14 시나리오 섹션이 6개 카드와 식별 문구로 렌더된다 (LP-14 정상)" do
     get root_url
     # 섹션 헤딩 + 리드
     assert_select "h2", text: /모든 상황, 자동으로/
     assert_select "p", text: /시퀀스는 그에 맞춰 조용히 이어갑니다/
-    # 4개 시나리오 카드 배지 — 약속 재조정(PROMISE-3)·열람 분기(REM-4·SHARE-5)·부분입금(PAY-2)·입금 회신(PROMISE-7)
-    %w[약속 재조정 열람 분기 부분입금 입금 회신].each do |badge|
+    # 6개 시나리오 카드 배지 — 약속 재조정(PROMISE-3)·열람 분기(REM-4·SHARE-5)·부분입금(PAY-2)·입금 회신(PROMISE-7)·발행 안내(SHARE-6)·마침 알림(PAY-4)
+    %w[약속 재조정 열람 분기 부분입금 입금 회신 발행 안내 마침 알림].each do |badge|
       assert_select "p", text: /#{badge}/
     end
     # 카드별 핵심 benefit 문구 1개씩
@@ -237,8 +237,44 @@ class LandingControllerTest < ActionDispatch::IntegrationTest
     assert_select "h3", text: /열어본 거래처와 아직 못 본 거래처, 받는 안내가 다릅니다/
     assert_select "h3", text: /일부만 받았어도, 잔액 기준으로 조용히 이어갑니다/
     assert_select "h3", text: /발송이 즉시 멈춥니다\. 마감은 당신의 확인으로만/
-    # 미니 목업 라벨 4종 — 실제 알림톡 버블(LP-5)과의 혼동 방지 표기
-    assert_select "p", text: /상황 미리보기/, count: 4
+    assert_select "h3", text: /청구서를 보내는 첫 안내도, 받을돈 명의로 대신합니다/
+    assert_select "h3", text: /수금이 끝나면, 정중한 마무리 인사까지 대신합니다/
+    # 미니 목업 라벨 6종 — 실제 알림톡 버블(LP-5)과의 혼동 방지 표기
+    assert_select "p", text: /상황 미리보기/, count: 6
+    # U1 알림 스트립 — 열람·약속·입금 회신 접수 알림(SHARE-4·PROMISE-4·PROMISE-7·NOTI-1)
+    assert_select "p", text: /진행 상황도 알림으로.*열람·약속·입금 회신이 접수되면 바로 알려드립니다/m
+  end
+
+  test "LP-14 카드 ⑤ 발행 안내의 개인 번호 미노출 detail이 노출된다 (LP-14 정상, SHARE-6·P2)" do
+    get root_url
+    # P2 — 개인 연락처 비노출은 제품 동작 사실 서술(REM-1 근거)
+    assert_select "p", text: /발행할 때 직접 카톡으로 보내거나, 받을돈 명의의 안내로 보낼지 선택할 수 있습니다\./
+    assert_select "p", text: /내 번호는 노출되지 않습니다/
+  end
+
+  test "LP-14 카드 ⑥ 마침 알림의 기본 켬·해제 가능 detail이 노출된다 (LP-14 정상, PAY-4)" do
+    get root_url
+    # PAY-4 — 확인·감사 안내는 '선택 옵션, 기본 켬' — 랜딩은 이 사실을 정확히 서술해야 한다
+    assert_select "p", text: /마감 처리하면 거래처에게 확인·감사 안내가 발송됩니다\./
+    assert_select "p", text: /기본으로 켜져 있고, 원하면 끌 수 있습니다/
+    # 사실성 — '기본 켬'만 서술하고 해제 가능성을 빠뜨리면 PAY-4 오기재
+    assert_no_match(/기본으로 켜져 있습니다\./, response.body)
+  end
+
+  test "LP-14 U1 알림 스트립이 렌더된다 (LP-14 정상, SHARE-4·PROMISE-4·PROMISE-7·NOTI-1)" do
+    get root_url
+    assert_select "p", text: /진행 상황도 알림으로.*바로 알려드립니다/m
+  end
+
+  test "LP-14 스트립은 접수 상황 3종(열람·약속·입금 회신)을 빠짐없이 나열한다 (LP-14 사실성/경계)" do
+    get root_url
+    # SHARE-4(열림)·PROMISE-4(약속)·PROMISE-7(입금 회신) 3종 누락 없이 나열 — 일부만 나열하면 U1 기대 불일치
+    strips = css_select("p").select { |p| p.text.include?("진행 상황도 알림으로") }
+    assert strips.one?, "U1 알림 스트립 p가 정확히 1개 렌더되어야 한다"
+    strip = strips.first.text
+    %w[열람 약속 입금 회신].each do |word|
+      assert_includes strip, word, "스트립에 접수 상황 '#{word}'이 누락되었다"
+    end
   end
 
   test "LP-14 시나리오 문구는 약속 시 리마인더가 완전히 멈춘다는 과장을 하지 않는다 (LP-14 사실성 — PROMISE-3)" do
