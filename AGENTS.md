@@ -131,10 +131,12 @@ bin/jobs             # Solid Queue 잡 프로세스 (웹과 별도 실행)
 
 **목표:** PRD 비즈니스 규칙과 ARCHITECTURE_CONVENTION 아키텍처를 준수하는 코드의 구현·리뷰·테스트를 자동화한다.
 
-**진입점(일반/절약 명령어 2개):** 아래에 해당하는 모든 요청은 **반드시** 오케스트레이터 명령어로 실행한다(사용자가 직접 명령어를 선택하는 것이 가장 확실하다):
+**진입점(일반/절약 명령어 2개 + 병렬 배치 2개):** 아래에 해당하는 모든 요청은 **반드시** 오케스트레이터 명령어로 실행한다(사용자가 직접 명령어를 선택하는 것이 가장 확실하다):
 - 일반 모드: `/badeuldon_orchestrator <요청>` — 메인 GLM-5.3, 프로필 `badeuldon-developer/reviewer/tester`
 - 절약 모드: `/badeuldon_orchestrator_lite <요청>` — 메인 GLM-5.3-Flash, 프로필 `-lite` 3종
-- 두 명령어는 같은 `badeuldon-orchestrator` 스킬(Phase 0~9)을 로드한다. 절약 모드도 승인 게이트·보안·테스트 기준은 동일하다.
+- 병렬 배치 일반: `/badeuldon_orchestrator_parallel <태스크 목록>` — 서로 독립된 다수 작업 일괄 처리(§6.14, 2026-11-04 채택)
+- 병렬 배치 절약: `/badeuldon_orchestrator_parallel_lite <태스크 목록>` — 위의 절약 버전
+- 네 명령어는 같은 `badeuldon-orchestrator` 스킬(Phase 0~9 + §6.14 병렬 배치 절)을 로드한다. 절약·병렬 모드도 승인 게이트·보안·테스트 기준은 동일하다.
 
 대상 작업:
 - 기능 구현, 코드 수정, 리팩터링, 버그 수정
@@ -144,7 +146,7 @@ bin/jobs             # Solid Queue 잡 프로세스 (웹과 별도 실행)
 
 단, 순수한 문서 내용 확인 질문("~가 무슨 뜻이야?", "~는 어디에 있어?")은 직접 응답 가능.
 
-**구성 요소**(모두 워크스페이스 전용 — 플러그인·마켓플레이스 불필요, Git 추적): 명령어 2개(`.zcode/commands/`) · 공통 오케스트레이터 스킬 + 참조 스킬 5종(`.zcode/skills/` — business-rules, feature-dev, review-checklist, test-patterns, git-deploy) · 서브에이전트 프로필 6개(`.zcode/agents/`) · 진행 상태(`.zcode/progress.json`). 플러그인 경로는 폐기 — 플러그인에는 워크스페이스 스코프가 없어 전역 적용되고, `agents` 필드는 실행되지 않음이 실측됨(HARNESS_CONVENTION v4.0.3). 하네스 신규 구성·점검·동기화는 전역 `$harness` 메타 스킬로.
+**구성 요소**(모두 워크스페이스 전용 — 플러그인·마켓플레이스 불필요, Git 추적): 명령어 4개(`.zcode/commands/` — 일반·절약 + 병렬 배치 일반·절약) · 공통 오케스트레이터 스킬(§6.14 병렬 배치 절 포함) + 참조 스킬 5종(`.zcode/skills/` — business-rules, feature-dev, review-checklist, test-patterns, git-deploy) · 서브에이전트 프로필 6개(`.zcode/agents/`) · 진행 상태(`.zcode/progress.json` — 병렬 시 `parallelTasks`). 플러그인 경로는 폐기 — 플러그인에는 워크스페이스 스코프가 없어 전역 적용되고, `agents` 필드는 실행되지 않음이 실측됨(HARNESS_CONVENTION v4.0.3). 하네스 신규 구성·점검·동기화는 전역 `$harness` 메타 스킬로.
 
 **배포:** "git 배포", "커밋", "푸시", "배포", "push" 요청 시 `badeuldon-git-deploy` 스킬을 사용하라.
 
@@ -158,6 +160,7 @@ bin/jobs             # Solid Queue 잡 프로세스 (웹과 별도 실행)
 | 2026-10-29 | 플러그인 설치/명령어 발견 실측 수정 | 하네스 | ① marketplace.json `pluginRoot` 미지원 → 루트 기준 상대경로 ② 서브에이전트 프로필을 `.zcode/agents/`로 이동(플러그인 agents 필드는 미실행 실측) — 새 세션에서 명령어·에이전트 발견 확인 필요 |
 | 2026-10-29 | 플러그인 → 워크스페이스 전용 리소스 전환 | 하네스 | 플러그인이 워크스페이스 스코프 없이 전역 적용됨이 실측됨(HARNESS_CONVENTION v4.0.3) — 명령어를 `.zcode/commands/`, 스킬을 `.zcode/skills/`로 이동, 플러그인 언인스톨·마켓플레이스 등록 제거, `.zcode/harness-marketplace/` 삭제. git clone만으로 하네스 완결 |
 | 2026-10-29 | 규약 v4.0.5 동기화 | 하네스 | ① 명령어·프로필 `model`을 `providerId/modelId` 슬래시 형식으로 전환 — bare 이름은 model·thoughtLevel이 조용히 탈락(실측, §1.4 제약 3) ② Phase 3·5·7 위임 실측 절차·`_workspace/00_delegation_log.md` 신설(§4.6·§8.1) |
+| 2026-11-04 | 규약 v4.1.1 동기화 — §6.14 병렬 배치 채택 | 하네스 | 병렬 배치 파이프라인(§6.14) 선택 확장 채택: 병렬 명령어 2종(`badeuldon_orchestrator_parallel[_lite]`) 신설, 오케스트레이터 스킬에 병렬 배치 절 추가, 로드맵에 병렬 후보 조합 블록·PRD에 분해 후보 기록 규칙 노트 신설(§6.14.11). 프로필 6개·명령어 2개는 v4.1.1 표와 전부 일치 확인(변경 없음). 사본 HARNESS_CONVENTION.md v4.0.5→v4.1.1 교체 |
 
 ## 배포 인프라 (운영 — 2026-10-14 구성 · **첫 배포 완료 7f9be0e**)
 
@@ -183,8 +186,12 @@ bin/jobs             # Solid Queue 잡 프로세스 (웹과 별도 실행)
 - **완료**: Rails 8.1 스켈레이션, 하네스 구축 + E2E 검증, F-AUTH 인증(OAuth 폐기·Q8), 랜딩 전체 + UI 품질 기준 + AUTH-1.3 프로필(v0.18.1), /app 대시보드 뼈대(v0.18.2), F-CLIENT(v0.18.3), F-INV 청구서(v0.18.4), F-SHARE+F-VIEW 뷰어 개봉(v0.18.5), F-PROMISE 응답 수집(v0.18.6), F-PAY 입금·MVP 수금 루프 완결(v0.18.7), 랜딩 헤드라인 교체·푸터 사업자·LP-5 버블 UI(v0.19), 로그인 UX(원클릭 복귀), **F-PLAN 구독·과금**(`2026-10-15`, PRD v0.20 — Subscription(체험→활성→해지→만료·빌링키·1人1구독)·Order·PaymentPass(10건·90일·with_lock), 결제 래퍼(초기 TossPayments → 포트원(KG이니시스) 전환, stub 가능·웹훅 회복), 한도 전환(Free 5/3→Plus 무제한·수금 패스 소비), 자동 갱신 Job(with_lock·멱등키), 웹훅 POST /webhooks/portone(결제 재조회 검증), /app/billing UI·사이드바. 테스트 484건. 리뷰 BLOCKER 1+CRITICAL 6 수정), **표면①②③ 퍼블리싱 리뉴얼 + 랜딩 콘텐츠 재작성**(`2026-11-02`, PRD v0.23 — LP-14 시나리오 커버 섹션(약속 재조정·열람 분기·부분입금·입금 회신 정지 4카드+미니 목업)·LP-15 통제 안전장치 섹션(REM-11 사전 통보·REM-12 상한 종결·P4 기록) 신설, DESIGN-8 구성 강화(팔레트 유지·톤 변주·카드 위계·인터랙션), uibowl 관찰 반영(히어로 비대칭 목업·스텝 페이저). /app DASH-1/2 위계·상태색·사이드바 디테일, 뷰어는 VIEW-8 화이트리스트 내 class-only 정돈. 신규 파셜 _scenarios·_control·_message_bubble. 리뷰 CRITICAL 1+WARNING 6 반영, 테스트 496건(+6). 절약 모드 파이프라인 — 위임 실측 effort 토글링 이슈는 `_workspace/00_delegation_log.md` 참조). **LP-14 보강**(`2026-11-02`, PRD v0.24 — 발행 안내(SHARE-6)·마침 알림(PAY-4) 카드 추가 + U1 알림 스트립, 알림톡 16종 상황 커버 완성. Standard 파이프라인, 테스트 500건)
 - **구현됨 상세**: `_workspace_prev/`(로그인 UX)·`_workspace/`(F-PLAN) 산출물 참조
 - **진행 중**: 없음
-- **예정**: F-REM(솔라피 연동 — 알림톡 템플릿 검수 승인 2026-10-29, SHARE-4·PROMISE-4/7·PAY-4 알림, SHARE-5 문구 분기, VIEW-7 수신거부, PROMISE-3 재스케줄, overdue 저장화) → F-DASH 나머지(DASH-5/6) → F-ADMIN → F-LEGAL/REF/TAX → CLIENT-3/4·PROMISE-5 → INV-7·PDF → 부분입금 오기록 정책 → LP-11 콘텐츠 허브·블로그. 기술 부채: dunning(결제 실패 재시도), 환불 처리(포트원 콘솔 수동), 웹훅 data 필드 [INFERENCE] 라이브 실측 필요, Pretendard 셀프호스팅, 이메일 서비스, ko locale, 관리자 계정, 약관·개인정보 문서, 후기, Stimulus 분리, ViewEvent 하드닝, 봇 UA 필터, 인앱 실기 QA
+- **예정**: F-REM(솔라피 연동 — **알림톡 18종 전원 승인·credentials 등록 완료(2026-11-04)**, SHARE-4·PROMISE-4/7·PAY-4 알림, SHARE-5 문구 분기, VIEW-7 수신거부, PROMISE-3 재스케줄, overdue 저장화. 대체 발송은 템플릿 대체문자 필드로 처리 확정) → F-DASH 나머지(DASH-5/6) → F-ADMIN → F-LEGAL/REF/TAX → CLIENT-3/4·PROMISE-5 → INV-7·PDF → 부분입금 오기록 정책 → LP-11 콘텐츠 허브·블로그. 기술 부채: dunning(결제 실패 재시도), 환불 처리(포트원 콘솔 수동), 웹훅 data 필드 [INFERENCE] 라이브 실측 필요, Pretendard 셀프호스팅, 이메일 서비스, ko locale, 관리자 계정, 약관·개인정보 문서, 후기, Stimulus 분리, ViewEvent 하드닝, 봇 UA 필터, 인앱 실기 QA
 - **작업 재개 가이드**: `.zcode/progress.json`의 `currentPhase` 확인 → `awaiting_approval`이면 플랜 재보고 후 승인 대기, 그 외에는 다음 Phase부터 재개. 산출물은 `_workspace/`.
+- **병렬 배치 후보 조합** (§6.14 채택 — 힌트이며 판정은 Phase 1-P 3조건이 우선):
+  - 기술 부채 뭉치(독립 소규모 다수): Pretendard 셀프호스팅 · ko locale · 봇 UA 필터 · ViewEvent 하드닝 · 이메일 서비스 선정·연동 — 파일 소유권이 분리되어 병렬 유리
+  - 랜딩 파셜 독립 보강 묶음(LP 계열 — 서로 다른 파셜 파일만 수정 시)
+  - 후보 없음: F-REM(순차 의존 사슬 — 마이그레이션·라우트 결선·잡가 공유), F-ADMIN(관리자 롤·2FA가 전역 공유), 단일 공유 파일 중심 변경
 
 ### 운영 배포 운영 노트 (2026-10-14 실측)
 

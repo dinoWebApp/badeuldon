@@ -1,7 +1,7 @@
 # Harness Convention — ZCode Desktop 범용 개발 자동화 하네스 구성 규약
 
-**버전**: 4.0.5
-**최종 수정일**: 2026-10-29
+**버전**: 4.1.1
+**최종 수정일**: 2026-11-02
 
 ---
 
@@ -11,7 +11,7 @@
 
 핵심 원칙(Phase 파이프라인, 사용자 승인 게이트, 문서 선행, Rule ID, Developer/Reviewer/Tester 역할 분리)은 유지한다. OMP 전용 `modelRoles`, `autoloadSkills`, task tool, Agent Hub, `@../AGENTS.md` import 등의 런타임 규약은 ZCode 규약으로 대체한다.
 
-**모드 설계 핵심**: 프로젝트마다 일반용과 절약용 오케스트레이터 **명령어 2개**를 제공한다. 두 명령어는 같은 오케스트레이터 스킬과 동일한 Phase 절차를 사용하지만, 서로 다른 메인 모델 및 서브에이전트 프로필을 호출한다. 워크플로우 자체를 두 벌 복제하지 않는다.
+**모드 설계 핵심**: 프로젝트마다 일반용과 절약용 오케스트레이터 **명령어 2개**를 제공한다. 두 명령어는 같은 오케스트레이터 스킬과 동일한 Phase 절차를 사용하지만, 서로 다른 메인 모델 및 서브에이전트 프로필을 호출한다. 워크플로우 자체를 두 벌 복제하지 않는다. 다수 독립 작업의 일괄 처리용 **병렬 배치 명령어 2개(`_parallel`·`_parallel_lite`)는 선택 확장**이다(§6.14) — 역시 같은 스킬을 로드하되 병렬 배치 절이 우선 적용된다.
 
 ---
 
@@ -42,15 +42,16 @@
                   ▼
    워크스페이스 전용 하네스 리소스 (.zcode/{commands,skills,agents})
                   │
-       ┌──────────┴──────────┐
-       ▼                     ▼
-/{project_command_prefix}_orchestrator   /{project_command_prefix}_orchestrator_lite
-   일반 모드 명령어           절약 모드 명령어
-       │                     │
-       └──────────┬──────────┘
-                  ▼
+     ┌────────────┼──────────────┬───────────────────┐
+     ▼            ▼              ▼                   ▼
+/{prefix}_     /{prefix}_     /{prefix}_             /{prefix}_
+orchestrator   orchestrator_lite  orchestrator_parallel  orchestrator_parallel_lite
+ 일반 모드       절약 모드        병렬 배치 일반(선택)    병렬 배치 절약(선택 §6.14)
+     │            │              │                   │
+     └────────────┴──────┬───────┴───────────────────┘
+                         ▼
    공통 {project}-orchestrator 스킬
-   (동일한 Phase 0~9, 승인 게이트, 산출물 규칙)
+   (동일한 Phase 0~9, 승인 게이트, 산출물 규칙 + 병렬 배치 §6.14)
                   │
        ┌──────────┼──────────┐
        ▼          ▼          ▼
@@ -76,9 +77,11 @@
 ├── ARCHITECTURE_CONVENTION.md        # 선택: 아키텍처 표준
 ├── .zcode/
 │   ├── progress.json                 # Git 추적 진행 상태
-│   ├── commands/                     # 오케스트레이터 명령어 2개 (워크스페이스 스코프)
+│   ├── commands/                     # 오케스트레이터 명령어 2개 + 병렬 배치 선택 2개
 │   │   ├── {project}_orchestrator.md
-│   │   └── {project}_orchestrator_lite.md
+│   │   ├── {project}_orchestrator_lite.md
+│   │   ├── {project}_orchestrator_parallel.md       # 선택 — 병렬 배치 §6.14
+│   │   └── {project}_orchestrator_parallel_lite.md  # 선택 — 병렬 배치 §6.14
 │   ├── skills/                       # 공통 오케스트레이터 + 참조 스킬
 │   │   ├── {project}-orchestrator/SKILL.md
 │   │   ├── {project}-business-rules/SKILL.md
@@ -154,6 +157,7 @@ ZCode에서 일반 개발 요청을 자동 매칭에만 의존하면 오케스�
 
 - 일반 모드: `/{project_command_prefix}_orchestrator <작업 요청>`
 - 절약 모드: `/{project_command_prefix}_orchestrator_lite <작업 요청>`
+- 병렬 배치(선택): `/{project_command_prefix}_orchestrator_parallel <태스크 목록>` · `/{project_command_prefix}_orchestrator_parallel_lite <태스크 목록>` — 서로 독립된 여러 작업의 일괄 처리(§6.14)
 - 하네스 신규 구성/감사/동기화: `$harness <요청>`
 
 명령어는 `commands/*.md`에 두며 `description`, `model`, `skills` 등의 ZCode 지원 frontmatter 필드를 사용한다. 일반용과 절약용 명령어는 같은 `{project}-orchestrator` 스킬을 자동 로드하도록 설정한다. ZCode 문서의 명령어 이름 허용 패턴에는 하이픈이 포함되지 않으므로, 명령어 파일명/호출명에는 `{project_command_prefix}`(소문자 프로젝트명을 `_`로 정규화)를 사용한다. 스킬 디렉터리명은 kebab-case를 유지해도 된다.
@@ -176,7 +180,7 @@ ZCode Plan mode는 계획을 먼저 제시하고 확인 후 편집을 시작하�
 |:---|:---|
 | 지식 베이스 | 루트 `AGENTS.md` + 전역 `~/.zcode/AGENTS.md` |
 | 프로젝트 하네스 등록 | 불필요 — 워크스페이스 `.zcode/{commands,skills,agents}` 리소스(플러그인·마켓플레이스 미사용) |
-| 일반/절약 진입점 | `.zcode/commands/{project}_orchestrator.md`, `.zcode/commands/{project}_orchestrator_lite.md` |
+| 일반/절약 진입점 | `.zcode/commands/{project}_orchestrator.md`, `.zcode/commands/{project}_orchestrator_lite.md` (+ 선택 확장 `{project}_orchestrator_parallel.md`·`{project}_orchestrator_parallel_lite.md` — §6.14) |
 | 공통 워크플로우 | `.zcode/skills/{project}-orchestrator/SKILL.md` |
 | 서브에이전트 정의 | `.zcode/agents/{project}-{role}.md` 및 `-lite` |
 | 에이전트 모델 지정 | 서브에이전트 frontmatter `model`, `thoughtLevel` |
@@ -266,6 +270,7 @@ AGENTS.md는 다음 섹션을 반드시 포함해야 한다:
 - 완료된 작업 표
 - 진행 중인 작업
 - 예정된 작업
+- 병렬 배치 후보 조합 (§6.14 채택 시 — 힌트, 판정은 Phase 1-P 우선)
 - 작업 재개 가이드
 ```
 
@@ -485,7 +490,7 @@ injectAgentsMd: true
 | 작업 범위 명확화 | 한 번의 위임은 하나의 결과물과 완료 기준을 갖는다. |
 | 산출물 전달 | 재검토·수정·재테스트는 `_workspace/`의 이전 보고서와 변경 파일을 명시해 별도 호출한다. |
 | 재사용 통제 | 역할이 같더라도 새 Phase에서는 기존 결과를 읽고 새로운 호출을 사용한다. 이전 대화가 자동으로 완전하게 전달된다고 가정하지 않는다. |
-| 병렬 실행 제한 | 읽기 전용 조사처럼 독립적인 작업만 병렬화한다. 동일 파일을 수정하는 Developer 작업은 병렬화하지 않는다. |
+| 병렬 실행 제한 | 읽기 전용 조사처럼 독립적인 작업만 병렬화한다. 동일 파일을 수정하는 Developer 작업은 병렬화하지 않는다. 다수 작업의 구현 병렬화는 §6.14 병렬 배치 파이프라인의 파일 소유권 판정을 통과한 태스크로 한정한다. |
 | 위임 실측 | Phase 3·5·7에서 서브에이전트 스폰 직후 모델 I/O 로그로 스폰된 프로필·모델·추론 수준(effort)이 정의와 일치하는지 실측해 `_workspace/00_delegation_log.md`에 한 줄 기록한다(§1.6 7항). model-io 로그는 임시 파일이라 스폰 직후 측정이 필수다. 불일치 시 자동 재위임하지 않고 기록 후 최종 보고에 명시한다. |
 | 완료 확인 | 서브에이전트 결과를 받은 후 오케스트레이터가 실제 diff, 테스트 출력 및 보고서 파일을 직접 확인한다. |
 
@@ -587,6 +592,10 @@ Reviewer가 비즈니스 규칙, 데이터 격리, 권한, 데이터 무결성, 
 
 **생략되는 Phase**: Phase 2, 4, 5, 8, 9 (결과만 보고). Phase 1은 간이 플랜(§6.13)으로 대체하며 승인 게이트는 유지된다
 
+#### 복수 작업 배치 (병렬 배치 파이프라인 — 선택)
+
+하나의 요청에 **서로 독립된 작업이 여러 개** 포함되면, 개별 Full/Standard 파이프라인을 순차 반복하는 대신 §6.14 병렬 배치 파이프라인 진입을 검토한다. 단일 작업이거나 작업 간 의존이 있으면 기존 규모 판별을 그대로 적용한다.
+
 ### 6.2 Full Pipeline Phase 구조
 
 ```
@@ -681,7 +690,7 @@ ZCode 서브에이전트는 별도 컨텍스트를 사용하므로, 이전 대�
   "lastUpdated": "2026-01-01T12:00:00"
 }
 ```
-승인 게이트 대기 중에는 `currentPhase: "awaiting_approval"`를 사용한다(§6.13).
+승인 게이트 대기 중에는 `currentPhase: "awaiting_approval"`를 사용한다(§6.13). 병렬 배치 파이프라인 진행 시에는 `pipelineType: "parallel"`과 태스크별 상태 `parallelTasks` 배열을 추가한다(§6.14.7).
 
 ### 6.5 Phase 4: 코드 정리 — 미사용 코드 제거 및 포매팅 검증
 
@@ -777,7 +786,7 @@ xcodebuild -scheme {Scheme} -destination 'platform=iOS Simulator,name=iPhone 16'
 | 테스트 + 리뷰 동시 진행 | Reviewer가 Service를 검증하는 동안 Tester가 Repository/Controller 테스트 준비 |
 | 여러 테스트 클래스 동시 실행 | 독립적인 테스트 클래스는 병렬 실행 가능 |
 
-**주의**: 공유 자원(DB, 파일)을 수정하는 작업은 병렬 실행 시 충돌할 수 있으므로, 병렬 실행 전에 의존성을 확인해야 한다.
+**주의**: 공유 자원(DB, 파일)을 수정하는 작업은 병렬 실행 시 충돌할 수 있으므로, 병렬 실행 전에 의존성을 확인해야 한다. 다수 작업의 구조적 병렬화는 본 절의 부분적 기회가 아니라 §6.14 병렬 배치 파이프라인(선택 확장)으로 수행한다.
 
 ### 6.9 에러 핸들링
 
@@ -1092,6 +1101,160 @@ progress.json: 리셋 완료
 
 `.zcode/RULES.md`는 ZCode가 자동으로 읽는 표준 강제 규칙 파일이라고 가정하지 않는다. 핵심 규칙은 공식적으로 자동 주입되는 파일과 실제 호출 명령어에 둔다.
 
+### 6.14 병렬 배치 파이프라인 (Parallel Batch Pipeline) — 선택 확장
+
+서로 독립된 여러 작업을 한 번에 처리할 때 **구현(Phase 3)과 테스트 작성(Phase 7-P)만 병렬 fan-out** 하고, 문서 현행화·통합·리뷰·게이트 실행은 직렬 배치로 합쳐 처리하는 확장 파이프라인이다. 기존 일반/절약 명령어의 단일 작업 순차 처리를 대체하지 않으며, 병렬 전용 진입 명령어로만 실행한다.
+
+#### 6.14.1 원칙 — 스테이지 병렬 (Stage-Parallel)
+
+ZCode 서브에이전트는 모두 **같은 워킹 트리**에서 실행된다. 작업별 풀 파이프라인을 동시에 돌리면 공유 파일·전역 게이트(pytest/mypy/빌드)·장부가 서로 충돌한다. 따라서 병렬화는 Phase 3 fan-out에 한정하고 나머지 단계는 직렬로 합친다.
+
+| 단계 | 실행 방식 | 이유 |
+|:--|:--|:--|
+| Phase 0~1-P (컨텍스트·분해·분류) | 직렬 (오케스트레이터) | 병렬 안전성 판정은 단일 시점·일관 기준으로 |
+| Phase 2 (문서 현행화) | 직렬 1회 (오케스트레이터, 선택된 전 태스크 분량) | PRD/AGENTS 동시 편집 충돌 원천 차단 — 문서 선행 원칙이 병렬화의 전제 |
+| Phase 3-P (병렬 구현) | **병렬 fan-out** (Developer N개, 상한 기본 3) | 파일 소유권이 분리된 태스크만 |
+| Phase 3-S (통합) | 직렬 (Developer 1개) | 공유 파일 결선·마이그레이션 단일 체인 보존 |
+| Phase 4~6 (정리·리뷰·수정) | 직렬 1사이클 | 전역 게이트·Reviewer는 통합 완료된 코드베이스에서만 유효 (Phase 5의 태스크별 읽기 전용 병렬 리뷰는 선택 가능) |
+| Phase 7-P (테스트 작성) | **병렬 fan-out** (Tester N개 — 선택, §6.14.10) | 테스트 파일 소유권 분리 + 구현 동결(3-S)·리뷰 수정(6) 완료 상태에서 작성 |
+| Phase 7-S (테스트 게이트)·Phase 8~9 (실행·보고) | 직렬 1사이클 | 전체 테스트·타입 검사·린터 게이트는 통합 코드베이스 1회 실행으로만 판정 |
+
+#### 6.14.2 진입 명령어
+
+- 일반: `/{project_command_prefix}_orchestrator_parallel <태스크 목록 또는 배치 요청>`
+- 절약: `/{project_command_prefix}_orchestrator_parallel_lite <태스크 목록 또는 배치 요청>`
+
+두 명령어는 기존과 같은 `{project}-orchestrator` 스킬을 로드하며, 본 절의 병렬 배치 규칙이 일반 Phase 절차에 우선 적용된다. 이 확장을 채택하지 않은 프로젝트는 기존 진입 명령어 2개만 유지한다.
+
+#### 6.14.3 Phase 구조
+
+```
+Phase 0: 컨텍스트 확인 (기존과 동일)
+    ▼
+Phase 1-P: 태스크 분해 + 병렬 분류 (오케스트레이터)
+    │  태스크별 대상 파일(소유권)·의존 관계·Rule ID 조사
+    │  병렬 가능 태스크 → 병렬 그룹 / 미충족 변경 → 통합(직렬) 작업으로 분리
+    │  산출물: _workspace/01_plan.md (태스크별 파일 소유권 표 포함)
+    ▼
+✋ 승인 게이트 — 배치 단위 1회 (§6.13과 동일, 생략 불가)
+    │  병렬 그룹·소유권 표·동시성 상한 보고
+    │  → 사용자가 병렬로 실행할 태스크를 선택·확정 (multiSelect 질의 권장)
+    │  → 턴 종료 후 승인 대기. 승인 전 어떤 에이전트도 스폰하지 않는다
+    ▼
+Phase 2: 문서 현행화 (오케스트레이터, 선택된 전 태스크 분량을 한 번에)
+    ▼
+Phase 3-P: 병렬 구현 fan-out — Developer N개 동시 스폰
+    │  각 위임: 소유권 화이트리스트·자체 검증은 자기 파일 스코프만 (§6.14.5)
+    │  산출물: _workspace/parallel/<task-id>/03_implementation.md
+    │  완료는 도착 순서대로 수신 — progress.json은 오케스트레이터만 갱신
+    ▼
+Phase 3-S: 통합 (Developer 1개) — 결선·공유 파일 병합·마이그레이션 단 1회
+    ▼
+Phase 4 → 5 → 6?: 정리·리뷰·수정 — 직렬 배치 1사이클 (기존 규칙 그대로)
+    (Phase 5는 태스크별 읽기 전용 리뷰 병렬 스폰 가능 — 선택)
+    ▼
+Phase 7-P: 병렬 테스트 작성 — Tester N개 동시 스폰 (선택, §6.14.10)
+    │  리뷰·수정 완료 후 진행 — 테스트 파일 소유권·자기 경로 pytest 자체 검증
+    ▼
+Phase 7-S: 배치 테스트 게이트 — 전체 pytest·타입 검사·린터 1회 (오케스트레이터)
+    │  실패는 원인 태스크로 라우팅: 테스트 오류→해당 Tester / 코드 버그→해당 Developer
+    ▼
+Phase 8 → 9: 실행 검증·완료 보고 — 직렬
+```
+
+#### 6.14.4 병렬 안전 판정 기준 (3조건 모두 충족해야 병렬 그룹)
+
+1. **파일 소유권 분리** — 태스크 간 생성/수정 대상 파일 목록이 겹치지 않는다
+2. **의존 없음** — 같은 배치의 다른 태스크 산출물을 import·참조하지 않는다 (이미 완료된 선행 작업 산출물 참조는 허용)
+3. **공유 파일 비수정** — 애플리케이션 조립 파일(라우터 결선 등), 중앙 공유 모델/스키마 파일, 마이그레이션 체인, PRD/AGENTS, `.zcode/progress.json`을 직접 수정하지 않는다
+
+3조건 미충족 변경은 태스크에서 제외해 **통합(Phase 3-S) 작업**으로 넘긴다. 통합 작업이 과중해지면 태스크 분해 자체를 재조정한다. 순차 의존 사슬에 있는 작업들(예: 순차 마이그레이션 청크)은 배치 병렬 대상이 아니다.
+
+#### 6.14.5 fan-out 규칙 (Developer 위임 제약)
+
+각 병렬 Developer 위임 프롬프트에 반드시 포함한다:
+
+| 규칙 | 내용 |
+|:--|:--|
+| **소유권 화이트리스트** | 자기 태스크의 대상 파일만 생성/수정 — 목록 외 파일 수정 금지 |
+| **자체 검증 스코프 제한** | 린터·타입 검사는 자기 파일 단위로만 실행. 전체 pytest·전체 mypy 금지 — 형제 태스크의 진행 중 코드로 인한 오탐 방지 |
+| **repo-wide 명령 금지** | `alembic revision --autogenerate`, 전체 테스트, 애플리케이션 기동은 통합(3-S) 완료 후에만 |
+| **문서 수정 금지** | PRD/AGENTS는 Phase 2에서 이미 확정 — Developer는 코드만 |
+| **위임 실측** | 스폰 직후 effort 실측 → `_workspace/00_delegation_log.md` 기록 (§4.6과 동일, 병렬 스폰 전체 대상) |
+
+#### 6.14.6 통합 단계 (Phase 3-S)
+
+Developer 1개(선택한 모드 프로필)가 직렬 처리한다:
+
+- 병렬 태스크 산출물의 라우터/모듈 결선·공유 파일 병합 — 병렬 태스크가 조립 파일을 대신 수정하지 않도록 통합 단계로 분리된 책임
+- **마이그레이션(Alembic 등) 생성은 통합 단계에서 단 1회** — 동시 autogenerate는 다중 head를 만든다
+- 병렬 태스크 간 계약 불일치(네이밍·시그니처·스키마 중복) 정리
+
+#### 6.14.7 상태 관리·산출물
+
+```json
+{
+  "domain": "<배치 이름>",
+  "currentPhase": "phase3_parallel",
+  "pipelineType": "parallel",
+  "parallelTasks": [
+    {"id": "T1", "name": "...", "files": ["..."], "status": "IN_PROGRESS"},
+    {"id": "T2", "name": "...", "files": ["..."], "status": "DONE"}
+  ],
+  "lastUpdated": "2026-01-01T12:00:00"
+}
+```
+
+- `progress.json`은 **오케스트레이터만** 기입한다 (병렬 Developer는 기입 금지)
+- 태스크별 산출물은 `_workspace/parallel/<task-id>/`로 분리하고, 배치 수준 산출물(`01_plan.md`·`02_prd_update.md` 등)은 기존 `_workspace/` 그대로 둔다
+
+#### 6.14.8 충돌 검증·실패 처리·완료 기준
+
+| 항목 | 규칙 |
+|:--|:--|
+| 소유권 위반 적발 | 태스크 완료 수신 시마다 오케스트레이터가 `git diff`를 소유권 표와 대조 → 위반 태스크만 재위임 (나머지 무영향) |
+| 태스크 실패 | 해당 태스크만 1회 재시도 → 재실패 시 드롭하고 완료 보고에 명시. 나머지 태스크·통합은 계속 |
+| 게이트 실패 (Phase 4/7-S/8) | 7-S 실패는 원인 태스크로 라우팅(§6.14.10). 나머지는 배치 단위 수정 루프 — 기존 Phase 6·오류 핸들링 규칙 그대로 |
+| 동시성 초과 | 상한(기본 3) 초과 태스크는 순차 추가 스폰 |
+| Phase 1-P 완료 기준 | `01_plan.md`에 태스크별 범위·파일 소유권 표·병렬/통합 분류·Rule ID 기록 |
+| Phase 3-P 완료 기준 | 선택된 태스크 전부 DONE 또는 드롭 확정 + 각 `_workspace/parallel/<task-id>/03_implementation.md` 존재 |
+| Phase 3-S 완료 기준 | 결선·병합 완료 + 마이그레이션 1회(해당 시) + 전체 컴파일/린터 통과 |
+| Phase 7-P 완료 기준 | 선택 태스크 각각 범위 pytest 통과 + `_workspace/parallel/<task-id>/07_test_report.md` 존재 |
+| Phase 7-S 완료 기준 | 전체 테스트 0실패 + 테스트 소스 린트 0건 |
+
+#### 6.14.9 적용 판단
+
+- **유리**: 채널·도메인 패키지 단위의 독립 분해(예: 채널별 수신 파이프라인), 서로 무관한 기능/수정 요청 묶음
+- **불리(사용 금지)**: 순차 의존 사슬의 청크들, 단일 공유 파일 변경이 대부분인 작업, 소규모(Fast Path) 작업 — 일반/절약 명령어 사용
+- 병렬 이득은 구현(Phase 3)과 테스트 작성(Phase 7-P) 구간에 국한된다. 리뷰·게이트 실행은 배치 1사이클로 합쳐지므로 기대치는 "전체 N배"가 아닌 **"구현·테스트 작성 N배 + 게이트 1회화"** 수준으로 잡는다
+
+#### 6.14.10 테스트 단계 병렬화 (Phase 7-P/7-S — 선택)
+
+테스트는 **작성(7-P, 병렬 가능)**과 **게이트 실행(7-S, 직렬 1회)**으로 분리한다. 프로젝트 게이트(전체 pytest·타입 검사·린터)는 리포 전역 불변식이며, 태스크 간 교차 간섭(공유 fixture 충돌·중복 테스트 모듈명·컬렉션 에러)은 통합 코드베이스에 대한 1회 실행으로만 검출되므로, 배치 완료 판정은 7-S 단일 실행으로만 내린다.
+
+**전제 조건**: 7-P는 Phase 3-S(구현 동결) 및 Phase 5→6(리뷰·수정 완료) 이후에만 진행한다. 리뷰 수정 전 코드에 테스트를 작성하면 수정 시 재작성 비용이 발생한다.
+
+| 단계 | 실행 | 규칙 |
+|:--|:--|:--|
+| **7-P 병렬 테스트 작성** | Tester N개 동시 스폰 (동시성 상한 §6.14.5와 동일) | ① 테스트 파일 화이트리스트 — 자기 태스크의 테스트 파일만 작성 ② 자체 검증은 자기 테스트 경로로 스코프 실행(예: `pytest app/<domain>/tests`) — 전체 pytest·전체 타입 검사 금지 ③ 테스트 코드 자체 정리(미사용 import·변수 0건)를 파일 스코프로 수행(Tester 책임 유지) ④ 산출물 `_workspace/parallel/<task-id>/07_test_report.md` ⑤ 스폰 직후 effort 실측 → `00_delegation_log.md` 기록 |
+| **7-S 배치 테스트 게이트** | 오케스트레이터가 직접 1회 | 전체 테스트·타입 검사·린터 실행. 실패는 원인 태스크로 매핑해 라우팅 — 해당 태스크 Tester(테스트 오류) / 해당 태스크 Developer(코드 버그, 범위 최소 수정). conftest·컬렉션 에러 등 공유 원인은 직렬 수정 후 전체 재실행 |
+
+**공유 테스트 인프라 규칙**: `conftest.py`·공유 fixture·테스트 팩토리는 공유 파일(§6.14.4 조건 3)이므로 태스크 병렬 작성 대상에서 제외하고 Phase 3-S 통합에서 단 1회 정의한다. 두 태스크가 동일 fixture를 요구하면 통합이 단일 정의로 정리한다. 7-P 중 스코프 실행이 안전한 근거: 3-S 이후 앱 코드는 완전하고, 스코프 실행은 형제 태스크의 테스트 파일을 수집하지 않는다.
+
+**완료 기준**: 7-P = 선택 태스크 각각 범위 pytest 통과 + 태스크별 `07_test_report.md` 존재. 7-S = 전체 테스트 0실패 + 테스트 소스 린트 0건.
+
+#### 6.14.11 프로젝트 문서의 병렬 후보 힌트 (§6.14 채택 시)
+
+병렬 배치 확장을 채택한 프로젝트는 사용자가 "어떤 작업을 묶어서 요청할지" 사전에 알 수 있도록 프로젝트 문서에 후보 힌트를 기록한다. 힌트는 요청 구성(인지 형성)을 돕는 장치일 뿐이며, 실행 판정은 항상 Phase 1-P의 3조건 판정이 우선한다.
+
+| 문서 | 기록 내용 | 시점 |
+|:--|:--|:--|
+| AGENTS.md 로드맵 | 병렬 배치 후보 **조합** — 교차(청크 간) 그룹·청크 내 분해 후보·후보 없음 표기 | 하네스 구성 시·로드맵 변경 시 |
+| PRD.md | **병렬 분해 후보 기록 규칙** 노트 + 각 기능/청크 확정 시 해당 절에 태스크·예상 소유 파일 기록 | 각 청크 Phase 2(문서 현행화) |
+
+- 병렬 안전성은 시점 의존 속성(소유권·의존은 코드베이스 상태에 따라 변함)이므로, 미래 작업의 파일 수준 분해를 추측해 미리 기록하지 않는다 — 해당 청크의 Phase 2 확정 시점에 기록한다.
+- 힌트와 Phase 1-P 판정이 충돌하면 판정이 우선한다. 충돌 발생은 힌트가 낡았다는 신호이므로 완료 보고 전에 해당 문서의 힌트를 갱신한다.
+
 ## 7. 설정 및 권한 (Settings)
 
 ### 7.1 승인 및 권한
@@ -1134,6 +1297,8 @@ ZCode의 실행 모드는 파일 편집과 명령 실행 권한을 제어한다.
 | `05_review.md` | Phase 5 | 리뷰 상태(APPROVED/CHANGES_REQUESTED), 이슈 목록 |
 | `07_test_report.md` | Phase 7 | 테스트 통과/실패 건수, 실패 상세 |
 | `08_run_report.md` | Phase 8 | 실행 성공/실패, WARN 분류 |
+
+병렬 배치 파이프라인(§6.14)의 태스크별 산출물은 `_workspace/parallel/<task-id>/` 아래 같은 네이밍으로 분리하고, 배치 수준 산출물만 위 표 위치에 둔다.
 
 모든 산출물 파일은 **작업 단위**로 생성·교체된다 — 새 작업 시작 시 `_workspace/`를 `_workspace_prev/`로 이동하고(§8.2) 새로 작성하므로 특정 파일이 작업 간 무한 누적되지 않는다. Git에는 작업별 커밋으로 감사 이력이 남고, 로컬 디스크의 `_workspace_prev*`는 로테이션 시 덮어써지는 최근 세대 보관 분이다.
 
@@ -1213,7 +1378,7 @@ Phase 승인 게이트, .zcode/progress.json, _workspace 산출물 규칙을 검
 └── _workspace/
 ```
 
-프로젝트 스킬명은 소문자 kebab-case로 유지할 수 있다. 단, ZCode 명령어는 공식 허용 패턴에 하이픈이 없으므로 명령어 파일명과 호출명에는 프로젝트명을 밑줄로 정규화한 `{project_command_prefix}`를 사용한다. `{project_command_prefix}_orchestrator`와 `{project_command_prefix}_orchestrator_lite`는 각각 다른 메인 모델을 지정하지만, 둘 다 같은 `{project}-orchestrator` 스킬을 불러야 한다.
+프로젝트 스킬명은 소문자 kebab-case로 유지할 수 있다. 단, ZCode 명령어는 공식 허용 패턴에 하이픈이 없으므로 명령어 파일명과 호출명에는 프로젝트명을 밑줄로 정규화한 `{project_command_prefix}`를 사용한다. `{project_command_prefix}_orchestrator`와 `{project_command_prefix}_orchestrator_lite`는 각각 다른 메인 모델을 지정하지만, 둘 다 같은 `{project}-orchestrator` 스킬을 불러야 한다. 병렬 배치 확장(§6.14)을 채택하면 `{project_command_prefix}_orchestrator_parallel`과 `{project_command_prefix}_orchestrator_parallel_lite`를 추가한다 — 역시 같은 스킬을 로드한다.
 
 #### 5단계: 발견 확인 (등록 절차 없음)
 
@@ -1367,6 +1532,7 @@ Phase 승인 게이트, .zcode/progress.json, _workspace 산출물 규칙을 검
 | **Rule ID** | PRD 비즈니스 규칙의 고유 식별자(예: `US-001`) |
 | **Full Pipeline** | Phase 0~9 전체를 거치는 대규모 작업 모드 |
 | **Fast Path** | 계획 승인 후 최소 Phase로 수행하는 소규모 작업 모드 |
+| **병렬 배치 파이프라인** | 다수 독립 태스크를 구현(Phase 3) fan-out만 병렬화하고 문서·통합·QA는 직렬 배치 처리하는 선택 확장(§6.14) |
 
 ### 부록 B: 전체 파일 트리
 
@@ -1380,7 +1546,9 @@ Phase 승인 게이트, .zcode/progress.json, _workspace 산출물 규칙을 검
 │   ├── progress.json
 │   ├── commands/
 │   │   ├── {project}_orchestrator.md
-│   │   └── {project}_orchestrator_lite.md
+│   │   ├── {project}_orchestrator_lite.md
+│   │   ├── {project}_orchestrator_parallel.md       # 선택 — 병렬 배치 §6.14
+│   │   └── {project}_orchestrator_parallel_lite.md  # 선택 — 병렬 배치 §6.14
 │   ├── skills/
 │   │   ├── {project}-orchestrator/SKILL.md
 │   │   ├── {project}-business-rules/SKILL.md
@@ -1466,6 +1634,26 @@ PRD.md와 AGENTS.md를 기준으로 구현을 독립 검토한다. 코드를 직
 수정 제안을 포함한다. 완료 시 결과를 `_workspace/05_review.md`에 저장한다.
 ```
 
+#### C.4 병렬 배치 오케스트레이터 명령어 (선택 확장 — §6.14)
+
+```markdown
+---
+description: "{프로젝트} 개발 하네스 실행 — 병렬 배치 일반 모드"
+model: "account:zai-individual-coding-plan/GLM-5.3"
+skills: "{project}-orchestrator"
+---
+
+병렬 배치(일반) 모드로 작업한다. 동일한 {project}-orchestrator 스킬의 전체 규칙과
+HARNESS_CONVENTION §6.14 병렬 배치 파이프라인 규칙을 따른다.
+사용자 승인 전 Developer/Reviewer/Tester를 호출하지 않는다. 배치 플랜(병렬 그룹·
+파일 소유권 표) 보고 후 턴을 종료하고 사용자의 태스크 선택·승인을 기다린다.
+호출 프로필: {project}-developer, {project}-reviewer, {project}-tester.
+병렬 안전 판정(§6.14 3조건)을 통과한 태스크만 Phase 3-P에서 동시 스폰한다(상한 기본 3).
+작업 요청: $ARGUMENTS
+```
+
+절약용은 메인 모델을 `GLM-5.3-Flash`로, 호출 프로필을 `-lite` 3종으로 바꾼 `{project_command_prefix}_orchestrator_parallel_lite.md`를 만든다.
+
 > `model` 값은 2026-10-29 실측으로 확정한 Z.ai Individual Coding Plan의 실제 ID 형식(`providerId/modelId`)으로 기입했다. 다른 요금제·PC에서는 해당 계정의 실제 ID로 수정한다. bare 이름(`glm-5.3-flash`)은 `model`·`thoughtLevel`이 조용히 탈락하므로 금지다(§1.4 제약 3). `thoughtLevel`은 선택한 모델이 지원하는 수준만 사용하며, 적용 여부는 §9.2 7단계 실측 명령으로 검증한다.
 
 ---
@@ -1482,3 +1670,5 @@ PRD.md와 AGENTS.md를 기준으로 구현을 독립 검토한다. 코드를 직
 > | 2026-10-29 | 4.0.3 | 플러그인·마켓플레이스 경로 폐기 — 플러그인에는 워크스페이스 스코프가 없어 전역 적용됨이 실측됨(§1.4 제약 8). 하네스 구성을 워크스페이스 스코프 리소스(`.zcode/{commands,skills,agents}`)로 전면 전환: marketplace.json·plugin.json 예시 삭제, 등록 절차(구 5단계)를 발견 확인으로 교체, 다른 PC 복제 절차에서 마켓플레이스 등록 단계 제거. git clone만으로 하네스 완결 |
 > | 2026-10-29 | 4.0.4 | **모델 ID 형식 실측 확정** — frontmatter `model`은 `providerId/modelId` 슬래시 형식 필수(§1.4 제약 3). bare 이름(`glm-5.3-flash`)은 오류 없이 `model`·`thoughtLevel`이 탈락하고 부모 세션 모델·추론 수준을 상속함이 확인됨(`thoughtLevel: high` 지정에도 서브에이전트 요청 12건 `effort=max` 실측). §1.6·§4.2·§9.2 6·7단계·부록 C에 슬래시 형식·실측 검증 명령(model-io 로그 effort·profileSnapshot.modelSelection) 반영 |
 > | 2026-10-29 | 4.0.5 | **위임 실측 운영 규칙 정식화** — Phase 3·5·7 서브에이전트 스폰 직후 모델 I/O 로그로 프로필·모델·effort를 실측해 `_workspace/00_delegation_log.md`에 기록(§4.6 위임 실측 행·§8.1 산출물 표·메타 스킬 §3.5). model-io 로그의 임시 특성(스폰 직후만 존재)과 산출물의 작업 단위 로테이션(§8.2)으로 무한 누적 없음을 명시 |
+> | 2026-11-02 | 4.1.0 | **병렬 배치 파이프라인 선택 확장 신설(§6.14)** — 구현(Phase 3)과 테스트 작성(Phase 7-P)만 fan-out하고 문서·통합·리뷰·게이트 실행은 직렬 배치 처리하는 스테이지 병렬 구조. 병렬 안전 판정 3조건(파일 소유권 분리·의존 없음·공유 파일 비수정), fan-out 위임 제약(소유권 화이트리스트·자체 검증 스코프 제한·repo-wide 명령 금지), 통합 단계 마이그레이션 단일 생성, 테스트 병렬화 7-P/7-S 분리(§6.14.10 — 작성은 태스크별 병렬, 게이트는 통합 코드베이스 1회 실행), progress.json `parallelTasks` 스키마, `_workspace/parallel/<task-id>/` 산출물 규칙 포함. 병렬 전용 진입 명령어 2종(`_parallel`·`_parallel_lite`) 및 관계도·파일 트리·부록 정합 갱신 |
+> | 2026-11-02 | 4.1.1 | **프로젝트 문서의 병렬 후보 힌트 관행 신설(§6.14.11)** — §6.14 채택 프로젝트는 AGENTS.md 로드맵에 후보 조합 블록·PRD에 병렬 분해 후보 기록 규칙 노트를 두고, 각 청크 Phase 2 확정 시 해당 절에 태스크·예상 소유 파일을 기록한다. 힌트는 요청 구성용이며 Phase 1-P 판정이 항상 우선(충돌 시 힌트 갱신). §2.2 AGENTS.md 필수 섹션 로드맵 항목에 언급 추가. 메타 스킬($harness)의 생성(§3.1·§3.2·§3.3·§3.5)·감사(§2) 지침 동기화 |

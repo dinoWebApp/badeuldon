@@ -9,7 +9,7 @@ description: 받을돈(BadeulDon) 개발 오케스트레이터. 신규 기능 �
 
 사용자의 개발 요청을 Phase 0~9 파이프라인으로 통제하여, PRD 비즈니스 규칙과 ARCHITECTURE_CONVENTION 아키텍처를 준수하는 코드가 구현·리뷰·테스트되도록 보장한다. 오케스트레이터는 **절대 직접 코드를 수정하지 않는다** — 구현은 Developer, 검증은 Reviewer, 테스트는 Tester 서브에이전트에게 위임한다.
 
-이 스킬은 일반(`badeuldon_orchestrator`)·절약(`badeuldon_orchestrator_lite`) 명령어가 공유한다. 두 모드 모두 아래 Phase 규칙 전체를 동일하게 적용하며, 모드 차이는 호출하는 서브에이전트 프로필뿐이다.
+이 스킬은 일반(`badeuldon_orchestrator`)·절약(`badeuldon_orchestrator_lite`)·병렬 배치(`badeuldon_orchestrator_parallel`·`badeuldon_orchestrator_parallel_lite`) 명령어가 공유한다. 일반/절약 모드는 아래 Phase 규칙 전체를 동일하게 적용하며, 모드 차이는 호출하는 서브에이전트 프로필뿐이다. 병렬 배치 명령어로 진입하면 문서 말미의 **§6.14 병렬 배치 파이프라인** 절이 일반 Phase 절차에 우선 적용된다(2026-11-04 채택, 규약 v4.1.1).
 
 - **일반 모드 프로필**: `badeuldon-developer`, `badeuldon-reviewer`, `badeuldon-tester`
 - **절약 모드 프로필**: `badeuldon-developer-lite`, `badeuldon-reviewer-lite`, `badeuldon-tester-lite`
@@ -119,3 +119,22 @@ Phase 간 데이터는 `_workspace/` 파일로 전달: `00_delegation_log.md`(�
 | 마이그레이션/부트 실패 | 오류 로그 수집 → Developer 수정 위임 |
 | 테스트 실패 | 코드 버그 vs 테스트 오류 구분 → 각각 Phase 6 / Phase 7 분기 |
 | 리뷰 루프 2회 초과 | 사용자에게 상황 보고, 루트 원인(PRD 모호함/이해 부족/과잉 지적) 분석 |
+
+## §6.14 병렬 배치 파이프라인 (병렬 명령어 진입 시 우선 적용 — 규약 v4.1.1)
+
+서로 독립된 여러 작업을 한 번에 처리할 때 **구현(Phase 3)과 테스트 작성(Phase 7-P)만 병렬 fan-out**하고 문서 현행화·통합·리뷰·게이트 실행은 직렬 배치로 처리한다. 모든 서브에이전트가 같은 워킹 트리에서 실행되므로 스테이지 병렬이 필수다.
+
+**Phase 구조**: 0(컨텍스트·직렬) → 1-P(태스크 분해·병렬 분류 — 파일 소유권 표 포함 `01_plan.md`) → ✋승인 게이트 **배치 단위 1회**(병렬 그룹·소유권 표·동시성 상한 보고, 사용자 태스크 선택·확정) → 2(문서 현행화 — 선택된 전 태스크 분량 직렬 1회) → 3-P(병렬 구현 fan-out, Developer N개·상한 기본 3) → 3-S(통합 — 결선·공유 파일 병합·마이그레이션 단 1회) → 4→5→6?(직렬 배치 1사이클) → 7-P(병렬 테스트 작성 — 선택) → 7-S(배치 테스트 게이트 — 전체 테스트 1회) → 8→9(직렬).
+
+**병렬 안전 판정 3조건** (모두 충족해야 병렬 그룹, 미충족은 3-S 통합 작업으로):
+1. 파일 소유권 분리 — 태스크 간 생성/수정 파일이 겹치지 않음
+2. 의존 없음 — 같은 배치 다른 태스크 산출물을 참조하지 않음(완료된 선행 산출 참조는 허용)
+3. 공유 파일 비수정 — 라우트 결선(`config/routes.rb`)·마이그레이션 체인·PRD/AGENTS·`progress.json` 직접 수정 없음
+
+**fan-out 위임 제약** (각 병렬 Developer/Tester 지시서 필수): 소유권 화이트리스트(자기 태스크 파일만) · 자체 검증은 자기 파일/경로 스코프만(전체 테스트 금지) · repo-wide 명령(전체 마이그레이션·부트) 3-S 이후 · 문서 수정 금지(Phase 2 확정분) · 스폰 직후 effort 실측 `00_delegation_log.md` 기록.
+
+**상태·산출물**: `progress.json`은 오케스트레이터만 기입 — `pipelineType: "parallel"` + `parallelTasks: [{id, name, files, status}]`. 태스크별 산출물은 `_workspace/parallel/<task-id>/`(03_implementation·07_test_report), 배치 수준 산출물은 기존 `_workspace/`.
+
+**충돌 검증·실패**: 태스크 완료 수신 시마다 `git diff`를 소유권 표와 대조 → 위반 태스크만 재위임. 태스크 실패는 해당 태스크만 1회 재시도 후 드롭(보고 명시). 7-S 실패는 원인 태스크로 라우팅(테스트 오류→해당 Tester / 코드 버그→해당 Developer).
+
+**적용 판단**: 유리 — 독립 소규모 태스크 묶음(기술 부채 뭉치 등). 불리 — 순차 의존 사슬(F-REM 같은 단일 대형 기능), 단일 공유 파일 중심 작업, Fast 규모. 병렬 이득은 "구현·테스트 작성 N배 + 게이트 1회화" 수준.
