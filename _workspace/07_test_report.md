@@ -83,3 +83,48 @@ bin/rubocop             → 168 files, no offenses
 bin/brakeman            → no warnings
 bin/rails zeitwerk:check → Otherwise, all is good!
 ```
+
+---
+
+## 7. CI 안정화 (2026-11-06) — 시스템 테스트 Turbo 부트 레이스 제어
+
+### 현상
+
+GitHub Actions(ubuntu-latest)에서만
+`AppInvoiceRemindersTest#test_보류하면_재개_버튼으로_전환되고_재개하면_다음 단계가_이어진다_(REM-7)` 실패 —
+`Capybara::ModalNotFound: Unable to find modal dialog`(`accept_confirm` 블록 내 `click_button "안내 보류하기"`).
+로컬(macOS headless Chrome, bin/ci 628건)은 재현 없음. 같은 파일의 수동 발송 테스트(동일한
+accept_confirm 구조)는 CI에서도 우연히 통과 — 레이스 특성상 확률적.
+
+### 진단 (오케스트레이터 결론 — 코드로 확인)
+
+Turbo 부트 레이스. 두 버튼은 `button_to ... data: { turbo_confirm: ... }`
+(`app/views/app/invoices/show.html.erb` 234·237행)이며, 네이티브 confirm은 Turbo JS가 로드·연결된
+뒤에만 뜬다. CI의 느린 JS 부트 환경에서 `visit` 직후 서버 렌더 HTML에는 버튼이 이미 있어
+`assert_text`는 통과하지만, Turbo 부트 전에 클릭하면 폼이 네이티브 제출로 진행되어 confirm이
+아예 발생하지 않는다 → `accept_confirm`이 대기 초과로 ModalNotFound. 로컬은 부트가 빨라 미재현.
+
+### 수정 (test/ 2파일만 — 앱 코드 변경 0)
+
+| 파일 | 변경 |
+|---|---|
+| `test/application_system_test_case.rb` | `wait_for_turbo(timeout: 5)` 헬퍼 추가 — `typeof window.Turbo !== 'undefined' && document.readyState === 'complete'`를 0.05초 폴링, 초과 시 `Minitest::Assertion` 실패(명시적 메시지). 드라이버 내비게이션 경합 중 `evaluate_script` 오류는 `Selenium::WebDriver::Error::WebDriverError` 포착 후 재폴링 |
+| `test/system/app_invoice_reminders_test.rb` | 네이티브 confirm을 쓰는 2개 테스트의 첫 `visit app_invoice_path(invoice)` 직후 1회 호출(최소 구성). 재개 경로의 두 번째 visit은 호출 없음 — 「안내 재개하기」 버튼은 turbo_confirm 미사용(뷰 244행 확인)으로 modal 불요 |
+
+### 무관 확인
+
+viewer 시스템 테스트 3종(`viewer_test`·`viewer_promise_test`·`viewer_refusal_test`)은
+`<details>`/`<summary>` 펼침 재확인 방식(JS 불요, VIEW-1 인앱 대응)이라 네이티브 modal과 무관 — 변경 없음.
+
+### 검증 결과
+
+```
+bin/rails test test/system/app_invoice_reminders_test.rb  3회 연속 → 각 2 runs, 22 assertions, 0 failures
+bin/rails db:test:prepare test:system                     → 8 runs, 61 assertions, 0 failures, 0 errors
+bin/rubocop (변경 2파일)                                   → no offenses
+bin/rails test (전체 회귀)                                 → 628 runs, 3717 assertions, 0 failures (2026-11-04 베이스라인 동일)
+```
+
+**한계 명시**: 로컬에서 레이스가 재현되지 않으므로 본 수정은 "발생 후 재시도"가 아니라
+**레이스 전 제어(클릭 전 Turbo 부트 보장)** 구조의 예방책이다. 헬퍼는 부트 실패 시 그 자체로
+실패를 내므로(CI에서 modal 초과 대기 대신 명확한 원인 메시지), 동일 증상 재발 시 진단 비용도 낮아진다.

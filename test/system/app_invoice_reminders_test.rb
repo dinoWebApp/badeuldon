@@ -26,6 +26,7 @@ class AppInvoiceRemindersTest < ApplicationSystemTestCase
     travel_to(Time.zone.parse("2026-11-10 10:00")) do
       log_in_as users(:delta)                                           # 수금 패스 보유 — 자격 있음
       visit app_invoice_path(invoice)
+      wait_for_turbo                                                    # 부트 레이스 제어 — confirm 전 필수
 
       assert_text "자동 안내 현황"                                       # REM 섹션(비초안)
       assert_text "자동 안내 중"                                         # 진행 배지(녹색)
@@ -57,6 +58,7 @@ class AppInvoiceRemindersTest < ApplicationSystemTestCase
     travel_to(Time.zone.parse("2026-11-10 10:00")) do
       log_in_as users(:delta)
       visit app_invoice_path(invoice)
+      wait_for_turbo                                                    # 부트 레이스 제어 — confirm 전 필수
       assert_text "자동 안내 중"                                         # 초기 — 진행 상태
 
       accept_confirm do                                                  # 「보류하기」(REM-11과 동일 동작)
