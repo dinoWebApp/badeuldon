@@ -37,6 +37,33 @@
     </dl>
   </section>
 
+  <%# REM-7·VIEW-7 — 거래처 단위 자동 안내 상태와 보류/재개 액션. 수신거부는 채무자 의사라
+      재개 경로가 없다(제품 원칙 P1 — U1이 되돌리지 않는다). %>
+  <section class="mt-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <h2 class="text-base font-bold text-stone-800">자동 안내 상태</h2>
+      <%= client_reminder_badge(@client) %>
+    </div>
+    <% if @client.refused? %>
+      <p class="mt-3 rounded-xl bg-stone-50 p-4 text-sm leading-relaxed text-stone-600 ring-1 ring-inset ring-stone-200" role="status">
+        이 거래처가 추가 안내 수신을 거부했습니다. 이 번호로는 자동 안내를 보내지 않습니다.
+      </p>
+    <% elsif @client.reminders_suspended? %>
+      <p class="mt-3 text-xs leading-relaxed text-stone-500">
+        이 거래처의 모든 청구서 자동 안내가 보류 중입니다. 재개하면 다음 단계부터 이어집니다.
+      </p>
+      <%= button_to "안내 재개하기", resume_reminders_app_client_path(@client), method: :patch,
+            class: "mt-4 inline-flex min-h-11 cursor-pointer items-center rounded-xl border border-emerald-700/40 bg-emerald-50 px-5 text-sm font-bold text-emerald-800 transition hover:bg-emerald-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+    <% else %>
+      <p class="mt-3 text-xs leading-relaxed text-stone-500">
+        이 거래처의 미수 청구서에 단계별 안내가 자동 발송됩니다. 일정 조정이 필요하면 보류할 수 있습니다.
+      </p>
+      <%= button_to "안내 보류하기", suspend_reminders_app_client_path(@client), method: :patch,
+            data: { turbo_confirm: "이 거래처의 모든 청구서 자동 안내를 멈춥니다. 보류하시겠습니까?" },
+            class: "mt-4 inline-flex min-h-11 cursor-pointer items-center rounded-xl border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-600 transition hover:border-stone-400 hover:text-stone-800" %>
+    <% end %>
+  </section>
+
   <div class="mt-6 flex items-center justify-between gap-3">
     <%= link_to "정보 수정", edit_app_client_path(@client),
           class: "inline-flex min-h-11 items-center rounded-xl bg-emerald-800 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>

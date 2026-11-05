@@ -1,12 +1,18 @@
 require "test_helper"
+require_relative "../../test_helpers/fake_solapi_client"
+require_relative "../../test_helpers/solapi_stubbing"
 
 module Promises
   # 응답 접수 단일 진입점(F-PROMISE) — 4종 접수·INV-4 issued|viewed→promised 원자 전이·
   # PROMISE-7 상태 불변·종결 상태에서의 시도 처리(설계 의도 확인)·서버 재검증(결정 #3)·
   # 위조 kind 거부. 시나리오 기준: _workspace/03_implementation.md §2,
   # _workspace/05_review.md §검증표 5·7·8. 시간 의존 검증은 travel_to로 KST 고정(TIME-1).
-  # 외부 API 호출 없음.
+  # F-REM 훅 검증(발송 중단 마킹·U1 알림 인큐·스캔 전무)은 Phase 7에서 확장했다 — 스캔 경로는
+  # DispatchService(client: 주입)으로 실호출을 차단한다(REM-10).
   class RegisterServiceTest < ActiveSupport::TestCase
+    include ActiveJob::TestHelper
+    include SolapiStubbing
+
     fixtures :invoices, :promises
 
     # ── 약속 2종 — INV-4 전이를 동반한다 ──
@@ -166,6 +172,39 @@ module Promises
 
       assert invoice.reload.issued?
       assert_empty invoice.reload.promises
+    end
+
+    # ── F-REM — 발송 중단 계열 응답의 상태 마킹(PROMISE-7·VIEW-7·REM-7) ──
+
+    test "paid_report 접수는 청구를 즉시 일시정지하고 U1 입금 회신 알림을 인큐한다 (PROMISE-7·REM-7)" do
+      invoice = invoices(:delta_issued)
+
+      travel_to(Time.zone.parse("2026-10-14 10:00")) do
+        assert_enqueued_with job: Reminders::DeliverJob,
+                             args: [ invoice.id, "noti_deposit_reply", "user" ] do
+          RegisterService.new(invoice: invoice, kind: :paid_report).call
+        end
+      end
+
+      assert invoice.reload.reminders_suspended?          # 마감은 U1 확인으로만(PROMISE-7)
+      assert invoice.reload.issued?                       # 상태는 불변 — 정지일 뿐
+      assert invoice.reminders_suspended_at.present?
+    end
+
+    test "paid_report 접수 후 자동 스캔은 채무자 발송을 하지 않는다 (PROMISE-7 — 오발송 차단)" do
+      fake = FakeSolapiClient.new
+      invoice = invoices(:delta_issued)
+
+      travel_to(Time.zone.parse("2026-10-14 10:00")) do
+        RegisterService.new(invoice: invoice, kind: :paid_report).call
+        Reminders::DispatchService.new(client: fake).call
+      end
+
+      # 일시정지 청구는 스캔 모집합(reminders_dispatchable)에서 제외된다 — 다른 청구의
+      # 정상 발송(fixture delta_due_soon의 만기 예정 안내)은 스캔이 계속 수행된다.
+      assert_empty MessageLog.where(invoice_id: invoice.id, recipient_role: :debtor)
+      assert_equal "BD-20260901-001", invoice.issue_number
+      assert fake.calls.none? { |call| call[:variables]["청구서명"] == invoice.issue_number }
     end
 
     test "this_week에 주입된 약속일은 서버 산정값으로 저장된다 (PROMISE-2)" do

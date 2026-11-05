@@ -22,10 +22,9 @@
 한 청구서가 같은 날 두 통을 받는 경우는 없다(SEC-5 동일 청구·동일 단계 1회 멱등성).
 
 - **기본 트랙**: `invoice_notice`(만기 D-1) → `confirm_d1`(D+1) → `requeue_d7`(D+7) → `final_d14`(D+14, 자동 종결 REM-12)
-- **약속 트랙**: 약속 등록 순간 기본 시퀀스는 중단·취소(PROMISE-3) → `promise_d1`(약속일-1) → `promise_overdue`(약속일+1, 재요청 1회)
+- **약속 트랙**: 약속 등록 순간 기본 시퀀스는 중단·취소(PROMISE-3) → `promise_d1`(약속일-1) → `promise_overdue`(약속일+1, 재요청 1회, **여기서 시퀀스 종결 — final_d14 재개 없음, REM-13·결정 기록 Q10, 2026-11-04 확정**)
 - **열람 분기**: D+1에는 미열람 건 `confirm_d1` 또는 열람 건 `confirm_d1_opened` 중 하나만(REM-4)
-- 최악 경로(기본 2통 + 약속 2통 + 마무리 1통 = 5통)가 PLAN-3 상한 5통과 정합
-- 미확정 설계 항목: `promise_overdue` 이후 만기+14 `final_d14` 재개 여부 — F-REM 플랜에서 확정 필요
+- PLAN-3 상한 5통의 산정 대상은 **시퀀스성 자동 발송(기본·약속 트랙)과 수동 발송**이며, 발행 안내(`issue_notice`)·부분입금 안내(`partial_paid`)·마감 감사(`paid_thanks`)는 시퀀스 외 1회성 발송으로 집계 제외(2026-11-04 확정 — 결정 기록 Q10). 최악 경로 `invoice_notice`+`confirm_d1`+`requeue_d7`+`promise_d1`+`promise_overdue` = 5통과 정합
 
 ## 키 매핑 요약
 

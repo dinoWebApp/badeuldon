@@ -1,16 +1,27 @@
-# 00_delegation_log — 위임 실측 (하드 룰 6)
+# 00_delegation_log — F-REM 위임 실측 기록 (2026-11-04)
 
-| Phase | 프로필(정의) | 스폰 ID | 모델(실측) | effort(정의→실측) | 판정 |
-|---|---|---|---|---|---|
-| 3 | badeuldon-developer-lite (`model: "account:zai-individual-coding-plan/GLM-5.3-Flash"`, `thoughtLevel: low`) | agent_0f958e02-66db-45f8-b165-2f672408fbd9 | GLM-5.3-Flash (65요청) | low → **low** | **모델·effort 전부 일치** |
-| 5 | badeuldon-reviewer-lite (`thoughtLevel: low`) | agent_66fc78ca-c920-4788-a053-a619814a90a4 | GLM-5.3-Flash (70요청) | low → **high** | 모델 일치 / **effort 불일치**(토글링 재현) |
-| 6 | badeuldon-developer-lite (동일 정의) | agent_dfb548ba-517b-470e-9915-42d6044e31db | (실측 불가 — 전용 로그 임시 삭제) | low → 미확정 | 로그 휘발(전례와 동일) |
-| 7 | badeuldon-tester-lite (`thoughtLevel: low`) | agent_4635bcbf-c094-4bda-a362-243170a98380 | GLM-5.3-Flash (77요청) | low → **low** | **모델·effort 전부 일치** |
+스폰 직후 `~/.zcode/cli/rollout/model-io-sess_subagent_agent_*.jsonl`의 model·effort 실측.
+로그는 휘발성이므로 스폰 직후 1회 측정 원칙(하드 룰 6).
 
-## 실측 요약 (5회 위임)
+| Phase | 프로필 | 실측 model | 실측 effort | 판정 |
+|---|---|---|---|---|
+| 3-a 구현 | badeuldon-developer | GLM-5.3-Flash | high | **일치 — 정상** (사용자 확인: 일반 developer는 GLM-5.3-Flash/high가 정의 그대로) |
+| 3-b 구현 | badeuldon-developer | GLM-5.3-Flash | high | **일치 — 정상** |
+| 3-fix(회귀) | badeuldon-developer | (동일 에이전트 재개 — 신규 스폰 아님) | — | 해당 없음 |
+| 5 리뷰 | badeuldon-reviewer | GLM-5.3 | high | **일치 — 정상** (reviewer 일반=GLM-5.3, 사용자 확인) |
+| 6 수정 | badeuldon-developer | GLM-5.3-Flash | high | **일치 — 정상** |
+| 6b(W-6·W-7) | badeuldon-developer | (동일 에이전트 재개 — 신규 스폰 아님) | — | 해당 없음 |
+| 5 재리뷰 | badeuldon-reviewer | (동일 에이전트 재개) | — | APPROVED 종결 |
+| 7 테스트 | badeuldon-tester | GLM-5.3-Flash | high | **일치 — 정상** (스폰 1회 실패: 5시간 사용량 한도 — 리셋 후 재시도 성공) |
 
-모델 5/5 일치. effort: 3(low 일치)·5(high 불일치)·6(미확정·로그 휘발)·7(low 일치) — 스폰별 토글링 양상은 이전 파이프라인과 동일하게 지속. 하네스 정의 원본 반영 검토는 여전히 유효.
+※ 3-b 최초 2회 스폰은 사용자 답변 입력 충돌로 취소(부분 변경 없음 실측) — 3회째 완료.
 
-## 주석
+## 프로젝트 프로필 모델 행렬 (2026-11-04 사용자 확인 — 의도된 구성)
 
-- 전용 로그 즉시 실측 성공. 참고: 직전 표면 리뉴얼 파이프라인에서는 3a(max)·3b(max)·3c(low)·5(max)·7(max)로 토글링이 관측됐음(`_workspace_prev_surface/00_delegation_log.md`) — 스폰별 thoughtLevel 적용 불안정은 여전히 재현 가능성 있음
+- developer: 일반=**GLM-5.3-Flash**/high · lite=Flash/low — 일반·절약 구분은 thoughtLevel
+- reviewer: 일반=**GLM-5.3**/high · lite=Flash/high
+- tester: 일반=**GLM-5.3-Flash**/high · lite=Flash/low
+
+AGENTS.md 하네스 절의 "메인 GLM-5.3 / 절약 GLM-5.3-Flash" 표기는 오케스트레이터 세션(메인
+대화) 모델 기준 서술이며, 개별 프로필의 model 필드가 스폰 실체다 — 위임 실측은 **프로필
+정의 대비 일치 여부**로만 판정한다(불일치 판정 금지 기준).

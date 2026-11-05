@@ -19,14 +19,17 @@ module Payments
     # amount가 nil이면 PAY-1 원클릭 전액 마감 경로(폼에 금액 필드 부재 — 값이 아예 넘어오지
     # 않음)로, 남은 잔액 전체를 서버 기준값으로 계산한다. 빈 문자열은 전액으로 승격하지 않고
     # 모델 검증(입금 금액 미입력)으로 보낸다. 상한·미래 날짜 차단은 Payment 모델 담당이며
-    # 기준 시각은 KST(Date.current — TIME-1)다.
-    def initialize(invoice:, amount:, paid_on:)
+    # 기준 시각은 KST(Date.current — TIME-1)다. notify_thanks는 PAY-4 감사 알림 옵션(기본 켬)
+    # — 컨트롤러 파라미터 연결은 F-REM 3-b에서 담당한다.
+    def initialize(invoice:, amount:, paid_on:, notify_thanks: true)
       @invoice = invoice
       @amount = amount
       @paid_on = paid_on
+      @notify_thanks = notify_thanks
     end
 
     def call
+      fully_paid = false
       payment = nil
       @invoice.with_lock do
         guard_payable!
@@ -35,8 +38,9 @@ module Payments
         # 컬렉션 분리형 생성 — 실패 시 검증 오류를 지닌 레코드를 그대로 422 조립에 넘긴다.
         payment = Payment.new(invoice_id: @invoice.id, amount: amount, paid_on: @paid_on)
         payment.save!
-        transition!
+        fully_paid = transition!
       end
+      enqueue_reminder_notice(fully_paid)  # 잠금 종료(커밋) 후 인큐
       payment
     rescue ActiveRecord::RecordInvalid
       raise InvalidPayment, payment
@@ -67,12 +71,28 @@ module Payments
 
     # INV-4 전이 — 생성 직후 합계를 재조회해 기준을 확정한다: 총액 도달 → 마감(PAY-1),
     # 미달 → 부분입금(PAY-2, 잔액은 Invoice#remaining_amount 기준). with_lock 직렬화로
-    # 두 트랜잭션이 동시에 도달 판정에 성공할 수 없다.
+    # 두 트랜잭션이 동시에 도달 판정에 성공할 수 없다. 전액 마감 여부를 반환한다(알림 분기).
     def transition!
       if @invoice.total_amount - @invoice.payments.sum(:amount) <= 0
         @invoice.mark_paid!
+        true
       else
         @invoice.mark_partially_paid!
+        false
+      end
+    end
+
+    # F-REM 훅 — 채무자 향 1회성 발송(PLAN-3 상한 집계 밖). REM-3 창 밖이면 SendService가
+    # 다음 평일 09시로 예약한다(확정 해석 3·4).
+    # - 전액 마감: paid_thanks(PAY-4 — 선택 옵션, 기본 켬)
+    # - 부분입금: partial_paid(REM-4·PAY-2 — 잔액 기준 문구, SendService 변수 조립)
+    def enqueue_reminder_notice(fully_paid)
+      if fully_paid
+        return unless @notify_thanks
+
+        Reminders::DeliverJob.perform_later(@invoice.id, "paid_thanks", "debtor")
+      else
+        Reminders::DeliverJob.perform_later(@invoice.id, "partial_paid", "debtor")
       end
     end
 

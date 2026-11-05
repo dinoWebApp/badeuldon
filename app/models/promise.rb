@@ -7,6 +7,9 @@
 #   paid_report   「이미 입금했어요」      — 시퀀스 정지·DASH-2 마감 대기. 마감은 U1 확인으로만
 #                                            확정된다(허위 회신 방지 — PROMISE-7)
 #   inquiry       「문의·이의 있어요」     — U1 답변 → 뷰어에서 채무자 확인(PROMISE-6)
+#   refusal       「추가 안내 수신 거부」    — VIEW-7. 거래처 번호 단위 발송 즉시 중단·U1 통보
+#                                            대상. 약속일·메모 없는 단순 표기이며 mark_promised!
+#                                            대상이 아니다(이력 보존 P4).
 # 약속(this_week·date_selected) 접수는 INV-4 issued|viewed→promised 전이의 원인이 되며
 # 상태 전이는 Invoice#mark_promised!(Promises::RegisterService가 호출)가 담당한다.
 class Promise < ApplicationRecord
@@ -16,7 +19,7 @@ class Promise < ApplicationRecord
   belongs_to :invoice
 
   # INV-4 — 응답 종류. 약속대기(promised) 진입 원인은 this_week·date_selected뿐이다.
-  enum :kind, { this_week: 0, date_selected: 1, paid_report: 2, inquiry: 3 }
+  enum :kind, { this_week: 0, date_selected: 1, paid_report: 2, inquiry: 3, refusal: 4 }
 
   # PROMISE-6 — 답변 상태 조회(뷰어 발행인 답변 표시·DASH-2 답변 대기)
   scope :answered, -> { where.not(answered_at: nil) }

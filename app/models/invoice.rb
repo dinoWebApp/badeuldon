@@ -90,6 +90,17 @@ class Invoice < ApplicationRecord
   scope :voidable, -> { where(status: VOIDABLE_STATUSES) }
   # SHARE-2 — 링크 보유 상태(초안은 미발급, 무효는 INV-6로 폐기). 링크 재발급 대상 조회 스코프.
   scope :linkable, -> { where.not(status: [ :draft, :voided ]) }
+  # SHARE-2 — 유효기간 내 링크. 리마인더 스캔의 "링크 유효" 조건(만료 링크로는 발송하지 않는다).
+  scope :link_valid, -> { where.not(token: nil).where(token_expires_at: Time.current..) }
+  # REM — 자동 발송 스캔 모집합(DispatchService·PrenoticeService의 상류 필터): 미수·링크 유효·
+  # 청구·거래처 보류 없음·수신거부 없음·시퀀스 종결 아님. 잔여 가드(마감·자격·상한·발송 창)는
+  # Reminders::SendService가 발송 직전 재확인한다(REM-11 — 09~14시 취소 창 흡수).
+  scope :reminders_dispatchable, -> {
+    unsettled
+      .where(reminders_suspended_at: nil, sequence_finished_at: nil)
+      .link_valid
+      .joins(:client).merge(Client.reminders_active)
+  }
 
   # 연체 파생 판정 — issued 계열이면서 만기일이 경과한 건(DASH-4 연체일 계산 기준)
   def overdue?
@@ -106,6 +117,21 @@ class Invoice < ApplicationRecord
 
   def voidable?
     VOIDABLE_STATUSES.include?(status)
+  end
+
+  # REM-7 — 청구 건 단위 발송 보류 여부(마킹은 PROMISE-7 입금 완료 회신 접수·U1 액션 경로)
+  def reminders_suspended?
+    reminders_suspended_at.present?
+  end
+
+  # REM-12·REM-13 — 시퀀스 자동 종결 여부(final_d14·promise_overdue 발송 성공·무효·수신거부)
+  def sequence_finished?
+    sequence_finished_at.present?
+  end
+
+  # REM — 보류·종결·거래처 수신거부·거래처 보류가 없는 발송 가능 상태(가드·상태 표기 공용 판정)
+  def reminders_active?
+    !reminders_suspended? && !sequence_finished? && client&.reminders_active?
   end
 
   # 발행(INV-4 draft→issued) — 채번(INV-1)·토큰(SHARE-1)·유효기간(SHARE-2)을 발급하고
@@ -141,8 +167,8 @@ class Invoice < ApplicationRecord
     false
   end
 
-  # 무효(INV-6) — 발행 계열만 가능하며 링크 토큰을 즉시 폐기한다. 시퀀스 중단은
-  # REM 도메인 부재로 이번 범위에서 N/A이다.
+  # 무효(INV-6) — 발행 계열만 가능하며 링크 토큰을 즉시 폐기한다. 시퀀스는 unsettled 스캔
+  # 제외로 자동 중단되지만, 종결 시각을 함께 기록해 REM-12 이력·판정의 근거로 남긴다.
   def void!
     unless voidable?
       errors.add(:base, "발행된 청구서만 무효 처리할 수 있습니다")
@@ -152,6 +178,7 @@ class Invoice < ApplicationRecord
     self.status = :voided
     self.voided_at = Time.current
     self.token = nil
+    self.sequence_finished_at ||= Time.current
     save
   end
 
@@ -204,6 +231,39 @@ class Invoice < ApplicationRecord
     self.class.where(id: id, status: self.class.statuses.slice(*PAYABLE_STATUSES).values)
         .update_all(status: self.class.statuses.fetch(:partially_paid),
                     updated_at: Time.current) == 1
+  end
+
+  # INV-4 — 연체 저장 전이(issued|viewed|partially_paid→overdue). Reminders::OverdueMarkJob이
+  # 매일 07:00 KST에 호출한다(TIME-1). status 조건부 UPDATE로 원자화·멱등(재실행 무해)이며
+  # promised는 제외된다 — 약속 트랙 유지(PROMISE-3). overdue 스코프 주석("enum 자동 전환은
+  # F-REM 스케줄러와 함께")의 이행이다.
+  def mark_overdue!
+    self.class.where(id: id, status: self.class.statuses.slice(:issued, :viewed, :partially_paid).values)
+        .update_all(status: self.class.statuses.fetch(:overdue), updated_at: Time.current) == 1
+  end
+
+  # REM-12·REM-13 — 시퀀스 자동 종결 기록. Reminders::SendService가 final_d14·promise_overdue
+  # 발송 성공 시 호출하고, void!(INV-6)와 refusal 접수(Promises::RegisterService — VIEW-7 즉시
+  # 중단)도 기록한다. 타임스탬프 기록만 수행하므로 update_columns로 검증·본문 불변 가드를
+  # 우회하며, 멱등(이미 종결된 건은 무변경)이다.
+  def finish_sequence!
+    return false if sequence_finished?
+
+    update_columns(sequence_finished_at: Time.current, updated_at: Time.current)
+    true
+  end
+
+  # REM-12·REM-13 — 시퀀스 수동 재개("이후 재개는 U1의 수동 재요청으로만 가능"). 종결
+  # 마킹을 해소해 자동 스캔 모집합(Invoice.reminders_dispatchable)으로 되돌린다. 자동
+  # 재개가 아니라 U1의 명시적 재요청의 실행이며, 해소 후 실제 발송 스텝 산정·소급 창
+  # 판정은 기존 Reminders::DispatchService 논리를 그대로 따른다(창 경과 스텝은
+  # PAST_WINDOW 차단 — 무한 소급 없음). 멱등(미종결 건은 무변경·false)이며, update_columns는
+  # finish_sequence!와 같은 우회다(검증 불필요 마킹·INV-5 보호 컬럼 아님).
+  def restart_sequence!
+    return false unless sequence_finished?
+
+    update_columns(sequence_finished_at: nil, updated_at: Time.current)
+    true
   end
 
   # PAY-2 — 입금 누계(정수 원). 항상 최신값이 필요하므로 메서드 호출마다 합계를 조회한다

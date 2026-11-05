@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_15_000003) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_04_000003) do
   create_table "clients", force: :cascade do |t|
     t.integer "user_id", null: false
     t.string "name", null: false
@@ -21,6 +21,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_000003) do
     t.text "memo"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.datetime "reminders_suspended_at"
+    t.datetime "refused_at"
     t.index ["user_id"], name: "index_clients_on_user_id"
   end
 
@@ -57,6 +59,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_000003) do
     t.datetime "voided_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.datetime "reminders_suspended_at"
+    t.datetime "sequence_finished_at"
     t.index ["client_id"], name: "index_invoices_on_client_id"
     t.index ["issue_number"], name: "index_invoices_on_issue_number", unique: true
     t.index ["token"], name: "index_invoices_on_token", unique: true
@@ -71,6 +75,28 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_000003) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["user_id"], name: "index_items_on_user_id"
+  end
+
+  create_table "message_logs", force: :cascade do |t|
+    t.integer "invoice_id", null: false
+    t.integer "user_id", null: false
+    t.integer "recipient_role", default: 0, null: false
+    t.string "template_key", null: false
+    t.integer "origin", default: 0, null: false
+    t.integer "status", default: 0, null: false
+    t.string "phone"
+    t.text "variables"
+    t.string "provider_message_id"
+    t.string "error_code"
+    t.text "error_message"
+    t.datetime "scheduled_at"
+    t.datetime "sent_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["invoice_id", "template_key"], name: "idx_message_logs_debtor_pending_uniq", unique: true, where: "recipient_role = 0 AND status = 0"
+    t.index ["invoice_id"], name: "index_message_logs_on_invoice_id"
+    t.index ["provider_message_id"], name: "index_message_logs_on_provider_message_id"
+    t.index ["user_id"], name: "index_message_logs_on_user_id"
   end
 
   create_table "orders", force: :cascade do |t|
@@ -178,6 +204,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_15_000003) do
   add_foreign_key "invoices", "clients"
   add_foreign_key "invoices", "users"
   add_foreign_key "items", "users"
+  add_foreign_key "message_logs", "invoices", on_delete: :cascade
+  add_foreign_key "message_logs", "users", on_delete: :cascade
   add_foreign_key "orders", "users", on_delete: :cascade
   add_foreign_key "payment_passes", "users", on_delete: :cascade
   add_foreign_key "payments", "invoices"

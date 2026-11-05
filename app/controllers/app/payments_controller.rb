@@ -3,11 +3,15 @@
 # Payments::RecordService(트랜잭션·잔액 재검증 — 결정 #3)가 단일 담당한다. 성공 303 /
 # 실패 422(청구서 상세 재렌더 — 작성 중 값 보존).
 class App::PaymentsController < App::BaseController
+  # F-REM — 422 재렌더에 청구서 상세 템플릿이 필요로 하는 발송 이력·컨텍스트(RemindersContext).
+  include RemindersContext
+
   before_action :set_invoice, only: %i[ create ]
 
   def create
     @payment = Payments::RecordService.new(
-      invoice: @invoice, amount: payment_params[:amount], paid_on: payment_params[:paid_on]
+      invoice: @invoice, amount: payment_params[:amount], paid_on: payment_params[:paid_on],
+      notify_thanks: payment_params[:send_thanks] != "0"  # PAY-4 — 체크 해제 시에만 끈다(기본 켬)
     ).call
     redirect_to app_invoice_path(@invoice), status: :see_other, notice: success_notice
   rescue Payments::RecordService::InvalidPayment => e
@@ -25,8 +29,10 @@ class App::PaymentsController < App::BaseController
     @invoice = Current.user.invoices.find(params[:invoice_id])
   end
 
+  # PAY-4 — send_thanks는 마감 폼의 감사 알림 체크박스(기본 켬). 파라미터 미전송(구폼·직접 요청)
+  # 도 켬으로 해석한다(nil != "0").
   def payment_params
-    params.expect(payment: [ :amount, :paid_on ])
+    params.expect(payment: [ :amount, :paid_on, :send_thanks ])
   end
 
   # PAY-1/PAY-2 결과 안내 — 마감이면 완료 문구, 부분입금이면 재계산된 잔액을 안내한다.
@@ -43,12 +49,14 @@ class App::PaymentsController < App::BaseController
   end
 
   # 실패 422 재렌더에 청구서 상세 템플릿이 필요로 하는 @변수 — App::InvoicesController와
-  # 동일 구성(SHARE-3 열람 이력·F-PROMISE 응답 이력·F-PAY 입금 이력·입금 폼). 폼 객체는
-  # 컬렉션 분리형(App::InvoicesController#set_payments 주석 참조).
+  # 동일 구성(SHARE-3 열람 이력·F-PROMISE 응답 이력·F-PAY 입금 이력·입금 폼·F-REM 발송 이력).
+  # 폼 객체는 컬렉션 분리형(App::InvoicesController#set_payments 주석 참조).
   def load_invoice_show
     @view_events = @invoice.view_events.order(:viewed_at, :id)
     @promises = @invoice.promises.order(created_at: :desc, id: :desc)
     @payments = @invoice.payments.order(paid_on: :desc, id: :desc)
     @payment ||= Payment.new(invoice_id: @invoice.id, paid_on: Date.current)
+    set_message_logs       # REM-6 — 발송 이력(RemindersContext)
+    set_reminder_context   # REM-8 — 수동 발송 표기 컨텍스트(RemindersContext)
   end
 end

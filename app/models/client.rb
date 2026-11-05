@@ -21,6 +21,26 @@ class Client < ApplicationRecord
   normalizes :name, :contact_name, :phone, :business_number, with: ->(value) { value.strip }
   normalizes :email, with: ->(email) { email.strip.downcase }
 
+  # REM — 거래처 단위 발송 스캔 필터: 수신거부·보류가 없는 거래처. Invoice.reminders_dispatchable의
+  # merge(Client.reminders_active)로 쓰인다(채무자 발송 모집합에서 한 번에 제외).
+  scope :reminders_active, -> { where(refused_at: nil, reminders_suspended_at: nil) }
+
+  # VIEW-7 — 수신거부 접수 여부. refused_at 마킹은 Promises::RegisterService의 refusal 응답
+  # 경로가 담당하며, 마킹 즉시 이 거래처의 모든 채무자 향 발송이 가드에서 차단된다.
+  def refused?
+    refused_at.present?
+  end
+
+  # REM-7 — 거래처 단위 발송 보류 여부(U1 액션 마킹 — F-REM 3-b 컨트롤러 경로)
+  def reminders_suspended?
+    reminders_suspended_at.present?
+  end
+
+  # REM — 보류·수신거부가 없는 발송 가능 거래처(Invoice#reminders_active?가 함께 사용)
+  def reminders_active?
+    !refused? && !reminders_suspended?
+  end
+
   private
 
   # 한도 판정과 UI 분기(컨트롤러 @limit_reached)가 같은 구독 판정점(User#client_limit_reached?)을

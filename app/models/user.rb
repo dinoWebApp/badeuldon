@@ -56,6 +56,15 @@ class User < ApplicationRecord
     current_count >= Invoice::FREE_MONTHLY_INVOICE_LIMIT
   end
 
+  # REM-8·PLAN-4 — 자동 리마인더 자격의 단일 판정점: Plus 구독 또는 사용 가능한 수금 패스 보유.
+  # Reminders::SendService의 INELIGIBLE_PLAN 가드와 PrenoticeService의 사전통보 대상 필터가
+  # 공유한다. 패스는 발행 시점에 소비되며 이 판정에서 재소비하지 않는다.
+  def reminder_eligible?
+    return true if subscription&.plus?
+
+    payment_passes.usable.exists?
+  end
+
   private
 
   def create_free_subscription

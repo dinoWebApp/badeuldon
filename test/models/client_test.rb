@@ -109,6 +109,37 @@ class ClientTest < ActiveSupport::TestCase
     assert_no_match(/보장|100%/, message)
   end
 
+  # ── F-REM — 발송 상태 접근자·스코프(REM-7 보류·VIEW-7 수신거부) ──
+
+  test "refused?·reminders_suspended?·reminders_active?는 마킹 유무로 판정한다 (REM-7·VIEW-7)" do
+    client = clients(:gamma_main)
+    assert_not client.refused?
+    assert_not client.reminders_suspended?
+    assert_predicate client, :reminders_active?
+
+    client.update_column(:refused_at, Time.zone.parse("2026-10-12 09:00"))
+    assert client.reload.refused?
+    assert_not client.reload.reminders_active?          # 수신거부 — 재개 경로 없다(VIEW-7·P1)
+
+    client.update_column(:refused_at, nil)
+    client.update_column(:reminders_suspended_at, Time.zone.parse("2026-10-12 09:00"))
+    assert client.reload.reminders_suspended?
+    assert_not client.reload.reminders_active?          # 보류 — 재개 가능(REM-7)
+  end
+
+  test "reminders_active 스코프는 수신거부·보류 거래처를 제외한다 (REM 스캔 필터)" do
+    refused = clients(:gamma_main)
+    suspended = users(:gamma).clients.create!(name: "보류거래처", contact_name: "김보류",
+                                              phone: "010-5555-0001")
+    refused.update_column(:refused_at, Time.zone.parse("2026-10-12 09:00"))
+    suspended.update_column(:reminders_suspended_at, Time.zone.parse("2026-10-12 09:00"))
+
+    active_ids = Client.reminders_active.ids
+    assert_includes active_ids, clients(:alpha_client_1).id
+    assert_not_includes active_ids, refused.id
+    assert_not_includes active_ids, suspended.id
+  end
+
   test "사용자 삭제 시 소유 거래처가 연쇄 삭제된다 (AUTH-1.5)" do
     assert_equal 1, users(:beta).clients.count
     assert_difference -> { Client.count }, -1 do

@@ -1,50 +1,35 @@
-# 03_implementation.md — PG 심사 요건 충용 법적 고지 페이지 4건
+# 03_implementation — LP-14 보강 (Phase 3, 2026-11-02)
 
-- 작업일: 2026-10-15
-- 목적: PG(PortOne/KG이니시스) 심사 요건 — 이용약관·환불 정책·개인정보처리방침 정적 페이지 + 푸터 유선번호·법적 고지 링크
-- 자체 점검: `bin/rubocop` 0 에러(136 files) · `bin/rails zeitwerk:check` 통과 · `bin/rails test` 484 runs 0 failures
+## 3 LP-14 보강
 
-## 변경 파일
+### 변경 파일
+- `app/views/landing/_scenarios.html.erb` — 카드 2종 추가 + U1 알림 스트립 + 주석 갱신 (4종→6종)
+- `test/controllers/landing_controller_test.rb` — 기존 LP-14 assertion 최소 수정(4개→6개 카드·신규 benefit 2건·스트립 assertion 추가)
 
-| 파일 | 변경 |
-|:---|:---|
-| `app/controllers/pages_controller.rb` | 신규 — `terms`·`refund`·`privacy` 3개 빈 액션, 비인증 공개(`allow_unauthenticated_access` + `AllowAllBrowsers`), `layout "landing"` |
-| `config/routes.rb` | 랜딩 블록 앞 공개 정적 페이지 라우트 3종 추가 — `get "/terms" => "pages#terms", as: :terms` 등 |
-| `app/views/pages/terms.html.erb` | 신규 — 이용약관 15조 + 목차 |
-| `app/views/pages/refund.html.erb` | 신규 — 환불 정책 4항 + 부칙 |
-| `app/views/pages/privacy.html.erb` | 신규 — 개인정보처리방침 8항 + 목차 |
-| `app/views/layouts/landing.html.erb` | 푸터 갱신 — 법적 고지 링크 3종(`<nav aria-label="법적 고지">`) 추가, 사업자 정보 줄에 유선번호 010-6599-5620 추가, 기존 문의 채널(카카오톡 채널) 유지 |
-| `test/controllers/landing_controller_test.rb` | SURF-4 단일 진입점 테스트 갱신 — 기존 테스트는 "랜딩의 모든 `<a>`는 가입 CTA"로 검증하여 법적 고지 링크와 충돌. ② 진입 링크는 가입 CTA 단일(원 의도 유지), 법적 고지 3종(/terms·/privacy·/refund)은 ② 진입이 아니므로 화이트리스트로 허용하도록 갱신. 로그인·재설정 링크 금지 검증 유지 |
+### 요약
+- 시나리오 배열에 ⑤ 발행 안내(SHARE-6·P2), ⑥ 마침 알림(PAY-4) 카드 추가 — 기존 카드와 동일 구조(배지/benefit/detail/미니 목업), 중립 버블 패턴 유지(#FEE500 미사용)
+- 카드 그리드 아래 섹션 내부 마지막 요소로 U1 알림 스트립 추가 — border+bg-white 카드형, 기존 svg stroke 문법(벨 아이콘) 재사용, `div` 기반(ol li 미사용 — LP-3 카운트 테스트 충돌 회피)
 
-## 페이지별 조항 요약
+### Rule ID 매핑
+- LP-14: 시나리오 커버 4종→6종 + U1 알림 스트립(PRD v0.24 반영)
+- SHARE-6·P2: 카드 ⑤(발행 시 명의 안내 선택, 내 번호 미노출)
+- PAY-4: 카드 ⑥(마감 확인·감사 안내, 기본 켬·해제 가능)
+- SHARE-4·PROMISE-4·PROMISE-7·NOTI-1: U1 알림 스트립
+- LP-12: 과장·수치 인용 없음 — 기능 사실 서술만
 
-### 이용약관 /terms (15조, 시행일 2026-10-15, 상호 벨로루프)
-1. 목적 / 2. 정의(서비스·회원·채무자) / 3. 서비스 제공·변경 / 4. 회원가입·계정(이메일+비밀번호 — AUTH-1 현재 구현 기준)
-5. 서비스 이용(발송 창 평일 09-18 KST·건당 5통 상한 — REM-3/12, 서비스 명의 발신 — REM-1/P2, "이미 입금" 응답은 U1 확인 처리 — PROMISE-7)
-6. 회원의 의무(**자신의 채권만** — P5 규제 경계, "채권 추심 업무를 수행하지 않습니다" 명시, 거래처 정보 입력 책임 — SEC-2)
-7. 요금·구독(Free 월 3건·거래처 5개 / Plus 월 9,900원·14일 무료 체험 / 수금 패스 10건 4,000원 90일 — PLAN-1/2/4, 자동 갱신·해지 시 기간 말 이용)
-8. 환불(이용권 환불 제한 + 이용 개시 전 7일 청약철회 예외 — PLAN-6, 환불 정책 페이지 링크)
-9. 책임 한계(제3자 귀책·발송 지연, 수금 결과 보증 부인) / 10. 지적재산권 / 11. 계정 해지·중단(탈퇴 시 즉시 삭제·링크 폐기·시퀀스 중단 — AUTH-1.5)
-12. 개인정보 보호(privacy 링크) / 13. 분쟁 해결(대한민국 법령) / 14. 통지(30일 전 변경 공지, 문의 채널+유선번호) / 15. 부칙(시행일)
+### 추가한 문구 전문
+- ⑤ badge "발행 안내" / benefit "청구서를 보내는 첫 안내도, 받을돈 명의로 대신합니다." / detail "발행할 때 직접 카톡으로 보내거나, 받을돈 명의의 안내로 보낼지 선택할 수 있습니다. 내 번호는 노출되지 않습니다." / 목업 "발행 직후": "청구서를 안내드립니다. 아래 버튼에서 내용을 확인하실 수 있습니다."
+- ⑥ badge "마침 알림" / benefit "수금이 끝나면, 정중한 마무리 인사까지 대신합니다." / detail "마감 처리하면 거래처에게 확인·감사 안내가 발송됩니다. 기본으로 켜져 있고, 원하면 끌 수 있습니다." / 목업 "마감 처리 후": "입금이 확인되었습니다. 감사합니다."
+- 스트립: "진행 상황도 알림으로 — 열람·약속·입금 회신이 접수되면 바로 알려드립니다."
 
-### 환불 정책 /refund (PLAN-6)
-- 원칙: 이용권(Plus 구독)·수금 패스 구매 후 환불 불가 — 이용 기간 경과 여부 무관
-- 청약철회: 전자상거래법 제17조 제2항 제4호 — 이용 개시 후 불가, **이용 개시 전 7일 이내는 가능**
-- 예외: 서비스 장애(회사 귀책) 전액 환불 / 이용 개시 전 청약철회
-- 문의: kgjsmart1559@gmail.com · 유선 010-6599-5620 · 카카오톡 채널 '받을돈' / 시행일·상호 표기
+### 테스트 수정 내역
+- 테스트명 "4개 카드"→"6개 카드", 배지 배열에 "발행 안내·마침 알림" 추가, 신규 benefit 2건 assertion, `상황 미리보기` count 4→6, 스트립 문구 assertion 1건 추가
 
-### 개인정보처리방침 /privacy (개인정보보호법 기준)
-1. 수집 항목(회원: 이메일·비밀번호·표시명·사업자유형·계좌·연락처 / 거래처 정보·청구·발송 이력·열람 IP / 카드정보는 PG 직접 전송·미저장)
-   + 채무자는 가입 없이 링크 세션 한정 최소 수집(SEC-3)
-2. 수집 목적(서비스 제공·청구서 발행·리마인더 발송·결제)
-3. 보유 기간(탈퇴 시 즉시 파기 — AUTH-1.5 / 법정 보관: 전자상거래법 5·3년, 국세기본법 5년, 통신비밀보호법 3개월)
-4. 제3자 제공(원칙 없음 / 핵클·토스페이먼츠·포트원(KG이니시스) — 결제·발송 목적 한정)
-5. 처리 위탁(핵클 메시지 발송, 토스페이먼츠/포트원 결제 처리)
-6. 이용자 권리(열람·정정·삭제·처리정지, 채무자 문의 경로)
-7. 보호책임자(김건준·kgjsmart1559@gmail.com·010-6599-5620) / 8. 변경 통지 + 공고·시행일
+### 자체 검증
+- `bin/rubocop -a`: no offenses (136 files)
+- `bin/rails zeitwerk:check`: pass
+- `bin/rails test test/controllers/landing_controller_test.rb`: 27 runs, 355 assertions, 0 failures, 0 errors
 
-## 디자인·표면 규칙 준수
-- 랜딩 동일 크롬(landing 레이아웃), 크림 배경·Pretendard·stone 텍스트·emerald 강조, `max-w-3xl` 문서 컨테이너
-- 상단 마지막 수정일·시행일 표기, 목차 앵커(`<a href="#article-N">`)
-- noindex 미출력 확인 — `/terms` 등은 `NOINDEX_PATH_PREFIXES`(/app·/b/·/admin)에 없어 색인 허용(SURF-3)
-- ② 진입 링크 추가 없음 — SURF-4 단일 진입(가입 CTA) 유지(테스트로 검증)
+## 6 리뷰 반영 수정
+- `app/views/landing/_scenarios.html.erb` 3행 U1 알림 스트립 주석에 PROMISE-7 추가(SHARE-4·PROMISE-4·PROMISE-7·NOTI-1) — 주석만 수정
+- `test/controllers/landing_controller_test.rb` 244행 동일 주석에 PROMISE-7 추가 — 주석만 수정, assertion 변경 없음

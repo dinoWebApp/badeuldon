@@ -392,6 +392,152 @@ class InvoiceTest < ActiveSupport::TestCase
     assert_raises(ActiveRecord::RecordInvalid) { invoice.save! }
   end
 
+  # ── F-REM — 연체 저장화(INV-4·OverdueMarkJob) ──
+
+  test "mark_overdue!는 issued를 overdue로 저장 전환한다(INV-4·REM)" do
+    invoice = invoices(:delta_issued)
+    travel_to(Time.zone.parse("2026-10-12 09:00")) do
+      assert invoice.mark_overdue!
+    end
+    assert invoice.reload.overdue?
+  end
+
+  test "mark_overdue!는 viewed·partially_paid도 overdue로 전환한다(INV-4)" do
+    viewed = invoices(:delta_viewed)
+    partially = invoices(:delta_partially_paid)
+    travel_to(Time.zone.parse("2026-11-02 07:00")) do
+      assert viewed.mark_overdue!
+      assert partially.mark_overdue!
+    end
+    assert viewed.reload.overdue?
+    assert partially.reload.overdue?
+  end
+
+  test "mark_overdue!는 promised를 제외한다(약속 트랙 유지 — PROMISE-3)" do
+    invoice = invoices(:delta_promised)
+    travel_to(Time.zone.parse("2026-11-02 07:00")) do
+      assert_not invoice.mark_overdue!
+    end
+    assert invoice.reload.promised?
+  end
+
+  test "mark_overdue!는 미수 밖 상태(draft·paid·voided)를 전환하지 않는다(INV-4)" do
+    travel_to(Time.zone.parse("2026-10-12 09:00")) do
+      assert_not invoices(:delta_paid).mark_overdue!
+      assert_not invoices(:delta_voided).mark_overdue!
+      assert_not invoices(:delta_draft).mark_overdue!
+    end
+    assert invoices(:delta_paid).reload.paid?
+    assert invoices(:delta_voided).reload.voided?
+    assert invoices(:delta_draft).reload.draft?
+  end
+
+  test "mark_overdue!는 멱등이다 — overdue 재실행은 무변경 false(INV-4·잡 재실행 무해)" do
+    invoice = invoices(:delta_issued)
+    travel_to(Time.zone.parse("2026-10-12 09:00")) do
+      assert invoice.mark_overdue!
+      assert_not invoice.mark_overdue!
+    end
+    assert invoice.reload.overdue?
+  end
+
+  # ── F-REM — 시퀀스 종결·재개(REM-12·13) ──
+
+  test "finish_sequence!는 종결 시각을 기록하고 멱등이다(REM-12)" do
+    invoice = invoices(:delta_issued)
+    travel_to(Time.zone.parse("2026-10-15 14:00")) do
+      assert invoice.finish_sequence!
+      assert_not invoice.finish_sequence!                    # 재호출 무변경
+    end
+    invoice.reload
+    assert invoice.sequence_finished?
+    assert_equal Time.zone.parse("2026-10-15 14:00"), invoice.sequence_finished_at
+  end
+
+  test "restart_sequence!는 종결 마킹을 해소하고 멱등이다(REM-12·13 수동 재개)" do
+    invoice = invoices(:delta_issued)
+    invoice.update_column(:sequence_finished_at, Time.zone.parse("2026-10-15 14:00"))
+
+    travel_to(Time.zone.parse("2026-10-16 10:00")) do
+      assert invoice.restart_sequence!
+      assert_not invoice.restart_sequence!                   # 미종결 재호출 무변경
+    end
+    assert invoice.reload.sequence_finished_at.nil?
+  end
+
+  test "void!는 종결 시각을 함께 기록한다(INV-6·REM-12 이력 근거)" do
+    invoice = invoices(:delta_viewed)
+    travel_to(Time.zone.parse("2026-10-12 09:00")) do
+      assert invoice.void!
+    end
+    assert_equal Time.zone.parse("2026-10-12 09:00"), invoice.reload.sequence_finished_at
+  end
+
+  # ── F-REM — 발송 스캔 스코프·접근자(REM-7·REM-12·VIEW-7) ──
+
+  test "reminders_dispatchable은 미수·링크 유효·보류·수신거부·종결 없음을 모집합으로 한다(REM 스캔)" do
+    travel_to(Time.zone.parse("2026-10-12 09:00")) do
+      included_ids = Invoice.reminders_dispatchable.ids
+      # 미수·링크 유효 fixtures 6건 — draft·paid·voided 제외
+      assert_includes included_ids, invoices(:delta_issued).id
+      assert_includes included_ids, invoices(:delta_overdue).id        # 10-31 만료 — 유효
+      assert_includes included_ids, invoices(:delta_due_soon).id
+      assert_includes included_ids, invoices(:delta_viewed).id
+      assert_includes included_ids, invoices(:delta_promised).id
+      assert_includes included_ids, invoices(:delta_partially_paid).id
+      assert_not_includes included_ids, invoices(:delta_draft).id
+      assert_not_includes included_ids, invoices(:delta_paid).id
+      assert_not_includes included_ids, invoices(:delta_voided).id     # 토큰 폐기 — link_valid 제외
+    end
+  end
+
+  test "reminders_dispatchable은 청구 보류·거래처 수신거부·거래처 보류·시퀀스 종결을 제외한다(REM-7·VIEW-7·REM-12)" do
+    issued = invoices(:delta_issued)
+    viewed = invoices(:delta_viewed)
+    promised = invoices(:delta_promised)
+    partially = invoices(:delta_partially_paid)
+    issued.update_column(:reminders_suspended_at, Time.zone.parse("2026-10-12 09:00"))
+    viewed.client.update_column(:refused_at, Time.zone.parse("2026-10-12 09:00"))
+    promised.update_column(:sequence_finished_at, Time.zone.parse("2026-10-12 09:00"))
+    partially.client.update_column(:reminders_suspended_at, Time.zone.parse("2026-10-12 09:00"))
+
+    travel_to(Time.zone.parse("2026-10-12 10:00")) do
+      included_ids = Invoice.reminders_dispatchable.ids
+      assert_not_includes included_ids, issued.id
+      assert_not_includes included_ids, viewed.id
+      assert_not_includes included_ids, promised.id
+      assert_not_includes included_ids, partially.id
+    end
+  end
+
+  test "reminders_dispatchable은 만료 링크를 제외한다(SHARE-2·REM 스캔)" do
+    invoice = invoices(:delta_overdue)                       # token_expires_at 2026-10-31
+    travel_to(Time.zone.parse("2026-11-01 09:00")) do
+      assert_not_includes Invoice.reminders_dispatchable.ids, invoice.id
+    end
+    travel_to(Time.zone.parse("2026-10-31 23:00")) do
+      assert_includes Invoice.reminders_dispatchable.ids, invoice.id
+    end
+  end
+
+  test "보류·종결·거래처 상태 접근자는 마킹 유무로 판정한다(REM-7·REM-12)" do
+    invoice = invoices(:delta_issued)
+    travel_to(Time.zone.parse("2026-10-12 09:00")) do
+      assert_not invoice.reminders_suspended?
+      assert_not invoice.sequence_finished?
+      assert invoice.reminders_active?
+
+      invoice.update_column(:reminders_suspended_at, Time.current)
+      assert invoice.reload.reminders_suspended?
+      assert_not invoice.reload.reminders_active?
+
+      invoice.update_column(:reminders_suspended_at, nil)
+      invoice.update_column(:sequence_finished_at, Time.current)
+      assert invoice.reload.sequence_finished?
+      assert_not invoice.reload.reminders_active?
+    end
+  end
+
   private
 
   # 발행 가능한 최소 속성 — user·client·만기일·품목 행(수량·단가). due_on은 명시값(프리필 재계산과 구분).

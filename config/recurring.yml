@@ -21,6 +21,18 @@ production:
   clear_solid_queue_finished_jobs:
     command: "SolidQueue::Job.clear_finished_in_batches(sleep_between_batches: 0.3)"
     schedule: every hour at minute 12
+  # F-REM 리마인더 시퀀스(TIME-1 — KST fugit 접미사). 연체 저장화는 매일(만기 경과는 상태 표기
+  # 문제라 주말에도 전환), 사전통보·발송은 평일 전용(REM-3 — 주말 스텝은 소급 창에서 월요일로
+  # 자연 이연되며, 09시 사전통보 → 14시 발송 사이가 U1 취소 창(REM-11)이다).
+  reminders_overdue_mark:
+    class: Reminders::OverdueMarkJob
+    schedule: "0 7 * * * Asia/Seoul"
+  reminders_prenotice:
+    class: Reminders::PrenoticeJob
+    schedule: "0 9 * * 1-5 Asia/Seoul"
+  reminders_dispatch:
+    class: Reminders::DispatchJob
+    schedule: "0 14 * * 1-5 Asia/Seoul"
 
 development:
   subscription_trial_expiry:
@@ -29,3 +41,12 @@ development:
   subscription_renewal:
     class: SubscriptionRenewalJob
     schedule: "5 6 * * * Asia/Seoul"
+  reminders_overdue_mark:
+    class: Reminders::OverdueMarkJob
+    schedule: "0 7 * * * Asia/Seoul"
+  reminders_prenotice:
+    class: Reminders::PrenoticeJob
+    schedule: "0 9 * * 1-5 Asia/Seoul"
+  reminders_dispatch:
+    class: Reminders::DispatchJob
+    schedule: "0 14 * * 1-5 Asia/Seoul"

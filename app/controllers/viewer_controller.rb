@@ -1,9 +1,9 @@
 # 표면 ③ 청구서 뷰어(/b/:token) — 비로그인 U2(채무자)가 공유 링크로 청구서를 확인하고
 # 응답(약속)을 보내는 화면. 가입·로그인·개인정보 입력 없이 토큰으로만 조회·응답하며
 # (VIEW-1·PROMISE-2·P3), 유효한 열람마다 ViewEvent를 기록하고 최초 열람 시 상태를
-# issued→viewed로 전이한다(SHARE-3·INV-4). 응답 접수는 Promises::RegisterService가 담당한다.
-# 만료·폐기·미존재 토큰은 열람·응답·완료 화면 전 경로에서 동일한 VIEW-6 안내와 404로
-# 응답해 존재 여부를 구분하지 않는다.
+# issued→viewed로 전이한다(SHARE-3·INV-4). 응답 접수는 Promises::RegisterService가 담당하며,
+# 수신 거부(VIEW-7 — kind=refusal)도 같은 접수 경로를 재사용한다. 만료·폐기·미존재 토큰은
+# 열람·응답·완료 화면 전 경로에서 동일한 VIEW-6 안내와 404로 응답해 존재 여부를 구분하지 않는다.
 class ViewerController < ApplicationController
   # VIEW-1 — 구형·인앱 브라우저 406 게이트 해제는 공용 concern으로 추출했다(카카오톡 인앱
   # 실측·actionpack 8.1 제약 등 메커니즘 상세는 AllowAllBrowsers 주석).
@@ -12,12 +12,12 @@ class ViewerController < ApplicationController
   layout "viewer"
 
   # VIEW-1·P3 — 열람·응답·완료 화면 모두 어떤 로그인 요구도 없다(토큰 보유 = 권한).
-  allow_unauthenticated_access only: %i[ show create promise_thanks ]
+  allow_unauthenticated_access only: %i[ show create promise_thanks refusal_thanks ]
   # F-PROMISE — 비인증 응답 경로의 스팸 방지: 토큰당 10회/10분(Rails cache increment —
   # 요청 건당 기록이므로 응답 폭주·자동화 남용을 제한한다).
   rate_limit to: 10, within: 10.minutes, by: -> { params[:token] }, only: :create
 
-  before_action :set_invoice, only: %i[ show create promise_thanks ]
+  before_action :set_invoice, only: %i[ show create promise_thanks refusal_thanks ]
 
   def show
     ViewEvents::TrackService.new(
@@ -27,9 +27,11 @@ class ViewerController < ApplicationController
     @promise = @invoice.promises.build  # 응답 폼 베이스 — 검증 실패 422 재렌더 시 입력 보존
   end
 
-  # POST /b/:token/promises — 채무자 응답 접수(PROMISE-1/2). 약속(this_week·date_selected)은
-  # INV-4 issued|viewed→promised 원자 전이, 입금 완료 회신·문의는 상태 불변(PROMISE-7 —
-  # 수금 마감은 U1 확인으로만). 성공은 완료 화면 GET으로 PRG 전환해 재제출·이중 접수를 막는다.
+  # POST /b/:token/promises — 채무자 응답 접수(PROMISE-1/2·VIEW-7). 약속(this_week·
+  # date_selected)은 INV-4 issued|viewed→promised 원자 전이, 입금 완료 회신·문의는 상태 불변
+  # (PROMISE-7 — 수금 마감은 U1 확인으로만), 수신 거부(kind=refusal)는 거래처 번호 단위 발송
+  # 즉시 중단(VIEW-7 — Promises::RegisterService가 같은 트랜잭션에서 마킹). 성공은 완료 화면
+  # GET으로 PRG 전환해 재제출·이중 접수를 막는다.
   def create
     # Ruby 4.0 — 문자열 키 Parameters의 ** 스플랫은 심볼 키워드로 바인딩되지 않는다
     # (ArgumentError → 500). 키를 명시 추출하며, kind 누락 등 이례 입력도
@@ -40,7 +42,7 @@ class ViewerController < ApplicationController
       promised_on: promise_params[:promised_on],
       memo: promise_params[:memo]
     ).call
-    redirect_to viewer_promise_thanks_path(@invoice.token), status: :see_other
+    redirect_to thanks_path_for(@promise), status: :see_other
   rescue Promises::RegisterService::InvalidResponse => e
     @promise = e.promise
     @answered_inquiries = @invoice.promises.inquiry.answered.order(:answered_at, :id)
@@ -50,6 +52,10 @@ class ViewerController < ApplicationController
   # GET — 응답 접수 완료 화면. 토큰만 있으면 언제든 접근 가능하므로 접수 결과 요약 없이
   # P1 톤 완료 안내만 표시한다(문의 접수 시에도 동일 문구).
   def promise_thanks; end
+
+  # GET — 수신 거부 접수 완료 화면(VIEW-7). 약속 완료 문구와 톤이 다르므로(추가 안내 중단
+  # 사실의 즉시 명시) 별도 최소 안내로 분리한다. 가입·입력 없는 접수 원칙은 동일하다(PROMISE-2·P3).
+  def refusal_thanks; end
 
   private
 
@@ -75,5 +81,15 @@ class ViewerController < ApplicationController
 
   def promise_params
     params.expect(promise: [ :kind, :promised_on, :memo ])
+  end
+
+  # 접수 완료 화면 분기 — 수신 거부는 중단 사실을 명시하는 전용 화면으로(VIEW-7), 나머지는
+  # 응답 접수 완료 화면으로(PROMISE-1) 보낸다.
+  def thanks_path_for(promise)
+    if promise.refusal?
+      viewer_refusal_thanks_path(@invoice.token)
+    else
+      viewer_promise_thanks_path(@invoice.token)
+    end
   end
 end

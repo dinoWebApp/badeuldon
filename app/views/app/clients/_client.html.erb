@@ -7,6 +7,10 @@
         <%= link_to client.name, app_client_path(client), class: "transition hover:text-emerald-800" %>
       </h3>
       <p class="mt-1 text-sm text-stone-500"><%= client.contact_name %> 담당</p>
+      <%# REM-7·VIEW-7 — 수신거부·보류 상태만 목록에 표기한다(정상은 무표기로 조용함 유지) %>
+      <% unless client.reminders_active? %>
+        <p class="mt-2"><%= client_reminder_badge(client) %></p>
+      <% end %>
     </div>
 
     <dl class="mt-4 space-y-1.5 text-sm">
@@ -35,6 +39,15 @@
     </dl>
 
     <div class="mt-4 flex items-center justify-end gap-2 border-t border-stone-100 pt-4">
+      <%# REM-7 — 목록에서도 거래처 단위 보류/재개에 한 번에 도달한다(수신거부는 액션 없음 — VIEW-7) %>
+      <% if client.reminders_suspended? %>
+        <%= button_to "재개", resume_reminders_app_client_path(client), method: :patch,
+              class: "inline-flex min-h-11 cursor-pointer items-center rounded-lg border border-emerald-700/40 bg-emerald-50 px-3.5 text-sm font-bold text-emerald-800 transition hover:bg-emerald-100" %>
+      <% elsif !client.refused? %>
+        <%= button_to "보류", suspend_reminders_app_client_path(client), method: :patch,
+              data: { turbo_confirm: "이 거래처의 모든 청구서 자동 안내를 멈춥니다. 보류하시겠습니까?" },
+              class: "inline-flex min-h-11 cursor-pointer items-center rounded-lg border border-stone-300 bg-white px-3.5 text-sm font-semibold text-stone-600 transition hover:border-stone-400 hover:text-stone-800" %>
+      <% end %>
       <%= link_to "수정", edit_app_client_path(client),
             class: "inline-flex min-h-11 items-center rounded-lg border border-stone-300 bg-white px-3.5 text-sm font-semibold text-stone-600 transition hover:border-stone-400 hover:text-stone-800" %>
       <%= button_to "삭제", app_client_path(client), method: :delete,

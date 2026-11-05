@@ -202,4 +202,42 @@ class PromiseTest < ActiveSupport::TestCase
     assert_includes unanswered_ids, promises(:delta_unanswered_inquiry).id
     assert_not_includes unanswered_ids, promises(:delta_answered_inquiry).id
   end
+
+  # ── F-REM — refusal kind(VIEW-7 수신 거부 접수) ──
+
+  test "refusal은 kind enum 5번째 값으로 존재한다 (VIEW-7)" do
+    assert_equal 4, Promise.kinds.fetch("refusal")
+    assert_not_includes %w[this_week date_selected], "refusal"   # 약속 전이 대상 아님
+  end
+
+  test "refusal 응답에 주입된 약속일·메모는 nil로 강제된다 (kind별 필드 일관성)" do
+    invoice = invoices(:delta_issued)
+
+    promise = invoice.promises.create!(
+      kind: :refusal, promised_on: Date.new(2026, 12, 1), memo: "위조 메모"
+    )
+
+    assert_predicate promise, :refusal?
+    assert_nil promise.reload.promised_on                        # 약속 표시 오염 차단(PROMISE-2 보조)
+    assert_nil promise.reload.memo
+  end
+
+  test "refusal 응답은 mark_promised! 대상이 아니고 이력으로 보존된다 (VIEW-7·P4)" do
+    invoice = invoices(:delta_issued)
+
+    travel_to(Time.zone.parse("2026-10-14 10:00")) do
+      invoice.promises.create!(kind: :refusal)
+    end
+
+    assert invoice.reload.issued?                                # refused는 promised 전이 없음
+    assert_equal 1, invoice.promises.count                       # 이력 보존(P4)
+    # 이후 정상 약속 접수도 거부 이력과 공존한다(재응답 흡수 — 결정 #4). 약속 전이는
+    # RegisterService의 역할이므로 여기서는 접수 경로로 검증한다(INV-4).
+    travel_to(Time.zone.parse("2026-10-15 10:00")) do
+      Promises::RegisterService.new(invoice: invoice, kind: :this_week).call
+    end
+    assert invoice.reload.promised?
+    assert_equal 2, invoice.promises.count
+    assert_predicate invoice.promises.refusal.sole, :refusal?    # 거부 이력 유지
+  end
 end

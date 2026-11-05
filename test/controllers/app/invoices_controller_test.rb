@@ -98,10 +98,13 @@ class App::InvoicesControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
 
     assert_select "p", text: "초안입니다. 발행 전까지 언제든 수정할 수 있습니다."
-    assert_select "form.button_to[action=?]", issue_app_invoice_path(invoices(:delta_draft)) do
+    # F-REM(SHARE-6) — 발행은 첫 안내 발송 선택 체크박스를 품은 폼이다(기본 체크 — hidden 0+1 쌍).
+    assert_select "form[action=?]", issue_app_invoice_path(invoices(:delta_draft)) do
       assert_select "input[name=_method][value=patch]", count: 1
-      assert_select "button[data-turbo-confirm='발행 후에는 내용을 수정할 수 없습니다. 발행하시겠습니까?']",
-                    text: "발행하기", count: 1
+      assert_select "input[name=send_notice][value=0]", count: 1
+      assert_select "input[name=send_notice][value=1][checked]", count: 1
+      assert_select "input[type=submit][data-turbo-confirm='발행 후에는 내용을 수정할 수 없습니다. 발행하시겠습니까?']",
+                    value: "발행하기", count: 1
     end
     assert_select "a[href=?]", edit_app_invoice_path(invoices(:delta_draft)), text: "수정", count: 1
     assert_select "button[data-turbo-confirm='이 초안을 삭제하시겠습니까?']", text: "삭제", count: 1
@@ -237,7 +240,8 @@ class App::InvoicesControllerTest < ActionDispatch::IntegrationTest
     patch issue_app_invoice_path(invoice)
     assert_response :see_other
     assert_redirected_to app_invoice_path(invoice)
-    assert_equal "청구서가 발행되었습니다.", flash[:notice]
+    # F-REM(SHARE-6) — send_notice 미전송도 기본 켬으로 해석해 발행 안내 인큐까지 안내한다.
+    assert_equal "청구서가 발행되었습니다. 거래처에게 받을돈 명의의 첫 안내를 보냅니다.", flash[:notice]
     travel_back
 
     invoice.reload

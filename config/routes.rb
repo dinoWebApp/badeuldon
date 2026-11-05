@@ -8,13 +8,22 @@ Rails.application.routes.draw do
   namespace :app do
     root to: "dashboards#show"                  # DASH-1/2/4 — /app 진입 셸
     resource :profile, only: %i[ edit update ]  # AUTH-1.3 최초 프로필 설정(/app/profile)
-    resources :clients                          # CLIENT-1 — 거래처 CRUD
+    resources :clients do                       # CLIENT-1 — 거래처 CRUD
+      member do
+        patch :suspend_reminders  # REM-7 — 거래처 단위 발송 보류(전 청구 일시정지)
+        patch :resume_reminders   # REM-7 — 보류 재개(수신거부는 재개 경로가 없다 — VIEW-7)
+      end
+    end
     resources :items                            # CLIENT-2 — 품목 라이브러리 CRUD
     resources :invoices do                      # INV — 초안 CRUD + 상태 전환(member)
       member do
         patch :issue             # 초안 → 발행(INV-4)
         patch :void              # 발행 계열 → 무효(INV-6)
         patch :regenerate_token  # 링크 재발급(SHARE-2 — 기존 링크 즉시 무효·유효기간 유지)
+        patch :suspend_reminders # REM-7 — 청구 건 단위 발송 보류(REM-11 「보류하기」과 동일 동작)
+        patch :resume_reminders  # REM-7 — 청구 건 단위 보류 재개
+        post :remind             # REM-8 — 수동 발송(현재 상황에 맞는 다음 1통·플랜 무관)
+        post :restart_reminders  # REM-12/13 — 시퀀스 수동 재개(U1의 수동 재요청 — 자동 재개 없음)
       end
       # F-PAY — 입금 기록·마감(PAY-1 원클릭·PAY-2 부분입금 겸용 create). 청구서 하위 자원으로
       # 소유권을 스코프하며 전이 처리는 Payments::RecordService가 담당한다.
@@ -62,6 +71,9 @@ Rails.application.routes.draw do
     get "/:token", to: "viewer#show", as: :viewer
     post "/:token/promises", to: "viewer#create", as: :viewer_promises
     get "/:token/promises/thanks", to: "viewer#promise_thanks", as: :viewer_promise_thanks
+    # VIEW-7 — 수신 거부 접수 완료 화면(kind=refusal 접수의 PRG GET — promise_thanks와 톤이 달라
+    # 별도 최소 안내로 분리한다. 접수 POST는 위 promises 경로를 재사용한다).
+    get "/:token/refusal_thanks", to: "viewer#refusal_thanks", as: :viewer_refusal_thanks
   end
 
   # ── 표면 ① 공개 정적 페이지 — 법적 고지(PG 심사 요건) ──────────
