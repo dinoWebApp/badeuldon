@@ -466,3 +466,42 @@ credentials의 유효 키를 로드해 실제 솔라피 HTTP_400 호출 발생).
 `send_service.rb` `after_send_hook`의 promise_overdue 경로 `NotifyUserService.new`에 `client: @client` 전달 보완 — W-7 주입 체계의 유일 누락 지점 복원(생성자 주입 테스트에서 실API 호출 방지). 게이트: `bin/rubocop` 168 files no offenses · `bin/rails test` 628 runs, 3717 assertions, 0 failures.
 
 
+
+## 버튼 링크 변수 구현 (2026-11-06 — 솔라피 버튼 웹링크 변수 미치환 결함 수정)
+
+솔라피 등록 알림톡 템플릿의 버튼 웹링크가 변수 규격(`https://#{url}`, `noti_prenotice`만
+`https://#{complete_url}`·`https://#{pending_url}`)인데 `build_variables`가 본문 변수 8종만
+조립해 버튼 치환값이 누락되던 결함 수정. `Reminders::SendService`에 상수 `LINK_HOST =
+"badeuldon.kr"` 신설(템플릿에 `https://` 스킴이 박혀 있으므로 변수값은 **스킴 없이 host부터**)과
+private 헬퍼 `button_url`·`prenotice_button_url`을 추가해 전 발송에 버튼 링크 변수를 실어 보낸다.
+템플릿에 없는 변수는 솔라피가 무시하므로 [INFERENCE] 전 발송에 `url`을 실어도 무해 — 미실어
+발송이 치환 실패 거부·`#{url}` 원문 노출 위험을 갖는 것보다 안전하다.
+
+### 키 매핑 표
+
+| 변수 키 | 대상 | 값 | 근거 |
+|:---|:---|:---|:---|
+| `url` | 채무자 향(debtor) 전 템플릿 | `badeuldon.kr/b/{token}` | ALIMTALK_TEMPLATES.md 버튼 명세 「웹링크 — 뷰어」 · VIEW-8(뷰어 밖 링크 금지) · SURF-4 |
+| `url` | U1 향 `noti_due_soon` | `badeuldon.kr/app` | ALIMTALK_TEMPLATES.md 「대시보드에서 확인 — /app 전체 현황」 |
+| `url` | U1 향 그 외 noti 전부 | `badeuldon.kr/app/invoices/{id}` | ALIMTALK_TEMPLATES.md 「대시보드에서 확인 — /app 해당 청구서」 |
+| `complete_url` | `noti_prenotice` 전용 | `badeuldon.kr/app/invoices/{id}` | REM-11 버튼1 「마감하기」 — 마감(PAY-1)·보류(REM-7) 액션 공존 화면 |
+| `pending_url` | `noti_prenotice` 전용 | `badeuldon.kr/app/invoices/{id}` | REM-11 버튼2 「보류하기」 — 버튼 라벨만 다르고 목적지 동일 |
+
+경로 산정은 `Rails.application.routes.url_helpers.viewer_path(@invoice.token)`·
+`app_invoice_path(@invoice)`(URL 하드코딩 금지 — 경로 헬퍼 사용)이며, `url`은 전 발송에
+포함되므로 U1 향 `noti_prenotice`의 `url`도 청구서 상세로 산출된다(무해).
+
+### 회귀·게이트
+
+- 기존 테스트 무수정 통과 — variables 검증이 전부 키 단위 단언(`call[:variables]["금액"]` 등)이라
+  키 추가분의 회귀 없음. 정확 해시 비교 테스트 0건 확인(`send_service_test.rb`·
+  `prenotice_service_test.rb` 포함 전 test/ 검색). 신규 시나리오 테스트는 Tester 영역으로 미작성.
+- 게이트: `bin/rubocop` 168 files, no offenses · `bin/rails zeitwerk:check` all good ·
+  `bin/rails test` 628 runs, 3717 assertions, 0 failures, 0 errors, 0 skips.
+
+### [INFERENCE] 갱신
+
+- url 변수값 규격(스킴 제외·host부터)은 솔라피 검수본(`https://#{url}` 버튼 웹링크 등록) 기준
+  해석 — **실발송 시 최종 확인 필요**(버튼이 실제 치환된 링크로 열리는지 라이브 1건 검증).
+  기존 [INFERENCE] "솔라피 라이브 실측(발송 응답 필드·알림톡 1건 실발송 검증)"에 본 항목이
+  포함된다.

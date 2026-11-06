@@ -13,6 +13,9 @@ module Reminders
     WINDOW_END_HOUR = 18
     # 선점 슬롯의 진행 중 판정 창 — 이 안에 갱신된 pending은 다른 실행이 발송 중으로 본다.
     IN_FLIGHT_WINDOW = 1.minute
+    # 솔라피 알림톡 버튼 웹링크 호스트(운영 도메인). 템플릿 버튼이 `https://#{url}` 규격으로
+    # 등록돼 있어 스킴이 템플릿에 박혀 있다 — 변수값은 스킴 없이 host부터 시작한다.
+    LINK_HOST = "badeuldon.kr"
 
     # client — 솔라피 래퍼 주입 지점(W-7 — PortOne::ClientService 주입 패턴 준용 —
     # Subscriptions::UpgradeService와 같은 생성자 키워드 주입). 미주입 시 첫 발송 시점에
@@ -221,9 +224,11 @@ module Reminders
     # ── 변수 조립 ────────────────────────────────────────────────────────────
     # ALIMTALK_TEMPLATES.md의 #{변수명}과 동일 키를 쓴다(솔라피 검수본 기준). 금액은 천단위
     # 구분, 날짜는 KST 기준 "M월 D일(요)" 포맷(TIME-1). 템플릿에 없는 변수는 솔라피가 무시한다
-    # [INFERENCE] — 단일 base 맵으로 18종을 모두 커버한다.
+    # [INFERENCE] — 단일 base 맵으로 18종을 모두 커버한다. 버튼 웹링크 변수(url·complete_url·
+    # pending_url)는 전 발송에 실어 보낸다 — 미실어 발송은 치환 실패로 거부되거나 `#{url}` 원문이
+    # 노출될 위험이 있고, 템플릿에 없는 키는 무시되므로 무해하다.
     def build_variables
-      {
+      variables = {
         "발행인명" => @invoice.issuer_display_name,
         "거래처명" => @invoice.client.name,
         "청구서명" => @invoice.issue_number,
@@ -231,8 +236,33 @@ module Reminders
         "잔액" => delimited(@invoice.remaining_amount),
         "입금금액" => delimited(@invoice.payments.order(:id).last&.amount.to_i),
         "만기일" => format_date(@invoice.due_on),
-        "약속일" => promise_label
+        "약속일" => promise_label,
+        "url" => button_url
       }
+      if @template_key == "noti_prenotice"
+        variables["complete_url"] = prenotice_button_url
+        variables["pending_url"] = prenotice_button_url
+      end
+      variables
+    end
+
+    # 버튼 웹링크 — 솔라피 템플릿의 `https://#{url}` 버튼 치환값(ALIMTALK_TEMPLATES.md 버튼 명세).
+    # 채무자 향은 전 템플릿 뷰어 /b/{토큰}(VIEW-8 — 뷰어 밖 링크·앱 내비 금지·SURF-4). U1 향은
+    # noti_due_soon만 /app 전체 현황, 나머지 noti는 해당 청구서 상세(「대시보드에서 확인」 버튼).
+    def button_url
+      if debtor?
+        "#{LINK_HOST}#{Rails.application.routes.url_helpers.viewer_path(@invoice.token)}"
+      elsif @template_key == "noti_due_soon"
+        "#{LINK_HOST}/app"
+      else
+        "#{LINK_HOST}#{Rails.application.routes.url_helpers.app_invoice_path(@invoice)}"
+      end
+    end
+
+    # REM-11 사전통보 전용 버튼 2종 — 마감하기(PAY-1 원클릭 마감)·보류하기(REM-7) 액션이 함께
+    # 있는 청구서 상세로 보낸다(버튼 라벨만 다르고 목적지는 동일).
+    def prenotice_button_url
+      "#{LINK_HOST}#{Rails.application.routes.url_helpers.app_invoice_path(@invoice)}"
     end
 
     # PROMISE-4·ALIMTALK_TEMPLATES — U1 향 noti_promise의 this_week 약속은 날짜 대신
