@@ -8,11 +8,12 @@ class ApplicationSystemTestCase < ActionDispatch::SystemTestCase
 
   private
 
-  # Turbo 부트 대기 — data-turbo-confirm 확인 대화상자는 Turbo JS가 로드·연결된 뒤에만 뜬다.
-  # CI(ubuntu·느린 부트)에서는 visit 직후 서버 렌더 HTML에 버튼이 이미 있어도(assert_text 통과)
-  # Turbo 부트 전에 클릭하면 폼이 네이티브 제출로 진행되어 confirm이 아예 발생하지 않고
-  # accept_confirm이 ModalNotFound로 실패한다(2026-11-06 GitHub Actions 실측 — 로컬 재현 없음).
-  # accept_confirm 앞에서 호출해 부트 레이스를 제어한다. 타임아웃 초과 시 테스트 실패 처리.
+  # Turbo 부트 대기(2026-11-06 CI 안정화 — 경위는 _workspace/07_test_report.md §7 참조).
+  # data-turbo-confirm 폼은 Turbo가 부트된 뒤에만 window.confirm을 거쳐 결정적으로 동작하므로:
+  # (1) readyState complete를 보장해 execute_script로 window.confirm stub을 안전히 주입할
+  #     시점을 만들고,
+  # (2) window.Turbo 존재를 보장해 클릭이 네이티브 제출이 아닌 Turbo 제출 경로로 진행하게 한다
+  # (부트 전 클릭이면 stub이 무의미해진다). 타임아웃 초과 시 테스트 실패로 명시한다.
   def wait_for_turbo(timeout: 5)
     deadline = Time.now + timeout
     until turbo_ready?
@@ -20,10 +21,21 @@ class ApplicationSystemTestCase < ActionDispatch::SystemTestCase
         raise Minitest::Assertion,
           "Turbo가 #{timeout}초 내에 부트하지 못했습니다 " \
           "(window.Turbo 부재 또는 readyState != complete) — " \
-          "data-turbo-confirm 대화상자가 발생하지 않아 accept_confirm이 실패할 상태"
+          "confirm stub 주입·Turbo 제출 경로가 보장되지 않는 상태"
       end
       sleep 0.05
     end
+  end
+
+  # button_to 제출 버튼의 DOM 레벨 클릭(2026-11-06 CI 안정화 — 실측 근거는 §7 참조).
+  # selenium-webdriver 4.50 + Chrome 156 조합에서 chromedriver의 합성 클릭이 세션 상태에
+  # 따라 pointerdown 이하 이벤트 전체를 통째로 드롭해 폼이 아예 제출되지 않는다(실측:
+  # selenium 클릭 8/8 유실·ev=[] vs DOM 클릭 8/8 성공 — submit→Turbo 제출 체인 정상).
+  # DOM 클릭은 실제 클릭과 동일한 click→submit→Turbo(fetch) 체인을 타므로 흐름 검증
+  # 목적에는 동등하다. 버튼 발견은 find(:button)로 Capybara 대기·부재 실패 규칙을 유지한다.
+  def dom_click_button(label)
+    button = find(:button, label)
+    page.execute_script("arguments[0].click()", button)
   end
 
   def turbo_ready?

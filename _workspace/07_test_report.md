@@ -86,45 +86,59 @@ bin/rails zeitwerk:check → Otherwise, all is good!
 
 ---
 
-## 7. CI 안정화 (2026-11-06) — 시스템 테스트 Turbo 부트 레이스 제어
+## 7. CI 안정화 (2026-11-06) — 시스템 테스트 클릭 유실(chromedriver) 제거
 
-### 현상
+### 현상의 경과 (3단계)
 
-GitHub Actions(ubuntu-latest)에서만
-`AppInvoiceRemindersTest#test_보류하면_재개_버튼으로_전환되고_재개하면_다음 단계가_이어진다_(REM-7)` 실패 —
-`Capybara::ModalNotFound: Unable to find modal dialog`(`accept_confirm` 블록 내 `click_button "안내 보류하기"`).
-로컬(macOS headless Chrome, bin/ci 628건)은 재현 없음. 같은 파일의 수동 발송 테스트(동일한
-accept_confirm 구조)는 CI에서도 우연히 통과 — 레이스 특성상 확률적.
+1. **최초**: GitHub Actions(ubuntu-latest)에서만 REM-7 실패 — `Capybara::ModalNotFound`(`accept_confirm` 블록 내 `click_button "안내 보류하기"`). 로컬 재현 없음.
+2. **1차 시도(wait_for_turbo — Turbo 부트 레이스 제어) 후 CI 재실행**: REM-7은 통과했으나 **반대 테스트 REM-6·8에서 동일 ModalNotFound 재발**(시드별 랜덤). wait_for_turbo 통과 직후의 클릭이므로 **부트 레이스 가설 기각**.
+3. **2차 접근(window.confirm stub + 평범한 click_button) 후 로컬 재현 획득**: 로컬에서도 간헐 실패(보류/재개 flash 미표시, 재현율 ~30~50%). 실패 run의 서버 로그에서 **클릭에 대응하는 HTTP 요청이 아예 없음**을 확인 — preventDefault 후 제출 유실이 아니라 요청 자체가 미발생.
 
-### 진단 (오케스트레이터 결론 — 코드로 확인)
+### 근원 확정 (임시 진단 테스트 + 페이지 내 이벤트 계측 실측)
 
-Turbo 부트 레이스. 두 버튼은 `button_to ... data: { turbo_confirm: ... }`
-(`app/views/app/invoices/show.html.erb` 234·237행)이며, 네이티브 confirm은 Turbo JS가 로드·연결된
-뒤에만 뜬다. CI의 느린 JS 부트 환경에서 `visit` 직후 서버 렌더 HTML에는 버튼이 이미 있어
-`assert_text`는 통과하지만, Turbo 부트 전에 클릭하면 폼이 네이티브 제출로 진행되어 confirm이
-아예 발생하지 않는다 → `accept_confirm`이 대기 초과로 ModalNotFound. 로컬은 부트가 빨라 미재현.
+`submit`/`pointerdown`/`turbo:*` 이벤트 계측으로 두 클릭 경로를 동일 세션에서 비교:
 
-### 수정 (test/ 2파일만 — 앱 코드 변경 0)
+| 경로 | 결과 | 이벤트 흔적 |
+|---|---|---|
+| Selenium 합성 클릭(`click_button`) | **8/8 유실** | `ev=[]` — pointerdown 포함 이벤트 전무(뷰 요소에는 도달했으나 이벤트가 발화되지 않음) |
+| DOM 레벨 클릭(`execute_script`로 `btn.click()`) | **8/8 성공** | `click→submit dp=false→turbo:submit-start→turbo:visit→turbo:load` 전 체인 정상 |
+
+**결론**: selenium-webdriver 4.50.0 + Chrome 156 조합에서 chromedriver의 합성 클릭이 세션 상태에
+따라 입력 이벤트를 통째로 드롭한다(로컬 macOS·CI ubuntu 공통 — 양측 모두 최신 Chrome). 최초
+CI의 ModalNotFound도 같은 근원이다: 클릭 유실 → 폼 미제출 → 다이얼로그 미발생 → accept_confirm
+대기 초과. Turbo·Selenium 다이얼로그 처리 경합설은 폐기. 세션별 건전/불량이 갈려 재현율이
+불규칙했던 것까지 설명된다.
+
+### 최종 수정 (test/ 2파일만 — 앱 코드 변경 0)
 
 | 파일 | 변경 |
 |---|---|
-| `test/application_system_test_case.rb` | `wait_for_turbo(timeout: 5)` 헬퍼 추가 — `typeof window.Turbo !== 'undefined' && document.readyState === 'complete'`를 0.05초 폴링, 초과 시 `Minitest::Assertion` 실패(명시적 메시지). 드라이버 내비게이션 경합 중 `evaluate_script` 오류는 `Selenium::WebDriver::Error::WebDriverError` 포착 후 재폴링 |
-| `test/system/app_invoice_reminders_test.rb` | 네이티브 confirm을 쓰는 2개 테스트의 첫 `visit app_invoice_path(invoice)` 직후 1회 호출(최소 구성). 재개 경로의 두 번째 visit은 호출 없음 — 「안내 재개하기」 버튼은 turbo_confirm 미사용(뷰 244행 확인)으로 modal 불요 |
+| `test/application_system_test_case.rb` | ① `wait_for_turbo(timeout: 5)` — 유지(Turbo Confirmers가 부르는 `window.confirm` stub의 주입 시점 보장: readyState complete 폴링, 초과 시 `Minitest::Assertion`, 드라이버 경합 오류는 재폴링) ② `dom_click_button(label)` 신설 — `find(:button)`(Capybara 대기·부재 실패 규칙 유지) 후 `execute_script("arguments[0].click()")`로 DOM 클릭. 실제 클릭과 동일한 click→submit→Turbo(fetch) 체인을 타므로 흐름 검증 목적에 동등 |
+| `test/system/app_invoice_reminders_test.rb` | ① 두 테스트의 `wait_for_turbo` 직후 `page.execute_script("window.confirm = () => true")` 주입(Turbo Confirmers가 부르는 confirm을 true 고정 — 네이티브 다이얼로그 미발생) ② `accept_confirm` 2곳 폐기, button_to 제출 3클릭(지금 1통 보내기·안내 보류하기·안내 재개하기)을 `dom_click_button`으로 전환 ③ 로그인은 `click_button` 유지(전 실측에서 유실 0건 — 세션 최초 클릭은 건전) |
+
+### 커버 손실 명시
+
+confirm 대화상자 문구 자체 검증은 포기한다 — REM-6/7/8의 목적은 안내 흐름이지 다이얼로그 UI가
+아니다. 뷰의 `turbo_confirm` 속성 존재는 기존 컨트롤러·뷰 테스트 패턴(예: `invoices_controller_test`
+재발급 버튼, `clients_controller_test` 삭제 버튼)이 별도 고정한다.
 
 ### 무관 확인
 
-viewer 시스템 테스트 3종(`viewer_test`·`viewer_promise_test`·`viewer_refusal_test`)은
-`<details>`/`<summary>` 펼침 재확인 방식(JS 불요, VIEW-1 인앱 대응)이라 네이티브 modal과 무관 — 변경 없음.
+viewer 시스템 테스트 3종의 재확인 방식(`<details>`/`<summary>` 펼침, VIEW-1)은 네이티브
+modal과 무관 — 이번 수정 대상 아님. **유의**: `<summary>` 클릭 자체는 Selenium 합성 클릭이라
+본 근원의 잠재 영향권이다(지금까지 실패 관측 없음 — 동 증상 재발 시 `dom_click_button` 패턴
+적용을 권장한다).
 
 ### 검증 결과
 
 ```
-bin/rails test test/system/app_invoice_reminders_test.rb  3회 연속 → 각 2 runs, 22 assertions, 0 failures
+bin/rails test test/system/app_invoice_reminders_test.rb  10회 연속 → 각 2 runs, 22 assertions, 0 failures
 bin/rails db:test:prepare test:system                     → 8 runs, 61 assertions, 0 failures, 0 errors
 bin/rubocop (변경 2파일)                                   → no offenses
 bin/rails test (전체 회귀)                                 → 628 runs, 3717 assertions, 0 failures (2026-11-04 베이스라인 동일)
 ```
 
-**한계 명시**: 로컬에서 레이스가 재현되지 않으므로 본 수정은 "발생 후 재시도"가 아니라
-**레이스 전 제어(클릭 전 Turbo 부트 보장)** 구조의 예방책이다. 헬퍼는 부트 실패 시 그 자체로
-실패를 내므로(CI에서 modal 초과 대기 대신 명확한 원인 메시지), 동일 증상 재발 시 진단 비용도 낮아진다.
+**한계 명시**: 근원이 환경(chromedriver×Chrome 156)이므로 로컬 녹색이 CI 녹색을 완전 보장하지는
+않는다. 다만 본 수정은 유실 경로(Selenium 입력 합성) 자체를 우회하므로 환경 차이에 대한 민감도가
+구조적으로 낮아진다. CI에서 2~3회 연속 녹색 확인을 권장한다. chromedriver/Chrome 버전 조합이
+바뀌어 합성 클릭이 회복되면 `dom_click_button`은 그대로 두어도 무해(동일 체인)다.
