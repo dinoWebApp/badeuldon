@@ -61,6 +61,14 @@ module Solapi
       assert_match(/\AHMAC-SHA256 apiKey=test-api-key, date=.*, salt=.*, signature=[0-9a-f]{64}\z/,
                    request["Authorization"])
       assert_match(/\A\d{4}-\d\d-\d\dT/, request["Date"])
+      # 시그니처 계산 검증 — HMAC-SHA256(api_secret, date + salt)의 hex 다이제스트(공식
+      # 인증 문서 규격: 구분자 없는 단순 연결·apiKey 미포함). 헤더의 date·salt로 재계산해
+      # 일치를 확인한다(2026-11-06 실측 — 점 구분+apiKey 포함 계산이 서명 불일치 거부됨).
+      header = request["Authorization"]
+      date = header[/date=([^,]+)/, 1]
+      salt = header[/salt=([^,]+)/, 1]
+      expected_signature = OpenSSL::HMAC.hexdigest("SHA256", "test-api-secret", date + salt)
+      assert_equal "signature=#{expected_signature}", header[/signature=[0-9a-f]{64}\z/]
       # 바디 최상위는 messages 배열(공식 문서 예시 규격 — 단수 message는 HTTP_400 거부 실측).
       # "#\{거래처명}"는 리터럴 #{거래처명}이다(솔라피 스펙 — 치환 변수 키에 #{} 포함).
       body = JSON.parse(request.body)

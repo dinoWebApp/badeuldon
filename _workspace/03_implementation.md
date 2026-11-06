@@ -531,7 +531,8 @@ text 필드는 템플릿+variables 방식(방법1)에서 선택 — 미포함 �
 | `wrap_variables` 신설(래퍼 private) | 순수 키 → `"#{키}"` 래핑을 송신 직전 수행. `"##{k}"` 보간은 `"#발행인명"`이 되는 함정이라 `format('#{%s}', key)`로 조립. 도메인 계층(SendService 조립·message_logs.variables P4 스냅샷)은 **순수 키 유지** — 스펙 변환은 래퍼 단일 책임 |
 | `parse` 오류 본문 fallback | `payload[:message] \|\| payload[:errorMessage] \|\| raw 본문`. `parse_body` 신설 — JSON 파싱 실패·비객체 JSON을 빈 해시+raw 원문으로 정규화해 `JSON::ParserError`가 ApiError 정규화를 우회하는 것을 차단. 이번 실측의 error_message 본문 누실 재발 방지(P4) |
 | `dry_run:` 키워드 신설 | 아래 dryRun 욕법 참조 |
-| [INFERENCE] 마킹 해제 | 엔드포인트·바디·variables 키·HMAC 인증(400 도달 = 인증 통과 실측)·발신번호 정규화(solapi-nodejs phoneNumberSchema 소스 확인) 확정. **잔여 추정: 성공 응답 필드 구조(messageId 위치)만 유지** |
+| `hmac_authorization` 시그니처 메시지(2026-11-06 2차 실측) | 수동 발송(manual·invoice_notice·11:29) 재실패의 오류 본문 보존으로 **"생성한 signature를 확인하세요"** 확보 — 시그니처 불일치 확정. `HMAC-SHA256(api_secret, date + salt)` hex로 교체(구분자 없는 단순 연결·apiKey 미포함 — 헤더에만. 공식 문서 solapi.com/developers/api/authentication-api-key·공식 Node/Python 예시 동일). 구식 `date.salt.api_key`(점 구분)가 원인. date ISO8601 UTC(±15분)·salt 12~64바이트(uuid 36자 OK). 테스트에 헤더 date·salt 재계산 일치 단언 추가 |
+| [INFERENCE] 마킹 해제 | 엔드포인트·바디·variables 키·인증 시그니처 규격(공식 문서+실측)·발신번호 정규화(solapi-nodejs phoneNumberSchema 소스 확인) 확정. **잔여 추정: 성공 응답 필드 구조(messageId 위치)만 유지** |
 
 `Reminders::SendService`는 무수정 — 순수 키 전달·message_logs 스냅샷이 원래 계약대로라 래퍼 측
 래스펙 변환만으로 정합(`send_service_test.rb` 38건 전부 무수정 통과).

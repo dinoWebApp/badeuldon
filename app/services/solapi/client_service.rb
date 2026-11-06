@@ -3,8 +3,10 @@
 # 의존하지 않는 순수 Ruby 클래스라 테스트에서 응답 Hash를 stub할 수 있다.
 # 대체문자(REM-5)는 솔라피 템플릿 등록 시 지정한 대체문자 필드로 처리되므로 별도 SMS 발송
 # 경로가 없다(2026-11-03 확정). 발신자는 카카오채널 '받을돈' 발신 프로필(REM-1)이다.
-# 스펙 근거(2026-11-06 확정): ① 인증 — HMAC-SHA256 헤더(운영 실측 — 오류가 본문 검증 400으로
-# 도달해 인증 통과 확인) ② 엔드포인트·바디 — POST /messages/v4/send에 최상위 messages 배열
+# 스펙 근거(2026-11-06 확정): ① 인증 — signature = HMAC-SHA256(api_secret, date + salt)의
+# hex 다이제스트(공식 문서 solapi.com/developers/api/authentication-api-key — 구분자 없는
+# 단순 연결·apiKey 미포함. 운영 실측 "생성한 signature를 확인하세요" 거부의 원인 해소)
+# ② 엔드포인트·바디 — POST /messages/v4/send에 최상위 messages 배열
 # (운영 실측 + 공식 문서 solapi.com/developers/api/messages-ata 예시) ③ variables 키는
 # 리터럴 #{변수명} 형태(같은 문서 예시 — "#{고객명}": "홍길동") ④ 발신번호는 하이픈 제거
 # 숫자만(공식 SDK solapi-nodejs phoneNumberSchema 소스 확인).
@@ -110,9 +112,11 @@ module Solapi
       raise ApiError.new(status: nil, code: "CONNECTION", message: e.message)
     end
 
-    # 솔라피 인증 — HMAC-SHA256 시그니처 헤더(2026-11-06 운영 실측 — 인증 통과 후 본문
-    # 검증 400으로 도달 확인). signature = HMAC-SHA256(api_secret, "{date}.{salt}.{api_key}")
-    # 의 hex 다이제스트.
+    # 솔라피 인증 — signature = HMAC-SHA256(api_secret, date + salt)의 hex 다이제스트.
+    # 메시지는 date·salt의 구분자 없는 단순 연결이고 apiKey는 시그니처에 포함하지 않는다
+    # (Authorization 헤더에만). 공식 문서 solapi.com/developers/api/authentication-api-key·
+    # 공식 Node/Python 예시와 동일(2026-11-06 확정 — 운영 실측 "생성한 signature를
+    # 확인하세요" 거부의 원인. 점 구분+apiKey 포함이던 구식 계산과 다르다).
     def build_request(method:, path:, body:)
       uri = URI.parse("#{BASE_URL}#{path}")
       net_request = Net::HTTP::Post.new(uri)
@@ -126,7 +130,7 @@ module Solapi
     end
 
     def hmac_authorization(date, salt)
-      signature = OpenSSL::HMAC.hexdigest("SHA256", @api_secret, "#{date}.#{salt}.#{@api_key}")
+      signature = OpenSSL::HMAC.hexdigest("SHA256", @api_secret, date + salt)
       "HMAC-SHA256 apiKey=#{@api_key}, date=#{date}, salt=#{salt}, signature=#{signature}"
     end
 
