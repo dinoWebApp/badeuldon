@@ -3,7 +3,7 @@ require_relative "../../test_helpers/portone_stubbing"
 
 # Solapi::ClientService — 솔라피 메시지 API 래퍼 단위 테스트(REM-10).
 # 전송 계층(Net::HTTP.start)을 대역으로 교체해(PortOneStubbing.with_http_transport 준용 —
-# 실호출 금지 방어선) 요청 구성(경로·HMAC 인증·messages 배열·kakaoOptions·#{변수명} 키
+# 실호출 금지 방어선) 요청 구성(경로·HMAC 인증·message 단수 바디·kakaoOptions·#{변수명} 키
 # 래핑·번호 정규화), 응답 파싱, fail-fast(템플릿 코드·credentials 누락), 오류 정규화
 # (HTTP·TIMEOUT·CONNECTION·오류 본문 fallback), dry_run(실호출 스킵)을 검증한다.
 # 스펙(엔드포인트·바디·variables 키)은 2026-11-06 운영 실측·공식 문서로 확정됐다 —
@@ -42,7 +42,7 @@ module Solapi
       )
     end
 
-    test "send_alimtalk 성공은 v4 단일 발송 요청(HMAC 인증·messages 배열·\#{변수명} 키)을 보내고 응답을 돌려준다" do
+    test "send_alimtalk 성공은 v4 단일 발송 요청(HMAC 인증·message 단수·\#{변수명} 키)을 보내고 응답을 돌려준다" do
       transport = FakeSolapiTransport.new(
         response: http_ok({ messageId: "msg_solapi_1" }.to_json)
       )
@@ -69,11 +69,11 @@ module Solapi
       salt = header[/salt=([^,]+)/, 1]
       expected_signature = OpenSSL::HMAC.hexdigest("SHA256", "test-api-secret", date + salt)
       assert_equal "signature=#{expected_signature}", header[/signature=[0-9a-f]{64}\z/]
-      # 바디 최상위는 messages 배열(공식 문서 예시 규격 — 단수 message는 HTTP_400 거부 실측).
-      # "#\{거래처명}"는 리터럴 #{거래처명}이다(솔라피 스펙 — 치환 변수 키에 #{} 포함).
+      # 바디 최상위는 message 단수 객체다 — messages 배열은 다중·그룹 발송(send-many·groups)
+      # 규격(2026-11-06 3차 실측 확정). "#\{거래처명}"는 리터럴 #{거래처명}이다(솔라피 스펙 —
+      # 치환 변수 키에 #{} 포함).
       body = JSON.parse(request.body)
-      assert_equal 1, body["messages"].size
-      message = body["messages"].sole
+      message = body["message"]
       assert_equal "01033337777", message["to"]                      # 하이픈 제거 정규화
       assert_equal "01000000000", message["from"]                    # 서비스 명의 발신번호(REM-1)
       assert_equal({ "pfId" => "pf_badeuldon", "templateId" => "tmpl_confirm_1",
@@ -83,7 +83,7 @@ module Solapi
                       open_timeout: 10, read_timeout: 10 } ], transport.starts
     end
 
-    test "dry_run: true는 네트워크 호출 없이 조립된 요청 스펙(messages 배열·\#{변수명} 키)을 돌려준다" do
+    test "dry_run: true는 네트워크 호출 없이 조립된 요청 스펙(message 단수·\#{변수명} 키)을 돌려준다" do
       transport = FakeSolapiTransport.new(response: http_ok("{}".to_json))
 
       result = with_http_transport(transport) do
@@ -95,7 +95,7 @@ module Solapi
       assert_empty transport.requests                                # 발송 시도도 없다
       assert_predicate result[:dryRun], :present?
       assert_equal "/messages/v4/send", result[:path]
-      message = result[:body][:messages].sole
+      message = result[:body][:message]
       assert_equal({ "#\{거래처명}" => "델타파트너스" }, message[:kakaoOptions][:variables])
     end
 

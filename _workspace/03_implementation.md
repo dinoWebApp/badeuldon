@@ -518,6 +518,10 @@ error_code=HTTP_400, error_message="Solapi::ApiError" — 본문 누실). 공식
 
 1. **바디 최상위 키** — 구현이 `{"message": {...}}`(단수)였으나 실제 규격은
    **`{"messages": [ { ... } ]}` 배열**. 단수 구조가 400 거부의 직접 원인.
+   ※ **3차 실측으로 정정** — 이 판정은 오진이었다. messages 배열은 다중·그룹 발송
+   (send-many·groups) 규격이고 messages-ata의 배열 예시는 그룹 발송 예시를 재사용한 것.
+   단일 발송 `POST /messages/v4/send`의 바디는 **message 단수 객체**가 맞고, 1차 실패의
+   본체는 variables 키 `#{}` 누락이었던 것으로 수렴(아래 수정 내용 표 3차 실측 행 참조).
 2. **variables 키 형식** — 구현이 순수 키(`{"발행인명": "..."}`)였으나 실제 규격은
    **`{"#{발행인명}": "..."}` — 키에 리터럴 `#{` `}` 포함**(문서 예시: `"#{고객명}": "홍길동"`).
 
@@ -527,7 +531,8 @@ text 필드는 템플릿+variables 방식(방법1)에서 선택 — 미포함 �
 
 | 수정 | 내용 |
 |:---|:---|
-| `send_alimtalk` 바디 | `{ messages: [ { to:, from:, kakaoOptions: { pfId:, templateId:, variables: } } ] }` — 공식 예시 그대로 |
+| `send_alimtalk` 바디 | `{ messages: [ { to:, from:, kakaoOptions: { pfId:, templateId:, variables: } } ] }` — 공식 예시 그대로 ※ **3차 실측으로 정정: 최종 규격은 `{ message: { ... } }` 단수 객체** |
+| `send_alimtalk` 바디 정정(2026-11-06 3차 실측) | 인증 통과 후 바디 검증 오류 본문 **`[["message" 필수입니다.], "messages" 사용할 수 없습니다.]`** — 단일 발송 `POST /messages/v4/send`는 **message 단수 객체**, messages 배열은 다중·그룹 발송(send-many·groups) 문맥 규격(공식 문서 messages-ata의 배열 예시가 그룹 발송 예시를 재사용한 것). 바디를 `message` 단수로 되돌리고 to·from·kakaoOptions·variables `#{}` 래핑·시그니처 유지. 이번 오류는 variables를 불평하지 않았으므로 래핑 유효 재확인. 테스트 바디 단언 단수로 갱신 |
 | `wrap_variables` 신설(래퍼 private) | 순수 키 → `"#{키}"` 래핑을 송신 직전 수행. `"##{k}"` 보간은 `"#발행인명"`이 되는 함정이라 `format('#{%s}', key)`로 조립. 도메인 계층(SendService 조립·message_logs.variables P4 스냅샷)은 **순수 키 유지** — 스펙 변환은 래퍼 단일 책임 |
 | `parse` 오류 본문 fallback | `payload[:message] \|\| payload[:errorMessage] \|\| raw 본문`. `parse_body` 신설 — JSON 파싱 실패·비객체 JSON을 빈 해시+raw 원문으로 정규화해 `JSON::ParserError`가 ApiError 정규화를 우회하는 것을 차단. 이번 실측의 error_message 본문 누실 재발 방지(P4) |
 | `dry_run:` 키워드 신설 | 아래 dryRun 욕법 참조 |

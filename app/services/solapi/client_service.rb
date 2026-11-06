@@ -6,8 +6,8 @@
 # 스펙 근거(2026-11-06 확정): ① 인증 — signature = HMAC-SHA256(api_secret, date + salt)의
 # hex 다이제스트(공식 문서 solapi.com/developers/api/authentication-api-key — 구분자 없는
 # 단순 연결·apiKey 미포함. 운영 실측 "생성한 signature를 확인하세요" 거부의 원인 해소)
-# ② 엔드포인트·바디 — POST /messages/v4/send에 최상위 messages 배열
-# (운영 실측 + 공식 문서 solapi.com/developers/api/messages-ata 예시) ③ variables 키는
+# ② 엔드포인트·바디 — POST /messages/v4/send에 최상위 message 단수 객체(단일 발송 규격.
+# messages 배열은 다중·그룹 발송용 — 2026-11-06 3차 실측·공식 문서 확정) ③ variables 키는
 # 리터럴 #{변수명} 형태(같은 문서 예시 — "#{고객명}": "홍길동") ④ 발신번호는 하이픈 제거
 # 숫자만(공식 SDK solapi-nodejs phoneNumberSchema 소스 확인).
 # [INFERENCE] 성공 응답 필드 구조(단일 send 응답의 messageId 위치)만 미실측 추정 상태다.
@@ -49,18 +49,19 @@ module Solapi
       ensure_credentials!
 
       body = {
-        # 바디 최상위는 messages 배열이다 — {"message": {...}} 단수 구조는 운영 실측에서
-        # HTTP_400으로 거부됐고 공식 문서 예시(solapi.com/developers/api/messages-ata)가
-        # messages 배열 규격이다(2026-11-06 확정).
-        messages: [
-          {
-            to: normalize_phone(to),
-            from: @sender_number,
-            # 본문은 템플릿(kakaoOptions.templateId) + variables 치환으로 전달한다(text 미포함).
-            kakaoOptions: { pfId: @pf_id, templateId: template_id,
-                            variables: wrap_variables(variables) }
-          }
-        ]
+        # 단일 발송(POST /messages/v4/send)의 바디 최상위는 message 단수 객체다 — messages
+        # 배열은 다중·그룹 발송(send-many·groups) 문맥의 규격이고, 공식 문서 messages-ata의
+        # 배열 예시가 그룹 발송 예시를 재사용한 것이었다(2026-11-06 3차 실측 확정 — 오류
+        # 본문 [["message" 필수입니다.], "messages" 사용할 수 없습니다.]). 1차 실패의 본체는
+        # variables 키 #{} 누락이었던 것으로 수렴 — 이번 오류는 variables를 불평하지 않았다
+        # (래핑 유효 재확인).
+        message: {
+          to: normalize_phone(to),
+          from: @sender_number,
+          # 본문은 템플릿(kakaoOptions.templateId) + variables 치환으로 전달한다(text 미포함).
+          kakaoOptions: { pfId: @pf_id, templateId: template_id,
+                          variables: wrap_variables(variables) }
+        }
       }
       return dry_run_response(body) if dry_run
 
