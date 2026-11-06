@@ -3,8 +3,12 @@
 # 의존하지 않는 순수 Ruby 클래스라 테스트에서 응답 Hash를 stub할 수 있다.
 # 대체문자(REM-5)는 솔라피 템플릿 등록 시 지정한 대체문자 필드로 처리되므로 별도 SMS 발송
 # 경로가 없다(2026-11-03 확정). 발신자는 카카오채널 '받을돈' 발신 프로필(REM-1)이다.
-# [INFERENCE] 인증·엔드포인트·응답 스펙은 solapi.com/developers 문서 기준 구현이며 라이브
-# 실측 전까지 추정 마킹 상태다(테스트는 stub — 라이브 검증은 기술 부채).
+# 스펙 근거(2026-11-06 확정): ① 인증 — HMAC-SHA256 헤더(운영 실측 — 오류가 본문 검증 400으로
+# 도달해 인증 통과 확인) ② 엔드포인트·바디 — POST /messages/v4/send에 최상위 messages 배열
+# (운영 실측 + 공식 문서 solapi.com/developers/api/messages-ata 예시) ③ variables 키는
+# 리터럴 #{변수명} 형태(같은 문서 예시 — "#{고객명}": "홍길동") ④ 발신번호는 하이픈 제거
+# 숫자만(공식 SDK solapi-nodejs phoneNumberSchema 소스 확인).
+# [INFERENCE] 성공 응답 필드 구조(단일 send 응답의 messageId 위치)만 미실측 추정 상태다.
 require "net/http"
 require "json"
 require "openssl"
@@ -14,7 +18,7 @@ module Solapi
   class ClientService
     BASE_URL = "https://api.solapi.com"
     TIMEOUT_SECONDS = 10
-    # [INFERENCE] 메시지 v4 단일 발송 엔드포인트
+    # 메시지 v4 단일 발송 엔드포인트 — 실측·공식 문서로 확정(2026-11-06).
     SEND_PATH = "/messages/v4/send"
 
     # credentials·전송 계층을 주입 가능하게 둔다 — 테스트 stub과(기본값) 실측(주입)을 분리.
@@ -31,8 +35,10 @@ module Solapi
     end
 
     # 알림톡 발송(REM-10) — template_key는 ALIMTALK_TEMPLATES.md·credentials template_ids의
-    # 키와 동일 문자열이며, variables는 #{변수명}을 키로 하는 치환값 맵이다.
-    def send_alimtalk(template_key:, to:, variables: {})
+    # 키와 동일 문자열이며, variables는 순수 변수명("발행인명")을 키로 하는 치환값 맵이다.
+    # dry_run: true는 실발송·네트워크 호출 없이 조립된 요청 스펙을 돌려준다(검증용 —
+    # dry_run_response 주석 참조).
+    def send_alimtalk(template_key:, to:, variables: {}, dry_run: false)
       template_id = @template_ids[template_key.to_s]
       unless template_id
         raise ApiError.new(status: nil, code: "MISSING_TEMPLATE",
@@ -40,14 +46,23 @@ module Solapi
       end
       ensure_credentials!
 
-      request(method: :post, path: SEND_PATH, body: {
-        message: {
-          to: normalize_phone(to),
-          from: @sender_number,
-          # [INFERENCE] 본문은 템플릿(kakaoOptions.templateId) + variables 치환으로 전달한다
-          kakaoOptions: { pfId: @pf_id, templateId: template_id, variables: variables }
-        }
-      })
+      body = {
+        # 바디 최상위는 messages 배열이다 — {"message": {...}} 단수 구조는 운영 실측에서
+        # HTTP_400으로 거부됐고 공식 문서 예시(solapi.com/developers/api/messages-ata)가
+        # messages 배열 규격이다(2026-11-06 확정).
+        messages: [
+          {
+            to: normalize_phone(to),
+            from: @sender_number,
+            # 본문은 템플릿(kakaoOptions.templateId) + variables 치환으로 전달한다(text 미포함).
+            kakaoOptions: { pfId: @pf_id, templateId: template_id,
+                            variables: wrap_variables(variables) }
+          }
+        ]
+      }
+      return dry_run_response(body) if dry_run
+
+      request(method: :post, path: SEND_PATH, body: body)
     end
 
     private
@@ -62,7 +77,26 @@ module Solapi
                          message: "솔라피 credentials(:solapi) 설정이 누락되었습니다: #{missing.join(', ')}")
     end
 
-    # [INFERENCE] 하이픈 없는 숫자 형식만 허용되는 것으로 가정하고 비숫자를 제거한다.
+    # 순수 변수명 키 → 솔라피 스펙 키 리터럴 "#{변수명}"으로 래핑한다. 래핑은 이 래퍼의 송신
+    # 직전 책임이다 — 도메인 계층(Reminders::SendService 조립·message_logs.variables P4
+    # 스냅샷)은 순수 키를 유지해 스펙 변환을 한 곳에 둔다. "##{k}" 보간은 "#발행인명"이 되는
+    # 함정이라(리터럴 #{를 소스에 직접 못 씀) format으로 조립한다.
+    def wrap_variables(variables)
+      variables.to_h { |key, value| [ format('#{%s}', key), value ] }
+    end
+
+    # dry_run — 실발송 없는 스펙 검증용. 솔라피 API에 dryRun 파라미터(쿼리·바디 모두)는
+    # 존재하지 않는다(2026-11-06 공식 문서 전수 확인 — solapi.com/developers/api/messages·
+    # messages-ata·msg-groups-createMessageGroup·msg-groups-sendGroupMessage 어디에도 없고,
+    # 공식 SDK solapi-nodejs·solapi-kotlin 요청 모델에도 부재. 문서화된 유일한 사전 검증
+    # 옵션은 send-many의 바디 필드 strict). 따라서 래퍼 수준 실호출 스킵으로 구현한다 —
+    # 요청은 조립하되 네트워크 연결 자체를 만들지 않는다.
+    def dry_run_response(body)
+      { dryRun: true, path: SEND_PATH, body: body }
+    end
+
+    # 하이픈 없는 숫자 형식 — 비숫자를 제거한다. 공식 SDK와 동일 규격(solapi-nodejs
+    # phoneNumberSchema — 하이픈 제거 후 /^[0-9]+$/ 검증, 2026-11-06 소스 확인).
     def normalize_phone(to)
       to.to_s.gsub(/\D/, "")
     end
@@ -76,8 +110,9 @@ module Solapi
       raise ApiError.new(status: nil, code: "CONNECTION", message: e.message)
     end
 
-    # [INFERENCE] 솔라피 인증 — HMAC-SHA256 시그니처 헤더.
-    # signature = HMAC-SHA256(api_secret, "{date}.{salt}.{api_key}")의 hex 다이제스트.
+    # 솔라피 인증 — HMAC-SHA256 시그니처 헤더(2026-11-06 운영 실측 — 인증 통과 후 본문
+    # 검증 400으로 도달 확인). signature = HMAC-SHA256(api_secret, "{date}.{salt}.{api_key}")
+    # 의 hex 다이제스트.
     def build_request(method:, path:, body:)
       uri = URI.parse("#{BASE_URL}#{path}")
       net_request = Net::HTTP::Post.new(uri)
@@ -103,14 +138,29 @@ module Solapi
     end
 
     def parse(response)
-      payload = response.body.to_s.empty? ? {} : JSON.parse(response.body, symbolize_names: true)
+      payload, raw_body = parse_body(response)
 
       return payload if response.is_a?(Net::HTTPSuccess)
 
-      # [INFERENCE] 솔라피 오류 본문 — { code, message } 형태로 정규화를 가정한다.
+      # 오류 본문은 {code, message} 가정과 다르게 온다(2026-11-06 실측 — message가 nil로
+      # 누실돼 error_message가 "Solapi::ApiError"만 남음). errorMessage 키와 비JSON·비객체
+      # raw 본문까지 fallback해 P4 진단 정보를 보존한다.
       raise ApiError.new(status: response.code.to_i,
                          code: payload[:code] || "HTTP_#{response.code}",
-                         message: payload[:message])
+                         message: payload[:message] || payload[:errorMessage] ||
+                                  raw_body.presence)
+    end
+
+    # 응답 본문 파싱 — payload는 해시(비해시 JSON·JSON 아님·빈 본문은 빈 해시), raw는
+    # 원문 문자열. JSON::ParserError와 비객체 JSON이 ApiError 정규화를 우회하는 것을 막는다.
+    def parse_body(response)
+      raw = response.body.to_s
+      return [ {}, raw ] if raw.empty?
+
+      parsed = JSON.parse(raw, symbolize_names: true)
+      [ parsed.is_a?(Hash) ? parsed : {}, raw ]
+    rescue JSON::ParserError
+      [ {}, raw ]
     end
   end
 end

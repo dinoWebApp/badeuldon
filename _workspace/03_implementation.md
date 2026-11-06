@@ -505,3 +505,50 @@ private 헬퍼 `button_url`·`prenotice_button_url`을 추가해 전 발송에 �
   해석 — **실발송 시 최종 확인 필요**(버튼이 실제 치환된 링크로 열리는지 라이브 1건 검증).
   기존 [INFERENCE] "솔라피 라이브 실측(발송 응답 필드·알림톡 1건 실발송 검증)"에 본 항목이
   포함된다.
+
+---
+
+# 솔라피 래퍼 실측 스펙 반영 (2026-11-06 — HTTP_400 거부 원인 확정·수정)
+
+운영 issue_notice 발송이 솔라피에서 HTTP_400으로 거부됨(message_logs 1행: status=failed,
+error_code=HTTP_400, error_message="Solapi::ApiError" — 본문 누실). 공식 문서 대조로 원인 2건
+확정 후 래퍼(`app/services/solapi/client_service.rb`)를 수정했다.
+
+## 400 원인 (공식 문서 solapi.com/developers/api/messages-ata 예시 대조)
+
+1. **바디 최상위 키** — 구현이 `{"message": {...}}`(단수)였으나 실제 규격은
+   **`{"messages": [ { ... } ]}` 배열**. 단수 구조가 400 거부의 직접 원인.
+2. **variables 키 형식** — 구현이 순수 키(`{"발행인명": "..."}`)였으나 실제 규격은
+   **`{"#{발행인명}": "..."}` — 키에 리터럴 `#{` `}` 포함**(문서 예시: `"#{고객명}": "홍길동"`).
+
+text 필드는 템플릿+variables 방식(방법1)에서 선택 — 미포함 유지.
+
+## 수정 내용
+
+| 수정 | 내용 |
+|:---|:---|
+| `send_alimtalk` 바디 | `{ messages: [ { to:, from:, kakaoOptions: { pfId:, templateId:, variables: } } ] }` — 공식 예시 그대로 |
+| `wrap_variables` 신설(래퍼 private) | 순수 키 → `"#{키}"` 래핑을 송신 직전 수행. `"##{k}"` 보간은 `"#발행인명"`이 되는 함정이라 `format('#{%s}', key)`로 조립. 도메인 계층(SendService 조립·message_logs.variables P4 스냅샷)은 **순수 키 유지** — 스펙 변환은 래퍼 단일 책임 |
+| `parse` 오류 본문 fallback | `payload[:message] \|\| payload[:errorMessage] \|\| raw 본문`. `parse_body` 신설 — JSON 파싱 실패·비객체 JSON을 빈 해시+raw 원문으로 정규화해 `JSON::ParserError`가 ApiError 정규화를 우회하는 것을 차단. 이번 실측의 error_message 본문 누실 재발 방지(P4) |
+| `dry_run:` 키워드 신설 | 아래 dryRun 욕법 참조 |
+| [INFERENCE] 마킹 해제 | 엔드포인트·바디·variables 키·HMAC 인증(400 도달 = 인증 통과 실측)·발신번호 정규화(solapi-nodejs phoneNumberSchema 소스 확인) 확정. **잔여 추정: 성공 응답 필드 구조(messageId 위치)만 유지** |
+
+`Reminders::SendService`는 무수정 — 순수 키 전달·message_logs 스냅샷이 원래 계약대로라 래퍼 측
+래스펙 변환만으로 정합(`send_service_test.rb` 38건 전부 무수정 통과).
+
+## dryRun 용법 (지시 전제와 다른 확인 결과 — 문서 전수 확인 근거)
+
+- **솔라피 API에 dryRun 파라미터는 존재하지 않는다**(2026-11-06 확인 — solapi.com/developers/api/messages·messages-ata·msg-groups-createMessageGroup·msg-groups-sendGroupMessage 어디에도 없고, 공식 SDK solapi-nodejs·solapi-kotlin 요청 모델 소스에도 부재. GitHub 코드 검색에서 solapi 조직 전체 dryRun = MCP 서버의 클라이언트 사이드 프리뷰 플래그뿐).
+- 문서화된 유일한 사전 검증 옵션은 send-many의 **바디 필드 `strict`**(boolean, 기본 false — 유효 문자·제목·템플릿 사전 검사; 고속 접수 미지원)다.
+- 따라서 `dry_run: true`를 **래퍼 수준 실호출 스킵**으로 구현: 요청(바디·경로)을 규격대로 조립한 뒤 네트워크 연결 없이 `{ dryRun: true, path:, body: }`를 반환. 콘솔·테스트에서 스펙 검증용. [INFERENCE] 항목이 아님 — "API 파라미터 부재"가 확인 결과이고 그 근거를 주석에 기록.
+
+## 테스트 갱신
+
+- `client_service_test.rb`: 바디 단언을 messages 배열·variables `#{}` 래핑으로 교체(테스트명·단언 문자열의 `#{...}`는 `\#{`·`\{` 이스케이프로 보간 회피), dry_run 스킵 단언(starts·requests 공백+반환 스펙) 추가, errorMessage fallback·비JSON raw 본문 보존 케이스 추가(+3).
+- 게이트: `bin/rubocop` 168 files, no offenses · `bin/rails zeitwerk:check` all good ·
+  `bin/rails test` 631 runs(+3), 3734 assertions, 0 failures, 0 errors, 0 skips.
+
+## 잔여 기술 부채 (갱신)
+
+- 성공 응답 필드 구조(단일 send 응답의 messageId 위치) — [INFERENCE] 유지. `provider_message_id`는 최상위 `messageId`→`message.messageId` 순 탐색. 라이브 1건 실발송 시 확정.
+- 위 dryRun 확인으로 "솔라피 라이브 실측" 기술 부채 중 **스펙 추정 항목은 해소** — 남는 것은 실발송 1건 검증(템플릿 버튼 치환·성공 응답 필드)뿐.
