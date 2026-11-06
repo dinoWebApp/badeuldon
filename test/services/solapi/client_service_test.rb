@@ -99,6 +99,33 @@ module Solapi
       assert_equal({ "#\{거래처명}" => "델타파트너스" }, message[:kakaoOptions][:variables])
     end
 
+    test "최초 승인 4종은 \#{발행인} 키로 송신하고 그 외 템플릿은 \#{발행인명}을 유지한다 (래퍼 스펙 계층)" do
+      client = ClientService.new(
+        api_key: "test-api-key", api_secret: "test-api-secret", pf_id: "pf_badeuldon",
+        sender_number: "01000000000",
+        template_ids: { "invoice_notice" => "t1", "confirm_d1" => "t2", "requeue_d7" => "t3",
+                        "final_d14" => "t4", "paid_thanks" => "t5" }
+      )
+      transport = FakeSolapiTransport.new(response: http_ok("{}".to_json))
+      variables = { "발행인명" => "김발행" }
+
+      with_http_transport(transport) do
+        ClientService::LEGACY_ISSUER_KEY_TEMPLATES.each do |key|
+          client.send_alimtalk(template_key: key, to: "010-3333-7777", variables: variables)
+        end
+        client.send_alimtalk(template_key: "paid_thanks", to: "010-3333-7777", variables: variables)
+      end
+
+      # 2026-10-29 최초 승인 4종 — 솔라피 등록 변수명이 "발행인"(사용자 확인 2026-11-06)
+      legacy_keys = transport.requests.first(4).map do |request|
+        JSON.parse(request.body)["message"]["kakaoOptions"]["variables"].keys.sole
+      end
+      assert_equal [ "#\{발행인}" ] * 4, legacy_keys
+      # 그 외 14종 — 발행인명 원키 유지
+      paid_variables = JSON.parse(transport.requests.last.body)["message"]["kakaoOptions"]["variables"]
+      assert_equal({ "#\{발행인명}" => "김발행" }, paid_variables)
+    end
+
     test "credentials에 없는 템플릿 키는 요청 없이 MISSING_TEMPLATE로 fail-fast한다 (REM-10)" do
       transport = FakeSolapiTransport.new(response: http_ok("{}".to_json))
 

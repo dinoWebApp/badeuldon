@@ -537,6 +537,7 @@ text 필드는 템플릿+variables 방식(방법1)에서 선택 — 미포함 �
 | `parse` 오류 본문 fallback | `payload[:message] \|\| payload[:errorMessage] \|\| raw 본문`. `parse_body` 신설 — JSON 파싱 실패·비객체 JSON을 빈 해시+raw 원문으로 정규화해 `JSON::ParserError`가 ApiError 정규화를 우회하는 것을 차단. 이번 실측의 error_message 본문 누실 재발 방지(P4) |
 | `dry_run:` 키워드 신설 | 아래 dryRun 욕법 참조 |
 | `hmac_authorization` 시그니처 메시지(2026-11-06 2차 실측) | 수동 발송(manual·invoice_notice·11:29) 재실패의 오류 본문 보존으로 **"생성한 signature를 확인하세요"** 확보 — 시그니처 불일치 확정. `HMAC-SHA256(api_secret, date + salt)` hex로 교체(구분자 없는 단순 연결·apiKey 미포함 — 헤더에만. 공식 문서 solapi.com/developers/api/authentication-api-key·공식 Node/Python 예시 동일). 구식 `date.salt.api_key`(점 구분)가 원인. date ISO8601 UTC(±15분)·salt 12~64바이트(uuid 36자 OK). 테스트에 헤더 date·salt 재계산 일치 단언 추가 |
+| variables 키 템플릿별 치환(2026-11-06 4차 — 사용자 실측 성공 후속) | **운영 실측 성공 확정**(발송 성공·provider_message_id 캡처 — message 단수+`#{}` 래핑+`date + salt` 시그니처 조합이 최종 유효). 2026-10-29 최초 승인 4종(`invoice_notice`·`confirm_d1`·`requeue_d7`·`final_d14`)은 솔라피 등록 변수명이 "발행인명"이 아니라 **"발행인"** — 래퍼가 해당 템플릿 한정으로 `#{발행인명}` 키를 `#{발행인}`으로 치환해 송신(`LEGACY_ISSUER_KEY_TEMPLATES` 상수·`wrap_variables(variables, template_key)`). 나머지 14종은 `#{발행인명}` 유지. SendService 조립·message_logs.variables(P4 스냅샷)는 순수 키 `발행인명` 그대로 — 템플릿별 키 변환도 래퍼(스펙 계층) 책임. 테스트: 4종 전부 `#{발행인}` 단언+그 외 템플릿(`paid_thanks`) `#{발행인명}` 유지 단언. ALIMTALK_TEMPLATES.md는 무수정(오케스트레이터가 공통 규칙 변수 표기 갱신 예정) |
 | [INFERENCE] 마킹 해제 | 엔드포인트·바디·variables 키·인증 시그니처 규격(공식 문서+실측)·발신번호 정규화(solapi-nodejs phoneNumberSchema 소스 확인) 확정. **잔여 추정: 성공 응답 필드 구조(messageId 위치)만 유지** |
 
 `Reminders::SendService`는 무수정 — 순수 키 전달·message_logs 스냅샷이 원래 계약대로라 래퍼 측
@@ -556,5 +557,5 @@ text 필드는 템플릿+variables 방식(방법1)에서 선택 — 미포함 �
 
 ## 잔여 기술 부채 (갱신)
 
-- 성공 응답 필드 구조(단일 send 응답의 messageId 위치) — [INFERENCE] 유지. `provider_message_id`는 최상위 `messageId`→`message.messageId` 순 탐색. 라이브 1건 실발송 시 확정.
-- 위 dryRun 확인으로 "솔라피 라이브 실측" 기술 부채 중 **스펙 추정 항목은 해소** — 남는 것은 실발송 1건 검증(템플릿 버튼 치환·성공 응답 필드)뿐.
+- 성공 응답 필드 구조 — **해소(2026-11-06 사용자 실측 성공)**: 운영 발송 성공·messageId 캡처 확인으로 `provider_message_id` 탐색 체인의 유효성이 검증됐다. 어느 키였는지의 정밀 기록은 불필요 — 식별자 취득이 목적이므로 [INFERENCE] 해소 처리.
+- 위 dryRun 확인으로 "솔라피 라이브 실측" 기술 부채 중 **스펙 추정 항목은 해소** — 남는 것은 템플릿 버튼 치환의 라이브 확인(버튼이 실제 치환 링크로 열리는지)뿐.

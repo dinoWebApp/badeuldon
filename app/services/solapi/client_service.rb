@@ -10,7 +10,9 @@
 # messages 배열은 다중·그룹 발송용 — 2026-11-06 3차 실측·공식 문서 확정) ③ variables 키는
 # 리터럴 #{변수명} 형태(같은 문서 예시 — "#{고객명}": "홍길동") ④ 발신번호는 하이픈 제거
 # 숫자만(공식 SDK solapi-nodejs phoneNumberSchema 소스 확인).
-# [INFERENCE] 성공 응답 필드 구조(단일 send 응답의 messageId 위치)만 미실측 추정 상태다.
+# 성공 응답은 운영 실측 성공으로 검증됐다(2026-11-06 — messageId 캡처 확인). [INFERENCE] 마킹
+# 해소 — 단일 send 전 규격(엔드포인트·바디·variables 키·인증·응답 식별자)은 실측·공식 문서로
+# 확정 상태다.
 require "net/http"
 require "json"
 require "openssl"
@@ -22,6 +24,11 @@ module Solapi
     TIMEOUT_SECONDS = 10
     # 메시지 v4 단일 발송 엔드포인트 — 실측·공식 문서로 확정(2026-11-06).
     SEND_PATH = "/messages/v4/send"
+    # 2026-10-29 최초 승인 4종은 솔라피 등록 변수명이 "발행인명"이 아니라 "발행인"이다
+    # (사용자 확인 2026-11-06 — 운영 실측 성공 조합). 나머지 14종은 "발행인명" 그대로다.
+    # 도메인 계층은 순수 키 "발행인명"을 유지하고(ALIMTALK_TEMPLATES.md 공통 규칙) 이 래퍼가
+    # 템플릿별로 치환한다 — 템플릿별 키 변환도 래퍼(스펙 계층)의 송신 직전 책임이다.
+    LEGACY_ISSUER_KEY_TEMPLATES = %w[invoice_notice confirm_d1 requeue_d7 final_d14].freeze
 
     # credentials·전송 계층을 주입 가능하게 둔다 — 테스트 stub과(기본값) 실측(주입)을 분리.
     def initialize(api_key: Rails.application.credentials.dig(:solapi, :api_key),
@@ -60,7 +67,7 @@ module Solapi
           from: @sender_number,
           # 본문은 템플릿(kakaoOptions.templateId) + variables 치환으로 전달한다(text 미포함).
           kakaoOptions: { pfId: @pf_id, templateId: template_id,
-                          variables: wrap_variables(variables) }
+                          variables: wrap_variables(variables, template_key) }
         }
       }
       return dry_run_response(body) if dry_run
@@ -80,12 +87,20 @@ module Solapi
                          message: "솔라피 credentials(:solapi) 설정이 누락되었습니다: #{missing.join(', ')}")
     end
 
-    # 순수 변수명 키 → 솔라피 스펙 키 리터럴 "#{변수명}"으로 래핑한다. 래핑은 이 래퍼의 송신
-    # 직전 책임이다 — 도메인 계층(Reminders::SendService 조립·message_logs.variables P4
-    # 스냅샷)은 순수 키를 유지해 스펙 변환을 한 곳에 둔다. "##{k}" 보간은 "#발행인명"이 되는
-    # 함정이라(리터럴 #{를 소스에 직접 못 씀) format으로 조립한다.
-    def wrap_variables(variables)
-      variables.to_h { |key, value| [ format('#{%s}', key), value ] }
+    # 순수 변수명 키 → 솔라피 스펙 키 리터럴 "#{변수명}"으로 래핑한다. 래핑·템플릿별 키 변환
+    # (LEGACY_ISSUER_KEY_TEMPLATES — 최초 승인 4종은 등록 변수명이 "발행인")은 이 래퍼의
+    # 송신 직전 책임이다 — 도메인 계층(Reminders::SendService 조립·message_logs.variables
+    # P4 스냅샷)은 순수 키를 유지해 스펙 변환을 한 곳에 둔다. "##{k}" 보간은 "#발행인명"이
+    # 되는 함정이라(리터럴 #{를 소스에 직접 못 씀) format으로 조립한다.
+    def wrap_variables(variables, template_key)
+      variables.to_h do |key, value|
+        key = "발행인" if legacy_issuer_template?(template_key) && key == "발행인명"
+        [ format('#{%s}', key), value ]
+      end
+    end
+
+    def legacy_issuer_template?(template_key)
+      LEGACY_ISSUER_KEY_TEMPLATES.include?(template_key.to_s)
     end
 
     # dry_run — 실발송 없는 스펙 검증용. 솔라피 API에 dryRun 파라미터(쿼리·바디 모두)는
