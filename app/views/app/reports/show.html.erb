@@ -1,0 +1,150 @@
+<% content_for :title, "리포트 — 받을돈" %>
+
+<%# 표면 ② 리포트 — DASH-5(거래처별 지연 리포트·월간 수금 추이)·DASH-6(신고 주기 집계표 + 세무 고지).
+    집계는 컨트롤러가 Query Object(app/queries/reports/)로 산출했고 뷰는 @변수만 소비한다.
+    지연 정의는 CLIENT-4(약속일 대비)와 달리 "만기일 대비 실입금일"이므로 섹션 부제로 구분 명시한다.
+    그래프는 외부 JS 없이 CSS bar chart + 접근성용 텍스트 표(figure/figcaption)를 병행한다. %>
+<div class="py-8">
+  <header>
+    <h1 class="text-2xl font-bold tracking-tight text-emerald-900">리포트</h1>
+    <p class="mt-2 text-sm leading-relaxed text-stone-500">
+      <%= @user.display_name %>님의 수금 기록을 한눈에 정리했습니다.
+    </p>
+  </header>
+
+  <% if !@has_invoices %>
+    <%# 빈 상태 — 청구서 0건 사용자(거짓 0원 금지, ONB-1 CTA 톤 준용) %>
+    <section aria-labelledby="report-empty" class="mt-8">
+      <div class="rounded-2xl border border-emerald-700/15 bg-white p-10 text-center shadow-md shadow-emerald-900/5 ring-1 ring-emerald-700/10">
+        <h2 id="report-empty" class="text-lg font-bold text-stone-800">아직 리포트가 없습니다</h2>
+        <p class="mx-auto mt-3 max-w-md text-sm leading-relaxed text-stone-500">
+          청구서를 발행하면 거래처별 지연 현황, 월간 수금 추이, 신고 주기별 집계가 이곳에 쌓입니다.
+        </p>
+        <%= link_to "첫 청구서 발행하기", new_app_invoice_path,
+              class: "mt-6 inline-flex min-h-11 items-center justify-center rounded-xl bg-emerald-700 px-6 text-sm font-bold text-white shadow-sm transition duration-150 hover:bg-emerald-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+      </div>
+    </section>
+  <% else %>
+
+    <%# ── DASH-5-① 거래처별 지연 리포트 — 만기일 대비 실입금일(CLIENT-4와 정의가 다름을 부제로 명시).
+        연체 금액은 잔액 기준(PAY-2)이며 상태색 주황(DESIGN-2)으로 표기한다. ── %>
+    <section aria-labelledby="report-client-delay" class="mt-8">
+      <h2 id="report-client-delay" class="text-base font-bold text-stone-800">거래처별 지연 리포트</h2>
+      <p class="mt-1 text-sm text-stone-500">만기일 대비 실제 입금까지 걸린 일수를 거래처별로 정리했습니다. 거래처 카드의 "약속일 대비" 지표와는 기준이 다릅니다.</p>
+      <% if @client_delay_rows.any? %>
+        <div class="mt-3 overflow-x-auto rounded-2xl border border-stone-200 bg-white shadow-sm">
+          <table class="w-full min-w-[640px] text-left text-sm">
+            <caption class="sr-only">거래처별 진행 청구 수, 연체 현황, 평균 지급 지연일</caption>
+            <thead>
+              <tr class="border-b border-stone-200 text-xs font-semibold text-stone-500">
+                <th scope="col" class="px-5 py-3.5">거래처</th>
+                <th scope="col" class="px-5 py-3.5 text-right">진행 청구</th>
+                <th scope="col" class="px-5 py-3.5 text-right">연체</th>
+                <th scope="col" class="px-5 py-3.5 text-right">연체 금액</th>
+                <th scope="col" class="px-5 py-3.5 text-right">평균 지급 지연일</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% @client_delay_rows.each do |row| %>
+                <tr class="border-b border-stone-100 transition duration-150 last:border-0 hover:bg-stone-50">
+                  <th scope="row" class="px-5 py-4 font-semibold text-stone-800"><%= row.client_name %></th>
+                  <td class="px-5 py-4 text-right tabular-nums text-stone-600"><%= number_with_delimiter(row.unsettled_count) %>건</td>
+                  <td class="px-5 py-4 text-right tabular-nums <%= row.overdue_count.positive? ? "font-bold text-orange-600" : "text-stone-400" %>">
+                    <%= number_with_delimiter(row.overdue_count) %>건
+                  </td>
+                  <td class="px-5 py-4 text-right tabular-nums <%= row.overdue_amount.positive? ? "font-bold text-orange-600" : "text-stone-400" %>">
+                    <%= won(row.overdue_amount) %>
+                  </td>
+                  <td class="px-5 py-4 text-right tabular-nums font-semibold <%= delay_days_classes(row.avg_delay_days) %>">
+                    <%= display_delay_days(row.avg_delay_days) %>
+                  </td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      <% else %>
+        <p class="mt-3 rounded-2xl border border-stone-200 bg-white px-5 py-8 text-center text-sm text-stone-500 shadow-sm">
+          아직 거래처가 등록되지 않았습니다. 청구서 발행 전 거래처를 먼저 등록해 주세요.
+        </p>
+      <% end %>
+    </section>
+
+    <%# ── DASH-5-② 월간 수금 추이 — 최근 12개월(이번 달 포함). CSS bar chart + 접근성용 텍스트 표.
+        이번 달 수금액(DASH-3 문구 정합)을 함께 안내한다. ── %>
+    <section aria-labelledby="report-monthly" class="mt-10">
+      <h2 id="report-monthly" class="text-base font-bold text-stone-800">월간 수금 추이</h2>
+      <p class="mt-1 text-sm text-stone-500">
+        최근 12개월 동안 입금 확인된 금액입니다. 이번 달 수금액은
+        <span class="font-bold tabular-nums text-emerald-900"><%= won(@this_month_collected) %></span>입니다.
+      </p>
+      <% max_amount = monthly_max_amount(@monthly_rows) %>
+      <figure class="mt-3">
+        <div class="flex h-48 items-end gap-1.5 rounded-2xl border border-stone-200 bg-white px-4 pb-3 pt-6 shadow-sm sm:gap-2.5" role="img" aria-label="최근 12개월 월별 수금액 막대 그래프">
+          <% @monthly_rows.each do |row| %>
+            <div class="group flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1.5">
+              <%# W-1 — 금액 라벨은 모바일(터치)에서 항상 표시, sm 이상에서 hover 시 강조 전환.
+                  group-hover 전용은 터치 기기에서 금액 확인이 불가하다(DESIGN-6·접근성 — 리뷰 W-1). %>
+              <span class="text-[10px] font-bold tabular-nums text-emerald-800 transition duration-150 sm:opacity-0 sm:group-hover:opacity-100">
+                <%= number_with_delimiter(row.amount) %>
+              </span>
+              <div class="w-full rounded-t-md bg-emerald-700/80 transition duration-200 group-hover:bg-emerald-800"
+                   style="height: <%= bar_height_percent(row.amount, max_amount) %>%"
+                   aria-hidden="true"></div>
+              <span class="text-[10px] tabular-nums text-stone-400"><%= row.label %></span>
+            </div>
+          <% end %>
+        </div>
+        <figcaption class="mt-2 text-xs text-stone-400">각 막대 위 숫자가 해당 월의 수금액입니다(PC에서는 막대에 올려 확인). 입금일 기준 집계입니다.</figcaption>
+        <%# 접근성용 텍스트 표 — 스크린 리더는 막대 대신 이 표를 읽는다. %>
+        <table class="sr-only">
+          <caption>월별 수금액</caption>
+          <thead>
+            <tr><th scope="col">월</th><th scope="col">수금액</th></tr>
+          </thead>
+          <tbody>
+            <% @monthly_rows.each do |row| %>
+              <tr><th scope="row"><%= row.label %></th><td><%= won(row.amount) %></td></tr>
+            <% end %>
+          </tbody>
+        </table>
+      </figure>
+    </section>
+
+    <%# ── DASH-6 신고 주기 집계표 — 최근 4개 분기(직전 분기 확정신고 시기 매핑).
+        매출은 청구 발생(공급가액·부가세 — INV-1), 수금은 입금 시점 기준으로 기준이 다르다.
+        하단 고지문은 PRD 명시 문구(LP-12·P1 세무 고지 톤)다. ── %>
+    <section aria-labelledby="report-tax" class="mt-10">
+      <h2 id="report-tax" class="text-base font-bold text-stone-800">신고 주기 집계표</h2>
+      <p class="mt-1 text-sm text-stone-500">확정신고 시기(1·4·7·10월)에 맞춰 직전 분기의 매출·부가세·수금액을 정리했습니다.</p>
+      <div class="mt-3 overflow-x-auto rounded-2xl border border-stone-200 bg-white shadow-sm">
+        <table class="w-full min-w-[640px] text-left text-sm">
+          <caption class="sr-only">신고 주기별 매출, 부가세, 수금액 집계</caption>
+          <thead>
+            <tr class="border-b border-stone-200 text-xs font-semibold text-stone-500">
+              <th scope="col" class="px-5 py-3.5">신고 시기</th>
+              <th scope="col" class="px-5 py-3.5 text-right">매출(공급가액)</th>
+              <th scope="col" class="px-5 py-3.5 text-right">부가세</th>
+              <th scope="col" class="px-5 py-3.5 text-right">수금액</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% @tax_rows.each do |row| %>
+              <tr class="border-b border-stone-100 transition duration-150 last:border-0 hover:bg-stone-50">
+                <th scope="row" class="px-5 py-4">
+                  <span class="font-semibold text-stone-800"><%= tax_period_title(row) %></span>
+                </th>
+                <td class="px-5 py-4 text-right tabular-nums text-stone-800"><%= won(row.revenue) %></td>
+                <td class="px-5 py-4 text-right tabular-nums text-stone-600"><%= won(row.tax_amount) %></td>
+                <td class="px-5 py-4 text-right tabular-nums font-bold text-emerald-900"><%= won(row.collected) %></td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+      <p class="mt-3 rounded-xl bg-stone-50 px-4 py-3 text-xs leading-relaxed text-stone-500">
+        본 집계표는 세무 자문이 아닙니다. 신고 자료로 활용하기 전 세무대리인 확인을 권장합니다.
+      </p>
+    </section>
+  <% end %>
+</div>

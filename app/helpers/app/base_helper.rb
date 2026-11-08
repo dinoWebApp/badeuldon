@@ -17,6 +17,8 @@ module App
           disabled: false, locked: },
         { label: "요금제", path: app_billing_path, active: request.path.start_with?(app_billing_path),
           disabled: false, locked: },
+        { label: "리포트", path: app_report_path, active: request.path.start_with?(app_report_path),
+          disabled: false, locked: },  # DASH-5/6 — 리포트 페이지
         { label: "설정", path: edit_app_profile_path, active: request.path.start_with?(app_profile_path),
           disabled: false, locked: false }
       ]

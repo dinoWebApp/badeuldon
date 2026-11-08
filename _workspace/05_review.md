@@ -1,65 +1,82 @@
-# 05_review — 기술 부채 병렬 배치 T1~T4 (Phase 5, 2026-11-09, Reviewer)
+# 05_review — F-DASH(DASH-5/6) 리포트 구현 (2026-11-09, Reviewer-lite · 절약 모드)
 
-**status: APPROVED** (BLOCKER 0 · CRITICAL 0 · WARNING 3)
+## 종판
 
-> 대상: 미커밋 변경 전체 — T1 Pretendard 셀프호스팅 · T2 ko locale · T3 ViewEvent 강화 · T4 거래처 삭제 가드.
-> 판정 기준: PRD v0.27(CLIENT-1·SHARE-3·DESIGN-3 확정 해석 반영)·P1~P5·ARCHITECTURE_CONVENTION.
-> 검증 방법: 전체 diff 정적 검토 + `bin/rails runner -e test` 실행 재현 6건(트랜잭션 롤백 — 데이터 비오염) + Rails 8.1 소스 대조. `bin/rails test` 643건·`bin/rubocop`은 오케스트레이터 확인치로 간주(재실행하지 않음).
+**status: CHANGES_REQUESTED** — BLOCKER 0 · CRITICAL 2 · WARNING 2 (재리뷰 대상: C-1·C-2 수정분 + 권고 W-1·W-2)
 
----
+이전 리뷰 산출물 없음(신규 파이프라인 — 이슈 추적 대상 없음).
 
-## 1. 이슈 목록 (전부 WARNING — 수정은 다음 해당 파일 접촉 시로 충분, 재리뷰 불요)
+## 이슈 목록
 
-### W1 · WARNING · SHARE-3 · `app/models/view_event.rb:15-18`
-- **내용**: 봇 판정 커버리지 갭. `BOT_UA_PATTERN`이 범용 `bot` 토큰과 링크 프리뷰 계열(Slackbot·Discordbot·Twitterbot·facebookexternalhit·WhatsApp)·검색 봇 나머지(Applebot·YandexBot·DuckDuckGoBot·GPTBot)를 포함하지 않는다. 이 계열은 U1이 링크를 메신저에 붙여넣는 **가장 현실적인 오알림 경로**(링크 프리뷰 선취 → ViewEvent 기록 → SHARE-4 "열었습니다" 오알림)다. 배치의 T3 목적(오열람 알림 방지) 관점에서 커버리지 보완 권고.
-- **왜 CRITICAL 아님**: PRD는 봇을 열거하지 않고, 확정 해석도 Googlebot 등 명시 봇 테스트만 요구. 로직 오류가 아니라 커버리지 판단이며, `ViewEvent.bot?` 단일 출처 설계 덕에 정규식 한 줄 추가로 확장 가능.
-- **권고**: `BOT_UA_PATTERN`에 `facebookexternalhit|Slackbot|Discordbot|Twitterbot|WhatsApp|Applebot|YandexBot|DuckDuckGo|GPTBot` 계열 추가. 범용 `bot` 단독 토큰은 카카오톡 인앱 UA 등 정상 UA 오탐 가능성을 먼저 실측한 뒤 포함(위양성 주의).
+### C-1 · CRITICAL · DASH-5 — 평균 지급 지연일이 PRD 정의(마감 입금일 기준)와 불일치 — 부분입금 행 가중·조기 입금 혼입
 
-### W2 · WARNING · DESIGN-3(주석 정합) · `app/assets/tailwind/application.css:14`
-- **내용**: 토큰 블록 주석이 "국문 우선 폰트는 Pretendard(layout에서 CDN 로드)"로 남아 CDN 제거와 모순. 유지보수자가 CDN 재도입을 오인할 수 있다.
-- **권고**: "layout에서 CDN 로드" → "public/fonts 셀프호스팅(@font-face는 본 파일 최상단)"으로 갱신.
+- **파일**: `app/queries/reports/client_delay_query.rb:21-24`
+- **근거**: PRD v0.28 DASH-5 ② "지연은 **만기일 대비 실제 입금일**(마감 건 기준)". 마감 건의 실제 입금일은 **마감(최종) 입금일**이므로 청구 건당 지연일은 `마감 paid_on − due_on` 1개여야 한다. 구현은 Payment **행 단위** `julianday 차` 평균이라 ① 부분입금 건이 입금 행 수만큼 가중되고 ② 마감 전 조기 입금 행이 음수로 평균을 끌어내린다.
+- **재현(rails runner, test 환경 — 임의 데이터, rollback)**:
+  - 청구 A(부분입금 10-25 −7일 → 마감 11-06 +5일) + 청구 B(단일 +7일) → PRD 기대 **+6일**, 구현 결과 **−1일("1일 조기" 표시)** — 부호 반전.
+  - 극단 시나리오(조기 부분입금 −233일 + 마감 +15일 등 5입금 3청구): 구현 **−43일** vs 마감 기준 **+9일**.
+- **수정 권고**: 청구별 마감 입금일(최종 paid_on)로 한정한 뒤 청구 단위 평균. 예:
+  ```ruby
+  closing = Payment.select("invoice_id, MAX(paid_on) AS paid_on")
+                   .where(invoice_id: Invoice.where(user_id:, status: :paid).select(:id))
+                   .group(:invoice_id)
+  avg_delays = Invoice.joins("INNER JOIN (#{closing.to_sql}) closing_payments ON closing_payments.invoice_id = invoices.id")
+                      .where(user_id:)
+                      .group(:client_id)
+                      .average("julianday(closing_payments.paid_on) - julianday(invoices.due_on)")
+  ```
+  (상수 SQL 보간 — 파라미터 없음, 인젝션 없음. user_id 스코프는 내부 where에 존재.)
 
-### W3 · WARNING · PERF-2(성능 마무리) · `public/fonts/PretendardVariable.woff2`
-- **내용**: 2.0MB immutable 자산이 무핑거 `public/` 경로로 서빙됨. Thruster는 `/assets/*`(핑거프린트)에만 immutable 장기 캐시를 부여하고 그 외 정적은 ETag 재검증 수준 — 리뷰어 환경에서 바이너리 소스 대조는 불가, README 동작 기준. 기능 문제는 아님(304 재검증 동작, `font-display: swap`으로 렌더 차단 없음).
-- **권고(선택)**: Thruster 정적 캐시 설정(`CACHE_CONTROL`) 또는 Cloudflare 엣지 룰로 `/fonts/*`에 `public, max-age=31536000, immutable` 부여. 운영 배포 노트에 기록 후 다음 인프라 접촉 시 반영으로 충분.
+### C-2 · CRITICAL · 테스트 전략 — DASH-5/6 신규 기능 전용 테스트 전무
 
----
+- **파일**: (부재) `test/controllers/app/reports_controller_test.rb` · `test/queries/reports/`
+- **근거**: 01_plan 대상 파일 표에 두 테스트 명시 → 미구현, 03_implementation에 누락 사유 미기술. PRD 테스트 전략 "Rule ID별 정상/경계/예외 시나리오 도출이 원칙" 위반이며, C-1 버그가 게이트를 통과한 원인(기존 647건 전부 회귀만 확인).
+- **수정 권고**: ① Query 테스트 3종 — 스코프 격리(타 사용자 데이터 비포함)·부분입금 잔액(PAY-2)·만기일=오늘 연체 배타·연간 경계(12월→1월)·분기 경계(3/31 vs 4/1)·draft/voided 매출 제외·빈 사용자(12행 0원·4행 0원) ② 컨트롤러 테스트 — 미인증 리다이렉트·렌더 200·빈 상태 CTA·고지문 존재.
 
-## 2. Rule ID 준수 매핑 (검증 근거 포함)
+### W-1 · WARNING · DESIGN-6/접근성 — 월간 수금 추이 금액이 hover 전용(터치 기기에서 확인 불가)·figcaption 문구 터치 부적합
 
-| Rule | 판정 | 근거 |
-|:---|:---|:---|
-| **CLIENT-1** (T4) | 통과 | 가드 조건 = `status != :draft` 존재 시 차단 — PRD "삭제는 발행 이력이 없는 거래처(초안만 보유)에 한한다"와 정확히 일치. runner 재현: issued 차단+오류 문구·**voided도 발행 계열로 차단**·초안 전용은 초안 소거 후 삭제·청구서 0건 정상 삭제. `invoices.client_id` FK가 RESTRICT(schema.rb:204)라 초안 소거 없이는 500이 나므로 소거가 필수임이 스키마로 입증 |
-| **P4** (T4) | 통과 | client 삭제 경로의 message_logs 연쇄 소실이 차단됨. `message_logs.invoice_id on_delete: :cascade`(schema.rb:207)가 살아있는 invoice만을 전제 — 가드가 그 전제를 보장. (사용자 탈퇴 연쇄의 전체 삭제는 AUTH-1.5 데이터 소멸 설계로 본 배치 스코프 밖 — 기존 설계 유지 확인) |
-| **AUTH-1.5** (T4) | 통과(무충돌) | `user.rb` invoices→clients 선언 순서 주석("순서 변경 금지") + 모델/컨트롤러 테스트 + runner 재현(발행 이력 보유 client 보유 상태 user destroy 성공, 잔여 0건). Rails 8.1 `destroy`는 `with_transaction_returning_status`로 트랜잭션 래핑(transactions.rb:375) — 가드 내 초안 소거와 client DELETE가 원자적이고, abort 시 Rollback으로 초안 소거도 무효화(부분 삭제 없음) |
-| **SHARE-3** (T3) | 통과 | runner 재현: 봇 UA 10종 → ViewEvent 0건·상태 issued 유지 / 정상 UA → 기록·issued→viewed·first=true. 무기록 → `mark_viewed!` 미호출 → noti_opened 훅 자연 차단으로 이력·전이·알림 3종 동시 제외. HeadlessChrome 제외는 확정 해석(테스트 UA 보호)대로 구현·주석 명시. 뷰어 렌더링은 봇도 유지(기록만 제외 — PRD 문자 그대로) |
-| **DESIGN-3** (T1) | 통과 | CDN `<link>` 제거 확인 — 잔여 CDN은 포트원 SDK(`app/billings/show.html.erb`, PLAN-5·스코프 외)뿐. `@font-face`(font-weight 100 900·swap·woff2-variations)가 `@import "tailwindcss"` **뒤** 위치(CSS 규칙 정상)이며, **빌드 산출물** `app/assets/builds/tailwind.css`(신규 파일 이후 타임스탬프)에서 `@font-face{font-family:Pretendard Variable;...src:url(/fonts/PretendardVariable.woff2)format("woff2-variations")}` 실측. `--font-sans` "Pretendard Variable"과 family명 일치. 폰트 파일 WOFF2 v2 검증(2,057,688B) |
-| **PERF-2** (T1) | 통과 | CDN RTT 제거로 뷰어 2초 예산 방향 정합 — 캐시 헤더 여지는 W3 |
-| **TIME-1·ko locale** (T2) | 통과 | `default_locale=:ko`·`available_locales=[:en,:ko]`. **I18n 숨은 영향 전수 확인**: 앱 코드에 `I18n.l`/`l()` 사용 0건, 리마인더 `format_date`는 수동 포맷(`"#{date.mon}월 #{date.day}일(#{WEEKDAY_NAMES[date.wday]})"` — locale 무의존, 솔라피 variables 무영향), `number_with_delimiter`는 ko 구분자가 콤마로 동일, `passwords_mailer` 제목 하드코딩 한국어, 폼 라벨 하드코딩 — 회귀면은 검증 메시지뿐이며 3-S에서 ko.yml 이식으로 해소(643건 0실패). ko.yml에 사용자 입력·HTML 없음 |
-| **보안·무결성 (전수)** | 통과 | T4 오류 메시지는 비즈니스 안내만(정보 누출 없음), controller는 `destroy!`→`destroy` 분기로 abort를 303+alert로 수렴(기존 redirect 패턴 준용). T3 정규식은 선형 alternation — ReDoS 없음. `normalized_ip` 공백 제거+45자 절단(컬럼 limit 45 유지, null:false 안전). 소유권 화일수록 준수(T1 layouts/fonts·T2 Gemfile/locales·T3 view_events 계열·T4 client/controller), 타 도메인 미접점 |
-| **ARCHITECTURE §4** | 통과 | Service는 params/Current 미참조, Model은 Controller 미참조, 뷰 쿼리 없음, 컨트롤러 얇게 유지. 의존 방향 위반 0건 |
+- **파일**: `app/views/app/reports/show.html.erb:86-88, 96`
+- **내용**: 금액 라벨이 `opacity-0 group-hover:opacity-100` — 모바일(/app U1 다수 접속)에선 금액을 볼 수 없고, sr-only 표는 스크린리더 전용이라 시각 사용자 대체 불가. figcaption "막대에 마우스를 올리면"은 터치 기기 부적합 문구.
+- **수정 권고**: 금액 상시 표시(세로 여유 충분) 또는 터치에서도 노출되는 토글. 문구는 "최근 12개월 월별 수금액입니다"(동작 의존 문구 제거)를 권한다.
 
-## 3. 확정 해석 편차 (확인 후 수용 — 이슈 아님)
+### W-2 · WARNING · 규약 §3.2-4 — Query Object 반환형이 규약 문언("Relation 반환")과 불일치
 
-1. **T3 "UA 500자 절단 하드닝" 미적용**: view_events에 user_agent 저장 컬럼이 없음(schema.rb:191-200 실측) — 절단 대상 부재, device는 원본 UA 판정. 사유가 track_service 주석에 명시되어 있어 수용. (정상 UA 600자 기록 테스트로 회귀도 보호)
-2. **T4 마이그레이션 불요**: 01_plan은 migrate 후보로 열어뒀으나 02_prd_update가 "스키마 변경 없는 모델 가드"로 정제 — 최신 확정 해석 기준 준수.
-3. **T2 en.yml 한국어 블록 잔존**: :ko 전환으로 로딩되지 않는 백업이며 "정리 과제" 주석 명시 — 수용.
+- **파일**: `app/queries/reports/` 3종 전체
+- **내용**: 규약 §3.2-4 "Query Object는 .call로 Relation을 반환한다 — 컨트롤러/서비스 어디서도 체인 가능" / 02_prd_update 확정 1도 동일 문언. 구현은 집계 완료 Row Struct 배열 반환(체인 불가). 집계 쿼리의 실용적·무해한 선택이나 **계획서·규약 문언과의 불일치**라 기록한다.
+- **수정 권고**: 코드 유지 시 ARCHITECTURE_CONVENTION §3.2에 "집계 Query는 행 구조체 배열 반환 허용" 단서 추가로 문언 정합(문서 우선). 코드 정합을 택한다면 Relation 계약 위반이므로 문서 갱신이 최소 변경이다.
 
-## 4. 설계 트레이드오프 (Tester·운영 유의)
+### 기록(지적 아님)
 
-- **봇 UA 스푸핑으로 열람 회피 가능**: 토큰 보유자가 `curl` UA로 열람하면 U1에게 열람이 보이지 않는다. 봇 제외 명세의 본질적 트레이드오프(토큰=권한 구조는 유지) — 제품 관점 수용 확인만 필요.
-- **동시 경합 초안 생성 race**: 가드 exists? 판정 후 초안 INSERT 경합 시 FK RESTRICT 500 가능 — 단일 사용자 DELETE 흐름에서 사실상 불가능한 타이밍. 기록용.
-- **이전 리뷰 잔존 2건**(F-REM — DeliverJob origin 갱신·테스트 Solapi 공용 stub)은 이번 배치 파일과 무관, 본 리뷰에서 중복 지적하지 않음.
+- `average`에 raw SQL 문자열(Arel.sql 미사용) — 집계 함수는 허용 범위·상수 문자열이라 인젝션 없음. C-1 수정 시 일관성 차원에서 Arel.sql 정리 권장.
+- TaxPeriodQuery 매출이 행당 1쿼리 × 4 — 상수 4건으로 성능 무의미. 인덱스(user_id·due_on 복합, user_id, payments.invoice_id) 기존 인덱스로 충분 — **마이그레이션 불요 판정 타당**.
+- 뷰 내 "거래처가 등록되지 않았습니다" 분기는 실질 도달 불가(청구 존재→거래처 존재·CLIENT 삭제 가드) — 방어 코드로 유지 무방.
 
-## 5. Tester 중점 테스트 제안 (다음 파이프라인 전달)
+## Rule ID 준수 매핑 (재현으로 검증한 항목 포함)
 
-1. **W1 재현 시나리오**: `facebookexternalhit`·`Slackbot` UA로 `/b/:token` GET → 현재는 ViewEvent 기록·SHARE-4 알림 큐잉이 실제로 발생하는지 시스템 레벨 확인(정책 수용 여부 판단 자료).
-2. **뷰어 폰트 로드**: viewer 시스템 테스트에서 `/fonts/PretendardVariable.woff2` 200 응답 + 빌드 CSS에 @font-face 포함 확인(인앱 UA 시뮬레이션 겸용 — VIEW-1 회귀).
-3. **삭제 UX**: 발행 이력 보유 거래처 삭제 시 alert flash가 실제 화면(Turbo 흐름)에 표시되고 목록이 유지되는지 시스템 테스트.
-4. **ko 회귀 샘플**: 뷰어·알림톡 문구가 I18n 전환의 영향권 밖임을 문구 스냅샷으로 고정(REM-2 톤 불변).
+| Rule | 판정 | 검증 방법 |
+|---|---|---|
+| DASH-5 (리포트 페이지·지연 정의 구분·12개월·CSS 그래프·텍스트 표) | 부분 통과 — 지연 정의 구분 표기·그래프·텍스트 표 OK, 평균 지연일 산출 C-1 | 코드 대조 + runner |
+| DASH-6 (분기 매핑·공급가액·draft/voided 제외·기준 분리·고지문) | 통과 | runner: 3/31→Q1·4/1→Q2 경계, 라벨 4종(4·7·10·익년1월), voided/draft 제외, 고지문 원문 일치 |
+| PAY-2 (연체 금액 잔액 기준) | 통과 | runner: 부분입금 100,000 차감 230,000 (=total−paid, Invoice#remaining_amount 동치) |
+| TIME-1 (KST 고정) | 통과 | SQL 바인딩 `BETWEEN '2026-09-30 15:00:00'...` = KST 10-01 00:00 — KST 새벽(02:00) 발행도 올바른 분기 소속 |
+| 소유권 격리 | 통과 | runner: 2사용자 교차 — Client·Invoice·Payment join 경로 전부 user별 분리, 누출 0 |
+| AUTH-1.3·인증 | 통과 | App::BaseController 상속(require_authentication·프로필 가드), 뷰 `@user.display_name`은 가드 후 보장 |
+| SQL 인젝션·이스케이프 | 통과 | 그룹 키 상수 문자열(Arel.sql)·뷰 `<%= %>`만(raw/html_safe 없음) |
+| 규약 §3.2·§4 | 부분 통과 | 네임스페이스·`.call`·컨트롤러 7줄·뷰 쿼리 금지·의존 방향 OK — 반환형 문언만 W-2 |
+| SURF-3 (noindex) | 해당 없음 | /app 공통 레이아웃 정책 상속(기존 구현) |
+| PLAN 게이트 | 해당 없음 | 리포트는 플랜 한도 대상 아님(PRD 미규정) — nav locked는 AUTH-1.3 프로필 잠금 규칙 준용 |
+| UI(DESIGN-2·6·8) | 부분 통과 | h1→h2 위계·상태색 3종·tabular-nums·figure/figcaption·min-h-11·focus-visible·ONB-1 톤 빈 상태 OK — W-1만 |
 
-## 6. 통과 커버리지
+## Tester 중점 테스트 제안
 
-- 정적: 전체 diff 28파일 + 연관 원문(client/invoice/user/message_log/view_event 모델·track_service·viewer_controller·schema FK·_head·application.css·ko/en.yml·mailers·reminders format_date·Thruster/Gem 소스)
-- 실행 재현(`bin/rails runner -e test`, 롤백): T4-1 issued 차단 / T4-2 voided 차단 / T4-3 초안 소거+삭제(아이템 포함) / T3-1 봇 무기록·무전이 / T3-2 정상 기록·전이 / T4-4 탈퇴 연쇄 무충돌 — **6/6 통과**
-- T1 빌드 반영: `bin/rails tailwindcss:build` 실행 후 산출물에서 @font-face 실측
+1. **부분입금 2회 이상 청구의 평균 지급 지연일** — C-1 수정 검증용 시나리오(조기 부분입금 + 지연 마감 조합, 부호 검증)
+2. 두 사용자 교차 데이터 리포트 — 각 섹션 수치가 자기 데이터만 반영하는지(연체 금액·월별 추이·분기 매출)
+3. 분기 경계일 발행(3/31 23:59 vs 4/1 00:05 KST) 소속 분기 + 라벨 "익년 1월 확정신고" 연말 케이스
+4. voided·draft 청구가 매출·부가세·진행 집계에서 빠지는지 / 부분입금 청구의 연체 금액 잔액 일치(DASH-1 미수 총액과 동치)
+5. 신규 가입(청구 0건) — 빈 상태 CTA 노출·3섹션 미노출·12개월 그래프 0원 렌더
+6. 모바일 폭에서 그래프 금액 가시성(W-1) — 터치 기기에서 월별 금액 확인 가능 여부
+
+## 검증 커버리지 (Reviewer 자체 재현 — RAILS_ENV=test runner, 종료 시 rollback)
+
+- 스코프 격리(u1/u2 교차 3쿼리) · PAY-2 잔액 · 만기일=오늘 배타 · 12행 고정 · 연간 경계(2025.12) · 월 경계 · 분기 시작월 경계(3/31·4/1·12/31) · 라벨 4종 · 분기 순서 · Q3/Q4 매출·부가세·수금 분리 · voided/draft 매출 제외 · draft 집계 제외 · KST 분기 경계 바인딩 · 빈 사용자 3쿼리 — 전부 구현 동작 확인(PASS).
+- `bin/rails test` 전체·rubocop·zeitwerk:check은 오케스트레이터 게이트 확인(0실패·0 offenses·통과) 기반 — C-2는 존재 테스트의 '커버리지' 문제다.

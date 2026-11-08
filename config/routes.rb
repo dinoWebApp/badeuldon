@@ -35,6 +35,9 @@ Rails.application.routes.draw do
       member { patch :answer }
     end
 
+    # ── F-DASH 리포트(DASH-5·DASH-6) — 거래처별 지연·월간 수금 추이·신고 주기 집계(/app/report) ──
+    resource :report, only: :show
+
     # ── F-PLAN 구독·과금(PLAN-1~5) ──
     resource :billing, only: :show           # 요금제 페이지(/app/billing)
     resource :subscription, only: %i[ create update ] do
