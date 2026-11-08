@@ -145,6 +145,47 @@ class App::ClientsControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # ── CLIENT-1(P4·REM-6) — 발행 이력 보유 거래처 삭제 차단 ──
+
+  test "발행 이력 보유 거래처 삭제는 303 alert 안내와 함께 차단되고 레코드가 보존된다 (P4·REM-6)" do
+    sign_in_as users(:gamma)
+    client = clients(:gamma_main)
+    create_issued_invoice_for(client)
+    assert_no_difference -> { Client.count } do
+      delete app_client_path(client)
+    end
+    assert_response :see_other
+    assert_redirected_to app_clients_path
+    assert_equal "발행 이력이 있는 거래처는 삭제할 수 없습니다. 기록 보존을 위해 삭제가 차단됩니다",
+      flash[:alert]
+    assert Client.exists?(client.id)
+  end
+
+  test "삭제 차단 alert은 리다이렉트된 목록 화면에 렌더된다 (CLIENT-1 — 05_review Tester 제안 3)" do
+    sign_in_as users(:gamma)
+    client = clients(:gamma_main)
+    create_issued_invoice_for(client)
+    delete app_client_path(client)
+    assert_response :see_other
+
+    get app_clients_path
+    assert_response :success
+    assert_select "p#alert", text:
+      "발행 이력이 있는 거래처는 삭제할 수 없습니다. 기록 보존을 위해 삭제가 차단됩니다"
+    assert_select "a", text: "감마파트너스"                         # 목록 유지 — 레코드 보존(카드 링크)
+  end
+
+  test "초안만 보유한 거래처 삭제는 기존대로 303 성공한다 (P4 가드 — 삭제 허용)" do
+    sign_in_as users(:gamma)
+    client = clients(:gamma_main)
+    create_draft_invoice_for(client)
+    assert_difference -> { Client.count }, -1 do
+      delete app_client_path(client)
+    end
+    assert_response :see_other
+    assert_equal "거래처가 삭제되었습니다.", flash[:notice]
+  end
+
   # ── 목록·상세 렌더(CLIENT-1) ──
 
   test "목록은 거래처 카드에 등록 정보를 렌더한다 (CLIENT-1)" do
@@ -291,5 +332,29 @@ class App::ClientsControllerTest < ActionDispatch::IntegrationTest
       account_holder: "김알파", phone: "010-9000-0001"
     } }
     assert_redirected_to app_root_path
+  end
+
+  # P4 가드 검증용 헬퍼 — ClientTest와 동일 최소 생성(invoices.yml는 gamma 0건 유지 정책)
+  def create_issued_invoice_for(client)
+    create_invoice_for(client, status: :issued)
+  end
+
+  def create_draft_invoice_for(client)
+    create_invoice_for(client, status: :draft)
+  end
+
+  def create_invoice_for(client, status:)
+    invoice = Invoice.new(
+      user: client.user, client: client, status: status,
+      issue_number: "BD-20261012-099", issued_at: Time.zone.parse("2026-10-12 09:00"),
+      due_on: Date.parse("2026-11-11"), tax_mode: :separate, withholding_enabled: false,
+      issuer_display_name: "감발행자", bank_name: "국민은행",
+      account_number: "123-45-678901", account_holder: "감발행자",
+      token: SecureRandom.urlsafe_base64(32),
+      token_expires_at: Time.zone.parse("2026-12-11 23:59")
+    )
+    invoice.items.build(description: "디자인 작업", quantity: 1, unit_price: 300000)
+    invoice.save!
+    invoice
   end
 end

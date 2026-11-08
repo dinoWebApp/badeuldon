@@ -513,5 +513,26 @@ module Reminders
       assert_equal "이번 주 내", @fake.calls.first[:variables]["약속일"]   # U1 향 치환
       assert_equal "11월 13일(금)", @fake.calls.last[:variables]["약속일"] # 채무자 향 실제 날짜
     end
+
+    # ── I18n 무영향 스냅샷(REM-2·T2 회귀 방어 — 05_review Tester 제안 4) ──
+    # 변수 조립(build_variables·format_date)은 수동 포맷이라 I18n locale 의존이 없다 —
+    # locale 전환(ko→en)과 무관히 동일 포맷이 유지됨을 스냅샷으로 고정해 솔라피 템플릿
+    # 치환(REG-2 검수본)을 보호한다. available_locales에 :en이 있어 회귀 여지가 실재한다.
+    test "변수 조립은 I18n locale 전환과 무관히 동일 포맷을 유지한다 (REM-2·TIME-1)" do
+      invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                        due_on: Date.new(2026, 11, 9))
+      service = SendService.new(invoice: invoice, template_key: "confirm_d1",
+                                recipient_role: :debtor, client: @fake)
+
+      travel_to(TUESDAY_10AM) do
+        ko_variables = service.send(:build_variables)
+        assert_equal "11월 9일(월)", ko_variables["만기일"]
+        assert_equal "110,000", ko_variables["금액"]
+
+        I18n.with_locale(:en) do
+          assert_equal ko_variables, service.send(:build_variables)  # 스냅샷 — 무변동
+        end
+      end
+    end
   end
 end

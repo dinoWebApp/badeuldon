@@ -38,9 +38,14 @@ class App::ClientsController < App::BaseController
     end
   end
 
+  # CLIENT-1(P4·REM-6) — 발행 이력 보유 거래처의 삭제는 모델 가드에서 차단되며, 실패 시
+  # 오류 안내를 flash alert으로 전달하고 목록으로 되돌린다(303 유지).
   def destroy
-    @client.destroy!
-    redirect_to app_clients_path, status: :see_other, notice: "거래처가 삭제되었습니다."
+    if @client.destroy
+      redirect_to app_clients_path, status: :see_other, notice: "거래처가 삭제되었습니다."
+    else
+      redirect_to app_clients_path, status: :see_other, alert: @client.errors.full_messages.join(" ")
+    end
   end
 
   # REM-7 — 거래처 단위 발송 보류: 이 거래처의 모든 청구서 자동 안내를 멈춘다(가드 SUSPENDED).

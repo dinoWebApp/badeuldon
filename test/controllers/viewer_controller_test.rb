@@ -212,6 +212,42 @@ class ViewerControllerTest < ActionDispatch::IntegrationTest
     assert_no_match(/로그인/, response.body)                       # P3 — 가입 유도 없음
   end
 
+  # ── 링크 프리뷰 봇 무기록·무전이(SHARE-3·05_review W1·Tester 제안 1 보강) ──
+  # 링크 프리뷰 크롤러(Slackbot·facebookexternalhit·Discordbot)는 프리뷰 생성용 렌더는
+  # 유지하되(VIEW-1), 열람 이력·issued→viewed 전이·SHARE-4 오알림 대상에서 제외된다.
+  test "링크 프리뷰 봇 UA는 뷰어를 200으로 렌더하되 열람 이력과 상태 전이가 없다 (SHARE-3·SHARE-4)" do
+    invoice = invoices(:delta_issued)
+    assert invoice.issued?
+
+    link_preview_uas = [
+      "Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)",
+      CRAWLER_UA,
+      "Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)"
+    ]
+    link_preview_uas.each do |user_agent|
+      get viewer_path(invoice.token), headers: { "User-Agent" => user_agent }
+      assert_response :success                                    # 렌더 유지 — 기록만 제외
+    end
+
+    assert invoice.reload.issued?                                 # INV-4 — issued→viewed 전이 없음
+    assert_empty invoice.view_events                              # SHARE-4 오알림 원천 차단
+  end
+
+  # ── DESIGN-3 폰트 셀프호스팅(05_review Tester 제안 2 보강) ──
+  # CDN(jsdelivr) 재도입 회귀 방지 + 셀프호스팅 자산 서빙 확인. @font-face는 빌드 산출물
+  # (app/assets/builds/tailwind.css)에 존재해야 뷰어 실제 로드가 성립한다.
+  test "폰트는 셀프호스팅 자산으로 200 응답하고 CDN 참조는 없다 (DESIGN-3)" do
+    get "/fonts/PretendardVariable.woff2"
+    assert_response :success
+
+    get viewer_path(invoices(:delta_issued).token), headers: { "User-Agent" => DESKTOP_UA }
+    assert_response :success
+    assert_no_match(/jsdelivr/, response.body)                    # CDN 제거 회귀 방지
+
+    build_css = Rails.root.join("app/assets/builds/tailwind.css").read
+    assert_includes build_css, "/fonts/PretendardVariable.woff2"  # @font-face src — 실제 로드 근거
+  end
+
   # ── 토큰 매트릭스 — ②~⑤ 무효(VIEW-6 통일) ──
 
   test "만료된 토큰은 VIEW-6 안내와 404로 응답한다 (SHARE-2·VIEW-6)" do

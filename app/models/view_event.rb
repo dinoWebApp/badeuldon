@@ -7,6 +7,21 @@ class ViewEvent < ApplicationRecord
   # SHARE-3 — User-Agent 대략 판별용. 모바일 계열 키워드가 1개라도 매칭되면 mobile로 본다.
   MOBILE_UA_PATTERN = /Android|iPhone|iPad|iPod|Mobile|BlackBerry|Opera Mini|IEMobile|Windows Phone/i
 
+  # SHARE-3(PRD v0.27) — 크롤러·봇 사용자 에이전트 판별. 봇 접근은 열람 이력·최초 열람
+  # 전이·열람 알림(SHARE-4) 대상에서 제외된다("기록 제외"가 확정 설계). HeadlessChrome은
+  # 의도적으로 제외했다 — Capybara 시스템 테스트 자체 UA라 포함 시 테스트가 전부 파괴된다.
+  BOT_UA_PATTERN = /
+    Googlebot|bingbot|Yeti|slurp|Mediapartners |
+    Slackbot|facebookexternalhit|WhatsApp|Twitterbot|Discordbot|TelegramBot |
+    crawl|spider |
+    curl|wget|python-requests
+  /ix
+
+  # 봇 UA 단일 판정 출처 — TrackService와 테스트가 이 메서드만 참조한다.
+  def self.bot?(user_agent)
+    user_agent.to_s.match?(BOT_UA_PATTERN)
+  end
+
   belongs_to :invoice
 
   validates :device, inclusion: { in: DEVICES }

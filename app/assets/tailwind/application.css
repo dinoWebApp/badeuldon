@@ -1,8 +1,17 @@
 @import "tailwindcss";
 
+/* DESIGN-3 — Pretendard 셀프호스팅(CDN 의존 제거, PERF-2).
+   가변 폰트 단일 파일(public/fonts/PretendardVariable.woff2) — weight 45~920 커버. */
+@font-face {
+  font-family: "Pretendard Variable";
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/PretendardVariable.woff2") format("woff2-variations");
+}
+
 /* ── 디자인 시스템 토큰 (PRD §7.3 DESIGN-2·3, AGENTS 「UI 품질 기준」) ──
    크림 배경 + 딥 그린 액센트(emerald-800/900) + 중립 stone,
-   국문 우선 폰트는 Pretendard(layout에서 CDN 로드) — 시스템 스택 대체. */
+   국문 우선 폰트는 Pretendard(본 파일 @font-face로 셀프호스팅 — /fonts/PretendardVariable.woff2) — 시스템 스택 대체. */
 @theme {
   --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
     "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Segoe UI", system-ui, sans-serif;

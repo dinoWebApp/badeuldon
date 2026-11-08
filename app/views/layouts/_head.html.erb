@@ -17,8 +17,8 @@
 <link rel="icon" href="/icon.svg?v=20261016" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icon.png?v=20261016">
 
-<%# DESIGN-3 — Pretendard(국문 우선 오픈소스 폰트) CDN, 전역 폰트 교체 %>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<%# DESIGN-3 — Pretendard는 셀프호스팅(public/fonts/PretendardVariable.woff2) —
+    CDN 의존 제거(인앱·오프라인 안정성, PERF-2). @font-face는 app/assets/tailwind/application.css %>
 <%# Includes all stylesheet files in app/assets/stylesheets %>
 <%= stylesheet_link_tag :app, "data-turbo-track": "reload" %>
 <%= javascript_importmap_tags %>

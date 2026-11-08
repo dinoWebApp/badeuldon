@@ -59,6 +59,51 @@ module ViewEvents
       assert_equal "pc", ViewEvent.device_from_user_agent("")
     end
 
+    test "봇 UA는 ViewEvent를 기록하지 않고 상태를 전이하지 않는다 (SHARE-3·PRD v0.27)" do
+      invoice = invoices(:delta_issued)
+
+      bot_uas = [
+        "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+        "Mozilla/5.0 (compatible; bingbot/2.0)",
+        "Mozilla/5.0 (compatible; Yeti/1.0)",
+        "Mozilla/5.0 (compatible; Yahoo! Slurp)",
+        "Mozilla/5.0 (compatible; Mediapartners-Google)",
+        "MyCrawler/1.0 (crawl bot)",
+        "SomeSpider/2.0",
+        "curl/8.4.0",
+        "Wget/1.21.3",
+        "python-requests/2.31.0",
+        "Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)",
+        "Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)"
+      ]
+      bot_uas.each do |bot_ua|
+        TrackService.new(invoice: invoice, user_agent: bot_ua, ip: "192.0.2.99").call
+        assert ViewEvent.bot?(bot_ua)
+      end
+
+      assert invoice.reload.issued?                      # 최초 열람 전이 없음
+      assert_empty invoice.view_events                   # 기록 제외가 확정 설계
+    end
+
+    test "봇 판정은 HeadlessChrome과 일반 브라우저 UA를 봇으로 보지 않는다" do
+      assert_not ViewEvent.bot?("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " \
+        "AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/120.0.0.0 Safari/537.36")
+      assert_not ViewEvent.bot?(nil)
+      assert_not ViewEvent.bot?("")
+    end
+
+    test "일반 UA와 긴 UA(600자)는 기존 동작을 유지하며 IP는 45자로 정규화된다" do
+      invoice = invoices(:delta_issued)
+      long_ua = "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36 " + "x" * 550
+      long_ip = "2001:0db8:85a3:0000:0000:8a2e:0370:7334:extra:padding:more:segments"
+
+      TrackService.new(invoice: invoice, user_agent: long_ua, ip: long_ip).call
+
+      assert invoice.reload.viewed?
+      assert_equal 1, invoice.view_events.count          # 600자 UA도 봇이 아니면 정상 기록
+      assert_equal long_ip.gsub(/\s+/, "").slice(0, 45), invoice.view_events.sole.ip
+    end
+
     test "조건부 UPDATE는 동일 전이를 정확히 1회만 적용한다 (이슈 #2 회귀)" do
       invoice = invoices(:delta_issued)
 

@@ -23,6 +23,10 @@ module Badeuldon
     #
     # TIME-1: 모든 일정·발송 기준 시간대는 KST 고정 (PRD §6.17)
     config.time_zone = "Seoul"
+
+    # ko locale: 한국 서비스 — 기본 로케일 ko, 헤더·날짜·속성명 기본번역은 rails-i18n 사전에 위임
+    config.i18n.available_locales = [ :en, :ko ]
+    config.i18n.default_locale = :ko
     # config.eager_load_paths << Rails.root.join("extras")
   end
 end

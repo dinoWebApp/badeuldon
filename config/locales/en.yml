@@ -30,6 +30,10 @@
 en:
   hello: "Hello world"
 
+  # [정리 과제] 아래 activerecord 블록은 한국어 문구가 en 로케일에 들어있는 낯선 구조다.
+  # 원래 앱은 en 기본 로케일 + en.yml 한국어 번역으로 운영했으나 3-S 통합(T2)에서
+  # default_locale=:ko 전환과 함께 이 블록 전체를 config/locales/ko.yml로 이식했다.
+  # en 블록은 en 백업으로 유지한다. ko 정착 안정화 후 이 블록을 제거(또는 영문 번역으로 교체)할 것.
   # 회원가입 폼에서 노출되는 User 검증 오류 문구만 한글 처리(AUTH-1 — 기본 로캘 :en 유지)
   activerecord:
     errors:

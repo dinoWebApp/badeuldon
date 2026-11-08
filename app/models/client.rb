@@ -25,6 +25,23 @@ class Client < ApplicationRecord
   # merge(Client.reminders_active)로 쓰인다(채무자 발송 모집합에서 한 번에 제외).
   scope :reminders_active, -> { where(refused_at: nil, reminders_suspended_at: nil) }
 
+  # CLIENT-1(P4·REM-6) — 발행 이력이 있는 거래처의 삭제 차단. 발행 계열 청구(draft 이외 상태)가
+  # 존재하면 message_logs 소실로 이어지므로 P4(모든 발신은 기록·임의 삭제 불가)에 반해 삭제를
+  # 중단한다. 초안만 보유한 거래처는 발송 이력 자체가 없어 초안을 정리한 뒤 삭제를 허용한다
+  # (Client에 invoices 연관이 없어 FK 연쇄가 없으므로 초안 소거를 여기서 수행한다).
+  before_destroy :prevent_destroy_with_issued_invoices
+
+  private def prevent_destroy_with_issued_invoices
+    scoped_invoices = Invoice.where(client_id: id)
+
+    if scoped_invoices.where.not(status: :draft).exists?
+      errors.add(:base, "발행 이력이 있는 거래처는 삭제할 수 없습니다. 기록 보존을 위해 삭제가 차단됩니다")
+      throw(:abort)
+    end
+
+    scoped_invoices.destroy_all
+  end
+
   # VIEW-7 — 수신거부 접수 여부. refused_at 마킹은 Promises::RegisterService의 refusal 응답
   # 경로가 담당하며, 마킹 즉시 이 거래처의 모든 채무자 향 발송이 가드에서 차단된다.
   def refused?

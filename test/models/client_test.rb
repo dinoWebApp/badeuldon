@@ -147,6 +147,64 @@ class ClientTest < ActiveSupport::TestCase
     end
   end
 
+  # ── CLIENT-1(P4·REM-6) — 발행 이력 보유 거래처 삭제 차단 ──
+
+  test "발행 계열 청구(draft 이외)가 있는 거래처 삭제는 base 오류로 차단된다 (P4·REM-6)" do
+    client = clients(:gamma_main)
+    create_issued_invoice_for(client)
+    assert_no_difference -> { Client.count } do
+      assert_not client.destroy
+    end
+    assert_includes client.errors[:base],
+      "발행 이력이 있는 거래처는 삭제할 수 없습니다. 기록 보존을 위해 삭제가 차단됩니다"
+    assert Client.exists?(client.id)
+  end
+
+  test "초안만 보유한 거래처는 기존대로 삭제된다 (P4 가드 — 발송 이력 없음, 연쇄 삭제 무해)" do
+    client = clients(:gamma_main)
+    create_draft_invoice_for(client)
+    assert client.destroy
+    assert_not Client.exists?(client.id)
+  end
+
+  test "청구서가 없는 거래처 삭제는 차단되지 않는다 (P4 가드 — 정상 경로 유지)" do
+    client = clients(:gamma_main)
+    assert client.destroy
+    assert_not Client.exists?(client.id)
+  end
+
+  test "사용자 탈퇴 연쇄(invoices 먼저 삭제)는 거래처 삭제 가드와 충돌하지 않는다 (AUTH-1.5)" do
+    create_issued_invoice_for(clients(:gamma_main))
+    # user.rb의 연관 선언 순서로 invoices가 clients보다 먼저 삭제되어 가드 조건이 충족되지 않는다
+    users(:gamma).destroy
+    assert_not Client.exists?(clients(:gamma_main).id)
+  end
+
+  # P4 가드 검증용 헬퍼 — issued/draft 청구서를 gamma 스코프로 최소 생성한다
+  # (fixtures는 gamma를 0건 유지 정책이므로 테스트 내에서 생성).
+  def create_issued_invoice_for(client)
+    create_invoice_for(client, status: :issued)
+  end
+
+  def create_draft_invoice_for(client)
+    create_invoice_for(client, status: :draft)
+  end
+
+  def create_invoice_for(client, status:)
+    invoice = Invoice.new(
+      user: client.user, client: client, status: status,
+      issue_number: "BD-20261012-099", issued_at: Time.zone.parse("2026-10-12 09:00"),
+      due_on: Date.parse("2026-11-11"), tax_mode: :separate, withholding_enabled: false,
+      issuer_display_name: "감발행자", bank_name: "국민은행",
+      account_number: "123-45-678901", account_holder: "감발행자",
+      token: SecureRandom.urlsafe_base64(32),
+      token_expires_at: Time.zone.parse("2026-12-11 23:59")
+    )
+    invoice.items.build(description: "디자인 작업", quantity: 1, unit_price: 300000)
+    invoice.save!
+    invoice
+  end
+
   private
 
   def new_valid_client(user)
