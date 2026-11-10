@@ -174,3 +174,16 @@
 **게이트 결과**: `bin/rubocop` 5파일 0 offense · `bin/rails zeitwerk:check` 통과 · `bin/rails test test/services/reminders/ test/controllers/app/` — **276 runs, 1669 assertions, 0 failures, 0 errors**
 
 **인계 노트**: `app/views/app/invoices/show.html.erb`의 "다음 안내:" 라벨은 `@manual_template_key`가 nil이면 빈 표기가 된다(message_template_label(nil) → 빈 문자열 폴백) — C-2 nil 창에서 버튼은 동작하되 라벨만 비어 보인다. 뷰 파일은 본 수정 소유권 밖이라 건드리지 않았으며, nil 시 라벨 숨김 처리를 후속 권고한다(Phase 7 Tester 인계).
+
+### §10 Fast 수정 — 어드민 콘솔 UI 표기 결함 2건(뷰만 · 2026-11-10)
+
+운영 실측 제보 결함 2건. 컨트롤러·쿼리·다른 파일 무수정(문서·스키마 변경 없음).
+
+**결함 1 — 운영 대시보드 청구·수금 표 연접 렌더**(`app/views/admin/dashboards/show.html.erb`): 기존 한 `<tr>`에 지표 2쌍(4열)이라 좁은 화면에서 "당월 발행 1건누적 발행 2건"처럼 연접. **수정**: 1행 1지표 쌍(2열)으로 재배치 — 당월 발행/누적 발행/당월 수금 마감/누적 수금 마감/당월 수금 금액/누적 수금 금액 6행(북극성 행 패턴 준용). 북극성 행의 `colspan="3"`은 4열 잔재라 함께 제거(2열 정합). 단위(건·₩)·tabular-nums·기존 클래스 문법 유지, 데이터는 기존 @collection_stats.
+
+**결함 2 — 회원 상세 섹션 제목 가짜 건수**(`app/views/admin/members/show.html.erb` 70·95·115행): 조회 limit 상수 하드코딩이 실제 레코드 수처럼 표기(빈 목록에도 "10건"). **수정**: 접미사 제거 → "최근 발송 이력"·"최근 문의"·"대상 감사 로그".
+
+**재검증**(임시 통합 테스트 — admin 실로그인 후 실행·삭제):
+- dashboards 200 + `assert_no_match(/건누적|₩누적/)`·"당월 발행"·"북극성" 렌더 — 통과
+- members show 200 + `assert_no_match(/\((?:10|5)건\)/)`·제목 3종 렌더 — 통과
+- **게이트**: `bin/rubocop` 249 files 0 offense · `bin/rails zeitwerk:check` 통과 · `bin/rails test` 전체 — **883 runs, 5003 assertions, 0 failures, 0 errors**. 임시 레코드 없음(테스트 트랜잭션 롤백).

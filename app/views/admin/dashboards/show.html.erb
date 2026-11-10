@@ -40,24 +40,30 @@
       <tr class="border-t border-stone-200">
         <th scope="row" class="py-2 text-left font-normal text-stone-500">당월 발행</th>
         <td class="py-2 text-right tabular-nums"><%= number_with_delimiter(@collection_stats.month_issued) %>건</td>
+      </tr>
+      <tr class="border-t border-stone-200">
         <th scope="row" class="py-2 text-left font-normal text-stone-500">누적 발행</th>
         <td class="py-2 text-right tabular-nums"><%= number_with_delimiter(@collection_stats.total_issued) %>건</td>
       </tr>
       <tr class="border-t border-stone-200">
         <th scope="row" class="py-2 text-left font-normal text-stone-500">당월 수금 마감</th>
         <td class="py-2 text-right tabular-nums"><%= number_with_delimiter(@collection_stats.month_closed) %>건</td>
+      </tr>
+      <tr class="border-t border-stone-200">
         <th scope="row" class="py-2 text-left font-normal text-stone-500">누적 수금 마감</th>
         <td class="py-2 text-right tabular-nums"><%= number_with_delimiter(@collection_stats.total_closed) %>건</td>
       </tr>
       <tr class="border-t border-stone-200">
         <th scope="row" class="py-2 text-left font-normal text-stone-500">당월 수금 금액</th>
         <td class="py-2 text-right tabular-nums"><%= number_to_currency(@collection_stats.month_closed_amount, unit: "₩", precision: 0) %></td>
+      </tr>
+      <tr class="border-t border-stone-200">
         <th scope="row" class="py-2 text-left font-normal text-stone-500">누적 수금 금액</th>
         <td class="py-2 text-right tabular-nums"><%= number_to_currency(@collection_stats.total_closed_amount, unit: "₩", precision: 0) %></td>
       </tr>
       <tr class="border-t border-stone-200">
         <th scope="row" class="py-2 text-left font-normal text-stone-500" title="발행 후 30일 내 수금 완료율">북극성(30일 내 수금율)</th>
-        <td class="py-2 text-right tabular-nums" colspan="3"><%= @collection_stats.north_star_rate.nil? ? "-" : "#{@collection_stats.north_star_rate}%" %></td>
+        <td class="py-2 text-right tabular-nums"><%= @collection_stats.north_star_rate.nil? ? "-" : "#{@collection_stats.north_star_rate}%" %></td>
       </tr>
     </tbody>
   </table>
