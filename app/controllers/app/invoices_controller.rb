@@ -141,6 +141,10 @@ class App::InvoicesController < App::BaseController
   # 공개 산정 진입점(manual_step_key — 단일 출처)으로 산정해 넘기고, 가드·상한·발송 창·기록은
   # SendService가 동일 적용한다(P4 — 모든 시도는 발송 이력에 남는다).
   def remind
+    # manual_step_key가 nil = 18종 중 참인 템플릿이 없는 창(예: 만기 도과 + 미래 약속의
+    # 약속 전날 이전 구간 — Phase 6 C-2). 발송·로그 기록 없이 안내로 수렴한다(P1 톤).
+    return redirect_no_template if manual_template_key.nil?
+
     result = Reminders::SendService.new(
       invoice: @invoice, template_key: manual_template_key,
       recipient_role: :debtor, origin: :manual
@@ -151,6 +155,13 @@ class App::InvoicesController < App::BaseController
     # 사용자 안내만 하고 재시도는 발송 이력의 수동 재발송으로 이어진다.
     redirect_to app_invoice_path(@invoice), status: :see_other,
                 alert: "일시적인 오류로 안내 발송에 실패했습니다. 잠시 후 다시 시도해 주세요."
+  end
+
+  # Phase 6 C-2 — 참인 안내 문구가 없는 창의 수동 발송 수렴. 발송 시도 자체를 하지 않으므로
+  # MessageLog 기록도 없다(스킵도 아님 — "보낼 문구가 없다"는 상태이지 발송 시도가 아니다).
+  def redirect_no_template
+    redirect_to app_invoice_path(@invoice), status: :see_other,
+                notice: "지금 상황에서 보낼 수 있는 안내 문구가 없습니다. 약속일이 지나면 자동으로 안내됩니다."
   end
 
   # REM-12·13 — 시퀀스 수동 재개("이후 재개는 U1의 수동 재요청으로만 가능" — 자동 재개는

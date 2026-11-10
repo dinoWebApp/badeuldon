@@ -113,6 +113,13 @@ module Reminders
         return "FINISHED" if sequence_step? && @invoice.sequence_finished?
         return "INVALID_STATUS" if sequence_step? && !@invoice.unsettled?
         return "INELIGIBLE_PLAN" if auto_sequence_step? && !@invoice.user.reminder_eligible?
+        # PLAN-3 "하드리밋(수동 포함)"·REM-8 "동일 템플릿 수동 발송·상한 내" — 수동 발송은
+        # 템플릿 무관으로 상한을 적용한다(Phase 6 C-1). 수동 issue_notice 반복 선택이 1회성
+        # 전제를 깨고 총량 5통을 넘기는 우회를 차단한다. 수동 집계는 채무자 향 sent 전체(템플릿
+        # 무관 — 시퀀스성·1회성 혼합 총량도 5통을 넘지 않게 한다). 자동 시퀀스성은 기존대로
+        # sequence_step? 한정, 자동 1회성 3종(issue_notice·partial_paid·paid_thanks)은 기존대로
+        # 집계 밖이다(Q10과의 긴장은 오케스트레이터가 PRD에 기록 예정).
+        return "CAP_REACHED" if @origin == "manual" && manual_cap_reached?
         return "CAP_REACHED" if sequence_step? && cap_reached?
       elsif @invoice.user.phone.blank?
         return "NO_PHONE"
@@ -133,6 +140,12 @@ module Reminders
 
     def cap_reached?
       MessageLog.sequence_sent_count(@invoice.id) >= MessageLog::SEQUENCE_CAP
+    end
+
+    # 수동 발송(Phase 6 C-1)의 상한 집계 — 채무자 향 sent 전체(템플릿 무관). PLAN-3 하드리밋.
+    def manual_cap_reached?
+      MessageLog.where(invoice_id: @invoice.id, recipient_role: :debtor, status: :sent)
+                .count >= MessageLog::SEQUENCE_CAP
     end
 
     # ── 가드 실패 기록 ──────────────────────────────────────────────────────

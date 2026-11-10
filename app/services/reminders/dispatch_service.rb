@@ -61,19 +61,30 @@ module Reminders
 
     # 수동 발송(REM-8)의 "현재 상황에 맞는 다음 1통" — RemindersContext(컨트롤러 관심사)의
     # 단일 출처(W-1). 자동 스캔과 같은 트랙·분기 판정(latest_promise·confirm_template_key)을
-    # 공유하며, 시점 버킷팅만 수동 특유다(만기 당일까지 만기 예정 안내). 최종 가드(보류·
-    # 수신거부·상한·발송 창)는 Reminders::SendService가 다시 확인한다.
+    # 공유하며, 시점 버킷팅만 수동 특유다. "(내일)" 문구가 박힌 템플릿(invoice_notice·promise_d1)
+    # 은 전날(D-1)에만 선택한다 — 만기가 멀리 남은 시점의 수동 발송에서 문구가 거짓이 되는
+    # 운영 실측 결함 방지. 그 외 만기 전 구간은 SHARE-6 발행 안내(issue_notice — 날짜만 안내,
+    # 어느 날 보내도 내용이 참)로 대체한다. 폴백 issue_notice는 만기 도과 구간에서 과거 만기일을
+    # 안내하게 되므로 due >= today일 때만 허용한다(Phase 6 C-2). 약속 트랙에서 만기 도과 +
+    # 약속 전날 이전(당일 포함) 창은 18종 중 참인 템플릿이 없어 nil을 반환한다 — 컨트롤러가
+    # 안내 flash로 수렴(발송·기록 없음). 해당 창의 명세 공백은 오케스트레이터가 PRD에 기록
+    # 예정. 수동 issue_notice는 템플릿 키가 달라 자동 스캔의 invoice_notice 멱등(step_sent?)
+    # 과 무관 — D-1 도래 시 자동 안내는 정상 발송된다. 수동 발송의 총량 상한(템플릿 무관 —
+    # PLAN-3 하드리밋)은 Reminders::SendService 가드가 확인한다.
     def manual_step_key(invoice)
       promise = latest_promise(invoice)
       if promise&.promised_on
-        return promise.promised_on >= Date.current ? "promise_d1" : "promise_overdue"
+        return "promise_d1" if promise.promised_on - 1 == Date.current
+        return "promise_overdue" if promise.promised_on < Date.current
+        return "issue_notice" if invoice.due_on >= Date.current
+        return nil                                                       # 참인 템플릿 부재 창
       end
 
       due = invoice.due_on
       today = Date.current
-      if due >= today
-        "invoice_notice"
-      elsif due + 6 >= today
+      return "invoice_notice" if due - 1 == today
+      return "issue_notice" if due >= today
+      if due + 6 >= today
         confirm_template_key(invoice)
       elsif due + 13 >= today
         "requeue_d7"

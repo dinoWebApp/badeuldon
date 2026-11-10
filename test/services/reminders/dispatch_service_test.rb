@@ -306,9 +306,16 @@ module Reminders
       end
     end
 
-    test "manual_step_key는 시점 버킷·약속 트랙·열람 분기의 단일 출처다 (W-1·REM-8)" do
-      future = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
-                                       due_on: Date.new(2026, 11, 12))
+    test "manual_step_key는 시점 버킷·약속 트랙·열람 분기·nil 창의 단일 출처다 (W-1·REM-8·C-2)" do
+      # 기준일 11-10 — "(내일)" 문구 템플릿은 전날(D-1)에만 선택하고, 그 외 만기 전 구간은
+      # SHARE-6 발행 안내(issue_notice — 어느 날 보내도 내용이 참, due >= today 한정)로 대체한다.
+      # 약속 트랙에서 만기 도과 + 약속 전날 이전(당일 포함) 창은 참인 템플릿이 없어 nil이다(C-2).
+      far_future = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                           due_on: Date.new(2026, 11, 27))    # 만기 17일 전
+      day_before = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                           due_on: Date.new(2026, 11, 11))    # 만기 전날(D-1)
+      due_today = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                          due_on: Date.new(2026, 11, 10))     # 만기 당일
       opened = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
                                        due_on: Date.new(2026, 11, 9))
       mid = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
@@ -317,17 +324,44 @@ module Reminders
                                      due_on: Date.new(2026, 10, 20))      # D+14 이후 구간
       promised = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
                                          due_on: Date.new(2026, 11, 9))
+      promise_tomorrow = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                                 due_on: Date.new(2026, 11, 20))
+      promise_far = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                            due_on: Date.new(2026, 11, 20))
+      promise_past = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                             due_on: Date.new(2026, 11, 9))
+      promise_gap = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                            due_on: Date.new(2026, 11, 9))   # 만기 도과 + 미래 약속
+      promise_due_day = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                                due_on: Date.new(2026, 11, 9)) # 약속 당일 + 만기 도과
 
       travel_to(TUESDAY_2PM) do
         scanner = DispatchService.new
-        create_promise(promised, kind: :date_selected, promised_on: Date.new(2026, 11, 20))
+        create_promise(promised, kind: :date_selected, promised_on: Date.new(2026, 11, 11))
+        create_promise(promise_tomorrow, kind: :date_selected, promised_on: Date.new(2026, 11, 11))
+        create_promise(promise_far, kind: :date_selected, promised_on: Date.new(2026, 11, 20))
+        create_promise(promise_gap, kind: :date_selected, promised_on: Date.new(2026, 11, 20))
+        # 과거·당일 시나리오 — Promise 검증(약속일은 오늘 이후) 우회를 위해 생성 후 직접 마킹한다
+        past_promise = create_promise(promise_past, kind: :date_selected,
+                                      promised_on: Date.new(2026, 11, 11))
+        past_promise.update_column(:promised_on, Date.new(2026, 11, 8))
+        due_day_promise = create_promise(promise_due_day, kind: :date_selected,
+                                         promised_on: Date.new(2026, 11, 11))
+        due_day_promise.update_column(:promised_on, Date.new(2026, 11, 10))
 
-        assert_equal "invoice_notice", scanner.manual_step_key(future)    # 만기 전 — 예정 안내
+        assert_equal "issue_notice", scanner.manual_step_key(far_future)  # 만기 17일 전 — 발행 안내
+        assert_equal "invoice_notice", scanner.manual_step_key(day_before) # 만기 전날 — "(내일)" 정확
+        assert_equal "issue_notice", scanner.manual_step_key(due_today)   # 만기 당일 — 예정 안내
         record_view_event(opened, first: true)
         assert_equal "confirm_d1_opened", scanner.manual_step_key(opened)
         assert_equal "requeue_d7", scanner.manual_step_key(mid)
         assert_equal "final_d14", scanner.manual_step_key(late)
-        assert_equal "promise_d1", scanner.manual_step_key(promised)      # 약속 트랙 우선
+        assert_equal "promise_d1", scanner.manual_step_key(promised)      # 약속일 전날
+        assert_equal "promise_d1", scanner.manual_step_key(promise_tomorrow)
+        assert_equal "issue_notice", scanner.manual_step_key(promise_far) # 약속일 10일 전 + 만기 전
+        assert_equal "promise_overdue", scanner.manual_step_key(promise_past) # 약속일 도과
+        assert_nil scanner.manual_step_key(promise_gap)   # 만기 도과 + 미래 약속 — 참인 템플릿 없음
+        assert_nil scanner.manual_step_key(promise_due_day) # 약속 당일 + 만기 도과 — 동일 창(C-2)
       end
     end
   end

@@ -145,3 +145,32 @@
 - `bin/rubocop` 수정 rb 파일 7개 + views dir 0 offense · `bin/rails zeitwerk:check` 통과
 - 재검증 실행: notices(app 14건·admin 9건) + tickets_image_serving 4건 + dashboards 회귀 — **42 runs 241 assertions 0 failures**
 - Phase 6 잔존 해소(3-b admin 측 W-1·W-4): `Admin::TicketsController`에 `image` 액션 추가(admin 가드 하 send_data — app 측 패턴 준용)·admin 라우트 `GET tickets/:ticket_id/messages/:message_id/image` 결선·`show`에 `with_attached_image` 결합·`admin/tickets/show.html.erb`의 `image_tag(message.image)`를 인증 서빙 경로로 교체. 관리자 로그인 세션 Integration(임시·후 삭제)으로 이미지 200·AS 리다이렉트 URL 부재·비인증 리다이렉트 재현, `test/controllers/app/tickets_image_serving_test.rb` 회귀 없음(7건 통과), rubocop 전체 0 offense·zeitwerk 통과.
+
+## 9. 수동 발송 스텝 선택 결함 수정 (2026-11-10 — Standard·운영 실측 버그)
+
+**결함(운영 실측·사용자 제보)**: `Reminders::DispatchService#manual_step_key`가 만기 미도과 청구서에 무조건 `invoice_notice`를 반환. 이 템플릿은 솔라피 검수본에 "(내일)"이 박힌 만기 전날(D-1) 전용 문구라 만기 17일 남은 시점의 수동 발송("지금 1통 보내기")에서 "결제 예정일: 11월 27일(금) (내일)"로 발송됨(메시지 로그 확인). 약속 트랙도 동일 — `promised_on >= today`면 무조건 `promise_d1`("내일(약속일)" 박힘).
+
+**수정**: 수동 선택 경계 재정의 — "(내일)" 문구 템플릿(`invoice_notice`·`promise_d1`)은 전날(D-1)에만 선택. 그 외 만기 전 구간(당일 포함)은 SHARE-6 발행 안내 `issue_notice`(날짜만 안내 — 어느 날 보내도 내용이 참)로 대체. 약속 트랙은 전날→`promise_d1`·도과→`promise_overdue`·그 외→`issue_notice`. 수동 `issue_notice`는 템플릿 키가 달라 자동 스캔의 `invoice_notice` 멱등(`step_sent?`)과 무관 — D-1 도래 시 자동 안내는 정상 발송된다. 수동 재발송 허용(origin=manual은 스텝 멱등 대상 밖 — 기존 C-1 설계 준용), 상한·수신거부·발송 창 가드는 SendService 유지. **자동 스캔(steps_for·nominal)은 전혀 변경 없음.**
+
+**파일**:
+- `app/services/reminders/dispatch_service.rb` — `manual_step_key` 재작성 + 사유 주석(당일 처리·자동 멱등 무관성 명시)
+- `app/helpers/app/reminders_helper.rb` — 변경 없음(라벨 맵에 `issue_notice`="발행 안내" 기존 존재 확인, 경계 라벨 정합)
+- `test/services/reminders/dispatch_service_test.rb` — manual_step_key 케이스를 새 경계로 갱신: 만기 17일 전→issue_notice·만기 전날→invoice_notice·만기 당일→issue_notice·약속일 10일 전→issue_notice·약속일 전날→promise_d1·약속일 도과→promise_overdue(도과 케이스는 Promise 검증 우회 위해 생성 후 update_column)
+- `test/controllers/app/invoices_reminders_test.rb` — 컨트롤러 경유 재검증 테스트 신설(`with_solapi_client` stub 필수): U1 세션에서 `POST /app/invoices/:id/remind` → 만기 17일 전 MessageLog template_key=`issue_notice`·variables에 "(내일)" 없음, 만기 전날=`invoice_notice`
+
+**게이트 결과**: `bin/rubocop`(수정 4파일) 0 offense · `bin/rails zeitwerk:check` 통과 · `bin/rails test test/services/reminders/ test/controllers/app/` — **274 runs, 1651 assertions, 0 failures, 0 errors**
+
+### §9.1 Phase 6 — 리뷰 반영(CHANGES_REQUESTED C-1·C-2·W-1·W-2 · 2026-11-10)
+
+**C-1 — 수동 issue_notice 상한 우회 차단(PLAN-3 하드리밋 복원)**: 본 수정(§9)으로 issue_notice가 수동 반복 선택 가능해져 "1회성" 전제가 깨짐(재현: 상한 도달 후 수동 issue_notice 7회 전부 sent·누계 12통). SendService 가드에 **수동(origin=manual)은 템플릿 무관 상한** 추가 — `manual_cap_reached?`는 채무자 향 sent 전체를 집계(시퀀스성·1회성 혼합 총량도 5통을 넘지 않게 한다 — 리뷰 재현 시나리오 "invoice_notice 3 + issue_notice 2 → 6통째 차단" 충족에 시퀀스 키 한정 집계로는 불충분). 자동 시퀀스성은 기존대로 `sequence_step?` 한정, 자동 1회성 3종은 기존대로 집계 밖. 근거: PLAN-3 "하드리밋(수동 포함)"·REM-8 "동일 템플릿 수동 발송·상한 내". Q10과의 긴장은 오케스트레이터가 PRD에 기록 예정.
+
+**C-2 — 약속 트랙 폴백의 과거 날짜 발송 차단**: 폴백 issue_notice가 만기 도과 구간에서 과거 만기일을 안내(재현: 만기 11-27 도과 후 12-01 발송 → "11월 27일(금)"). **불변식 정정(W-2)**: 폴백 issue_notice는 `due >= today`일 때만 허용. 만기 도과 + 약속 전날 이전(당일 포함) 창은 18종 중 참인 템플릿이 없어 `manual_step_key`가 **nil 반환** → 컨트롤러 `remind` 액션이 안내 flash("지금 상황에서 보낼 수 있는 안내 문구가 없습니다. 약속일이 지나면 자동으로 안내됩니다.")로 수렴 — 발송·MessageLog 기록 없음(스킵도 아님 — 발송 시도가 아니다). 해당 창의 명세 공백은 오케스트레이터가 PRD에 기록 예정(인계).
+
+**W-1**: 컨트롤러 테스트 판별력 보강 — C-1 혼합 총량 테스트(6통째 CAP_REACHED + template_key 단언)·C-2 nil 창 테스트(만기 도과+미래 약속·약속 당일 경계, 발송·기록 0건·flash 단언) 신설.
+**W-2**: manual_step_key 주석·본 §9 서술을 실제 규칙(폴백 due>=today 한정·nil 창·수동 상한 템플릿 무관)으로 정정.
+
+**파일**: `app/services/reminders/dispatch_service.rb`(폴백 due 한정·nil)·`app/services/reminders/send_service.rb`(수동 상한)·`app/controllers/app/invoices_controller.rb`(`redirect_no_template`)·test 2파일.
+
+**게이트 결과**: `bin/rubocop` 5파일 0 offense · `bin/rails zeitwerk:check` 통과 · `bin/rails test test/services/reminders/ test/controllers/app/` — **276 runs, 1669 assertions, 0 failures, 0 errors**
+
+**인계 노트**: `app/views/app/invoices/show.html.erb`의 "다음 안내:" 라벨은 `@manual_template_key`가 nil이면 빈 표기가 된다(message_template_label(nil) → 빈 문자열 폴백) — C-2 nil 창에서 버튼은 동작하되 라벨만 비어 보인다. 뷰 파일은 본 수정 소유권 밖이라 건드리지 않았으며, nil 시 라벨 숨김 처리를 후속 권고한다(Phase 7 Tester 인계).

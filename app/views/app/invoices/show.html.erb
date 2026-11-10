@@ -237,9 +237,12 @@
             <%= button_to "지금 1통 보내기", remind_app_invoice_path(@invoice), method: :post,
                   data: { turbo_confirm: "현재 상황에 맞는 안내 1통을 거래처에게 보냅니다. 발송하시겠습니까?" },
                   class: "inline-flex min-h-11 cursor-pointer items-center rounded-xl bg-emerald-800 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
-            <p class="text-xs text-stone-400">
-              다음 안내: <span class="font-bold text-stone-600"><%= message_template_label(@manual_template_key) %></span>
-            </p>
+            <%# C-2 — 참인 안내 문구가 없는 창(만기 도과 + 약속 전날 이전)은 nil이라 라벨 행을 생략한다 %>
+            <% if @manual_template_key %>
+              <p class="text-xs text-stone-400">
+                다음 안내: <span class="font-bold text-stone-600"><%= message_template_label(@manual_template_key) %></span>
+              </p>
+            <% end %>
           <% elsif @invoice.reminders_suspended? %>
             <%= button_to "안내 재개하기", resume_reminders_app_invoice_path(@invoice), method: :patch,
                   class: "inline-flex min-h-11 cursor-pointer items-center rounded-xl border border-emerald-700/40 bg-emerald-50 px-5 text-sm font-bold text-emerald-800 transition hover:bg-emerald-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>

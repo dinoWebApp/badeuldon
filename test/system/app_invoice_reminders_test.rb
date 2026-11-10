@@ -1,5 +1,6 @@
 require "application_system_test_case"
 require_relative "../test_helpers/fake_solapi_client"
+require_relative "../test_helpers/reminder_factories"
 require_relative "../test_helpers/solapi_stubbing"
 
 # /app 청구서 상세 F-REM 회귀 E2E(REM-6/7/8) — 로그인 → 상세의 「자동 안내 현황」 섹션
@@ -16,6 +17,7 @@ require_relative "../test_helpers/solapi_stubbing"
 # (실호출 0 — REM-10·W-7). 시간은 travel_to로 평일 창(2026-11-10 화 10시)을 고정한다(TIME-1).
 class AppInvoiceRemindersTest < ApplicationSystemTestCase
   include SolapiStubbing
+  include ReminderFactories
 
   fixtures :users, :clients, :invoices, :subscriptions, :payment_passes
 
@@ -82,6 +84,35 @@ class AppInvoiceRemindersTest < ApplicationSystemTestCase
       assert_text "이 청구서의 자동 안내를 재개했습니다. 다음 단계부터 이어집니다."
       assert_text "자동 안내 중"                                         # 진행 배지 복귀
       assert_button "지금 1통 보내기"                                    # 수동 버튼 복귀
+    end
+  end
+
+  # Phase 7(05_review §4-4) — 만기 17일 전 청구서의 수동 발송은 "(내일)" 박힌 만기 전날
+  # 전용 문구(invoice_notice)가 아니라 발행 안내(issue_notice)로 라벨링·발송된다(운영 실측
+  # 결함 회귀 — REM-8·Q11). 컨트롤러 테스트가 API 레벨인 것과 달리 버튼 라벨·이력 라벨의
+  # 뷰 정합까지 검증한다.
+  test "만기 17일 전 청구서의 다음 안내 라벨과 발송 이력은 발행 안내로 표기된다 (REM-8·Q11)" do
+    invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                      due_on: Date.new(2026, 11, 27))     # 기준일 기준 만기 17일 전
+
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      log_in_as users(:delta)
+      visit app_invoice_path(invoice)
+      wait_for_turbo
+      page.execute_script("window.confirm = () => true")
+
+      assert_text "다음 안내:"
+      assert_text "발행 안내"                                              # issue_notice 라벨
+      assert_no_text "만기 예정 안내"                                       # invoice_notice 라벨 아님 — "(내일)" 전용 템플릿
+
+      fake = FakeSolapiClient.new
+      with_solapi_client(fake) do
+        dom_click_button "지금 1통 보내기"
+        assert_text "거래처에게 안내를 발송했습니다."
+      end
+      assert_text "발송 이력"
+      assert_text "발행 안내"                                              # 이력 행 라벨 — template_key 정합
+      assert_equal "issue_notice", fake.calls.sole[:template_key]
     end
   end
 end

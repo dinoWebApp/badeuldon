@@ -60,3 +60,42 @@ W-3(publish 실패 alert)·W-1(인증 서빙)은 기존 테스트(admin notices 
 1. rate_limit 429 실측(실 캐시 스토어 주입) — 05_review §4-2 유지
 2. 시스템 테스트(Turbo 팝업 소멸·모바일 z-index·DESIGN-6) — 리뷰 §4-3·4-4
 3. NOTICE: not applicable — dev/test DB 잔존 레코드 없음(트랜잭션 롤백), 스토리지 blob은 테스트 DB 정리 대상
+
+---
+
+# 07_test_report — 수동 발송 스텝 선택 결함 수정 Phase 7 (Standard 런 — 검증·보강·전체 게이트)
+
+작성: Tester(절약 모드) · 2026-11-10
+대상: 03_implementation §9·§9.1(수동 스텝 선택 재정의 + Phase 6 C-1·C-2 수정) — 리뷰(05_review §4 후반부) Tester 중점 제안 4건 중 미커버 보강
+
+## 최종 결과
+
+- **전체 `bin/rails test`: 883 runs · 5,003 assertions · 0 failures · 0 errors · 0 skips** (Phase 6 이후 기준 878건 회귀 0 + 신규 5건 통과)
+- `bin/rubocop` — 변경 테스트 3파일 **no offenses**
+- 솔라피 실호출 0회 — 신규 전 케이스 `with_solapi_client` 방어선 경유(IntegrationTest·시스템 테스트 포함)
+- **코드 버그 0건** — C-1(수동 템플릿 무관 상한)·C-2(nil 창·라벨 nil 숨김)가 모두 테스트로 재확인됨
+
+## 신규 테스트(5건 — 리뷰 §4 제안 커버 맵)
+
+| 리뷰 제안 | 테스트 | 파일 | 결과 |
+|---|---|---|---|
+| ① 수동 issue_notice 후 자동 스캔 무결성 | "수동 issue_notice 발송 후에도 D-1 자동 스캔은 invoice_notice를 발송한다 (SEC-5 키 분리·무결성)" — 컨트롤러 수동 POST(만기 17일 전) → travel D-1 → `DispatchService.new.call` → `[issue_notice sent, invoice_notice sent]`·origin 구분 단언 | `test/controllers/app/invoices_reminders_test.rb` | ✅ |
+| ① 약속 트랙 동일 무결성 | "수동 issue_notice 발송 후 약속 전날 자동 스캔은 promise_d1을 발송한다 (PROMISE-3·SEC-5 무결성)" — 수동 issue_notice(만기 전+약속 원격) → travel 약속 전날 → 자동 스캔 promise_d1 sent | 동일 | ✅ |
+| ② 상한 혼합 시나리오 정식화(서비스 레벨) | "수동 상한은 시퀀스성·1회성 혼합 총량 5통에서 발동하고 6통째 manual 발송을 차단한다 (PLAN-3·Q11·C-1)" — 서로 다른 템플릿 5종(issue_notice·confirm_d1·requeue_d7·final_d14·promise_d1) 실발송 5통 → 6통째 skipped+CAP_REACHED·호출 0·**자동 1회성(partial_paid)은 무영향**(Q10 경계 동시 단언) | `test/services/reminders/send_service_test.rb` | ✅ |
+| ③ 시스템 테스트(뷰 정합) | "만기 17일 전 청구서의 다음 안내 라벨과 발송 이력은 발행 안내로 표기된다 (REM-8·Q11)" — "다음 안내: 발행 안내" 라벨·invoice_notice 라벨("만기 예정 안내") 부재·발송 후 이력 행 "발행 안내"·fake 호출 template_key 단언 | `test/system/app_invoice_reminders_test.rb` | ✅ |
+| ④ Q11 삼분 경계(4·5·6) | "수동 발송 총량 경계 — 4통째·5통째는 성공하고 6통째만 CAP_REACHED로 차단된다 (Q11 삼분 경계)" — 컨트롤러 경유 실 POST 6회: 4·5통째 성공 flash, 6통째 상한 안내 flash·skipped 1건·sent 5건·fake 호출 5회 | `test/controllers/app/invoices_reminders_test.rb` | ✅ |
+
+## 기존 스위트 무충돌 확인
+
+- Run C의 `message_stats`·PLAN-3 상한 테스트와의 충돌 없음 — 수동 집계(`manual_cap_reached?` — 채무자 sent 전체)와 시퀀스 집계(`sequence_sent_count` — SEQUENCE_TEMPLATE_KEYS 한정)가 분리돼 있어 기존 어설션(예: send_service_test "상한 도달에도 1회성 발송…"· tickets PLAN-3 밖) 전부 원치와 같이 통과. 티켓 알림(noti_ticket_reply·recipient_role=user)도 수동 총량 집합(invoice 스코프·debtor) 밖으로 자연 배제됨(전체 스위트 883건으로 실측).
+- W-1 판별력 보강 — 기존 컨트롤러 테스트의 `variables "(내일)" 단언은 유지하되, 본 런의 시스템 테스트가 템플릿 본문·라벨 레벨의 판별 단언("만기 예정 안내" 부재)을 보강했다.
+
+## 원인 분류 (실패·에러 이력 — 전부 테스트 오류, 자체 수정 후 재실행 통과)
+
+1. 무결성 테스트를 gamma(Free)로 작성 → 자동 스캔 INELIGIBLE_PLAN skip — delta로 변경(자격 필요는 REM-8 기존 규칙, 코드 결함 아님)
+2. D-1 travel일 착오(만기 11-27 기준 D-1=11-26) — 날짜 정정
+3. 수동 issue_notice sent 후 **자동** issue_notice 재발송은 step_sent?(origin 무관)가 duplicate로 흡수하는 것이 SEC-5 정상 동작 — 단언을 partial_paid(미발송 1회성)로 교체하고 주석에 duplicate 정상 기록
+
+## 잔존
+
+- 없음(본 런 범위) — 리뷰 §4 제안 4건 전부 소화. test DB 잔존 레코드 없음(트랜잭션 롤백), 스토리지 blob 생성 없음

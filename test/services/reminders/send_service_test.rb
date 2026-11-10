@@ -270,6 +270,31 @@ module Reminders
       end
     end
 
+    test "수동 상한은 시퀀스성·1회성 혼합 총량 5통에서 발동하고 6통째 manual 발송을 차단한다 (PLAN-3·Q11·C-1)" do
+      invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                        due_on: Date.new(2026, 11, 27))
+
+      travel_to(TUESDAY_10AM) do
+        # 다른 템플릿 조합으로 5통 도달 — 수동은 템플릿 무관 총량 집계(Q11)다.
+        %w[ issue_notice confirm_d1 requeue_d7 final_d14 promise_d1 ].each do |key|
+          assert_equal :sent, send_debtor(invoice, key, origin: :manual), key
+        end
+
+        # 6통째 — 시퀀스 집계(3통)로는 미도달이어도 수동 총량 5통에 걸린다.
+        assert_equal :skipped, send_debtor(invoice, "issue_notice", origin: :manual)
+        log = debtor_logs(invoice).where(status: :skipped).sole
+        assert_equal "CAP_REACHED", log.error_code
+        assert_equal "issue_notice", log.template_key
+
+        # 자동 경로의 1회성 3종은 여전히 무영향(Q10) — 수동 가드만의 차단이다.
+        # (issue_notice 자동 재발송은 수동 sent분을 step_sent?가 흡수해 duplicate가 정상이다.)
+        assert_equal :sent, send_debtor(invoice, "partial_paid", origin: :auto)
+        assert_equal 5, MessageLog.where(invoice_id: invoice.id, recipient_role: :debtor,
+                                         status: :sent, origin: :manual).count
+      end
+      assert_equal 6, @fake.calls.size                              # 차단분은 호출 0
+    end
+
     test "상한 도달에도 1회성 발송과 수동 재발송 외 상한 집계는 영향이 없다 (PLAN-3·Q10)" do
       invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
                                         due_on: Date.new(2026, 11, 9), status: :paid)
