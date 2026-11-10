@@ -50,4 +50,13 @@ Rails.application.configure do
 
   # Raise error when a before_action's only/except options reference missing actions.
   config.action_controller.raise_on_missing_callback_actions = true
+
+  # CI는 master key 미주입(RAILS_MASTER_KEY 주석)으로 credentials 복호화 불가 —
+  # Admin#otp_secret(encrypts) 테스트가 ActiveRecord::Encryption::Errors::Configuration으로
+  # 전멸한 실측(GitHub Actions ea43919)에 따른 test 전용 고정 키. 테스트 데이터만 암호화하므로
+  # 고정 상수로 충분하며, 운영·개발은 credentials.yml.enc의 active_record_encryption 키를 그대로 사용(무영향).
+  # Rails 요건: primary_key 12자 이상 · key_derivation_salt 20자 이상 — 아래 문자열은 모두 충족.
+  config.active_record.encryption.primary_key = "test_primary_key_#{Rails.application.class.name}"
+  config.active_record.encryption.deterministic_key = "test_deterministic_key_#{Rails.application.class.name}"
+  config.active_record.encryption.key_derivation_salt = "test_key_derivation_salt_#{Rails.application.class.name}"
 end
