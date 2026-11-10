@@ -1,147 +1,53 @@
-# 05_review — F-ADMIN 잔여 병렬 배치 T-C1~C3+3-S (Phase 5)
+# 05_review — CLIENT-3/4·PROMISE-5 지급 성적표 (2026-11-10, Reviewer)
 
-- **리뷰어**: badeuldon-reviewer (절약 모드) · **일시**: 2026-11-10
-- **대상**: T-C1 관리자 롤·계정 콘솔 / T-C2 쿠폰(ADMIN-4·Q12) / T-C3 계정 삭제·데이터 파기(Q13) / 3-S 라우트·nav 결선
-- **기준**: PRD v0.34 (AUTH-7.2·ADMIN-1/2/3④/4·Q12/Q13), ARCHITECTURE_CONVENTION v1.0.0, Run A/B 교훈(컨트롤러 경유 통합 재현)
-- **재현 방식**: 임시 통합 테스트(test/review_repro_tmp_test.rb — 13 runs 199 assertions, 종료 후 삭제·잔존 0) + 기존 관련 스위트 9파일 95 runs 0 failures + 정적 전수 분석. PortOne은 FakePortOneClient 주입(실호출 없음), 레코드는 트랜잭션 롤백으로 정리.
+## Status: CHANGES_REQUESTED
 
----
+BLOCKER 0 · CRITICAL 1 · WARNING 1 — CRITICAL 1 수정 후 재리뷰 대상.
 
-## 종판 판정
+## 검증 방법 (컨트롤러 경유 통합 재현 — Run A~C 교훈 반영)
 
-```
-status: CHANGES_REQUESTED   (BLOCKER 1 · CRITICAL 2 · WARNING 4)
-```
+정적 분석에 더해 실측 재현을 수행했다(재현 파일·스크립트는 검증 후 전부 삭제·레코드 정리 완료 — 잔여 0건).
 
-BLOCKER 1건(B-1 — 기존 /admin/audit_logs 페이지 500 파탄)과 CRITICAL 2건(C-1 무효 롤 500·C-2 웹훅 회복 경로 쿠폰 불변식 위반)은 수정 후 재리뷰 대상. T-C1·T-C3·3-S의 권한 매트릭스·삭제 불변식은 HTTP 수준 재현에서 전부 통과 — 결함은 이번 배치가 만든 새 상태(nil-admin 감사·nullable 완화)와 웹훅 회복·조작 입력이라는 우회 경로에 집중된다.
+1. **Integration 5건 신규 작성·실행 통과**: ① 마감·약속 있음 show 렌더(3상태 배지·입금일 병기·비교 배지 "느린" 방향·경향 바·DASH-5 구분 문구) ② scorecard 파라미터 조작(비숫자·미전달 400대 수렴·음수·미존재·타인 거래처 404 — 500 없음) ③ 발행 폼 new에 client-scorecard·invoice-form 컨트롤러 공존(select·summary 타깃·rowTemplate 무손상) ④ edit 폼 공존 ⑤ U1 세션 격리(gamma 응답에 beta 데이터 미노출)
+2. **runner 실측(RAILS_ENV=test·KST 2026-11-10)**: Q14 경계(마감 입금일 == 약속일 → fulfilled·+1일 → broken)·부분입금 최종 입금일(MAX paid_on — 행 가중 없음, (0+1+2)/3=1 실측)·재응답 최신 약속 1건·kind 필터(paid_report·inquiry-only 제외·this_week은 뷰어 실제 저장 경로(검증 통과 save)에서 포함·pending)·voided/draft 분류·enum status getter 타입(String — `== "paid"` 비교 정상)
+3. **기존 신규 테스트 13건 통과**(쿼리 8 + 컨트롤러 5)·`zeitwerk:check` 통과
+4. git diff 교차 확인 — 변경 파일이 03 산출물 목록과 정확히 일치·`invoice_form_controller.js` 미변경(무손상 실측)
 
----
+## 이슈 목록
 
-## 1. 이슈 목록
+| # | Severity | Rule ID | File:Line | 설명 | 수정 제안 |
+|---|----------|---------|-----------|------|-----------|
+| C-1 | CRITICAL | PROMISE-5·CLIENT-3·Q14·P1 | app/queries/clients/promise_compliance_query.rb:12-44(status_key 36-44) | **voided(무효)·draft 청구의 과거 약속이 "미이행"으로 목록에 노출되는데, 같은 화면의 PaymentScorecardQuery#compliance_rate·avg_delay_days는 voided를 모집단에서 제외한다 — 동일 화면에서 이행률과 이력 목록이 모순된다.** 실측 재현: voided+과거 약속 1건·이행 1건 시드 → 목록에 "미이행" 행 노출(true)·이행률=100%(voided 분모 제외). VOIDABLE_STATUSES에 promised·partially_paid가 포함되므로 "채무자가 약속한 뒤 채권자가 청구를 무효화"하는 실제 시나리오에서 채무자가 영구 "미이행" 표기된다 — 채권자 사유 정리를 채무자 불이행으로 기록하는 것은 P1(관계 보존 최우선)에도 반하며, 두 쿼리가 "동일 정의 단일 출처"라는 코드 주석과도 불일치한다. Q14 문언(이행=paid+입금≤약속일/미이행=도과 후 미수/판정 중=유효)은 voided를 정의하지 않으므로, scorecard 쪽 제외 해석이 합리적 귀결이다 | PromiseComplianceQuery.call의 client_scope에 `where.not(status: [ :draft, :voided ])`를 추가해 PaymentScorecardQuery와 모집단을 일치시킨다(무효·초안은 약속 판정 자체가 무의미 — 이행률·평균 지연일과 같은 모집단). status_key의 `elsif promised_on < today` 폴백은 운영 상태(issued~partially_paid·paid)만 받게 된다. 재발 방지 테스트: voided 약속 건이 목록에 없고 이행률과 broken 행 수가 일치하는 케이스 추가 |
+| W-1 | WARNING | DESIGN-2·UI 품질 기준 | app/views/app/clients/show.html.erb:46 · app/views/app/invoices/_scorecard_summary.html.erb:10 | 비교 배지의 부정 신호("평균보다 N일 느린 거래처")도 emerald 녹색(긍정 상태색)으로 표기된다. DESIGN-2 상태색 3종 원칙(지연·연 계열=주황)과 배치돼 U1 빠른 훑기에서 "빠른 거래처"와 동일하게 긍정으로 오인된다. 실측에서 "평균보다 1일 느린 거래처"가 녹색 배지로 렌더됨을 확인 | 방향 색 판정을 뷰 하드코딩에서 helper로 이동 — `client_comparison_badge`가 [문구, class]를 반환하고 느림=주황(bg-orange-50/text-orange-600)·빠름=emerald로 분기. show와 summary 양쪽에 적용 |
 
-### B-1 · BLOCKER · ADMIN-2 — nil admin 감사 행으로 /admin/audit_logs 전면 500
+## Rule ID 준수 매핑 (구현이 반영한 Rule — 실측 근거 포함)
 
-- **파일**: `app/views/admin/audit_logs/index.html.erb:49` (`<%= log.admin.email %>`)
-- **원인**: 이번 배치의 `change_column_null :audit_logs, :admin_id, true` + `belongs_to :admin, optional: true`(audit_log.rb)로 `coupon_redeemed`(U1 행위 — admin nil) 행이 신규 생성된다. Run B의 감사 로그 뷰는 nil 분기 없이 `log.admin.email`을 렌더 — 첫 coupon_redeemed 기록 직후 관리자 감사 로그 페이지가 통째로 파탄한다.
-- **재현(HTTP, 실측)**: U1 쿠폰 예약 → 카드 등록 성공(=정상 UX 플로우 한 번) → owner 세션으로 `GET /admin/audit_logs` → `ActionView::Template::Error: undefined method 'email' for nil` 발생(관찰 프로브 D1에서 예외 클래스·메시지 캡처).
-- **영향**: ADMIN-2 감사 로그 열람 불가(운영 가용성 상실)·Run B 기능 회귀. 정상 U1 행위 하나로 트리거 — Run A/B 교훈(컨트롤러/뷰 경유 통합 재현)이 다시 요구한 정확한 결함 유형.
-- **수정 권고**: `log.admin&.email` 또는 `log.admin&.email || "사용자(U1)"` 라벨 렌더 + `@audit_logs = scope.includes(:admin)...`(행당 N+1 동시 제거). 같은 패턴의 `app/views/admin/members/show.html.erb:139`(`log.admin.email`)는 현재 도달 불가(target_type "User" 한정)지만 동일 수선을 권한다.
-- **테스트**: nil-admin 감사 행 존재 시 audit_logs index 200 통합 테스트 신설(회귀 고정).
+| Rule | 구현 위치 | 판정 |
+|:---|:---|:---|
+| Q14 | PromiseComplianceQuery.status_key(단일 출처) + PaymentScorecardQuery SQL 동일 정의 | **정합(경계 전수 실측)** — == → 이행·+1일 → 미이행·도과 후 미수/입금 → 미이행·유효 → 판정 중. "미이행 = 도과 후 입금 포함" 확장은 3분류 배타·전포괄의 유일한 합리적 귀결로 Q14 문언과 정합. 단 voided·draft는 Q14 미정의 영역으로 C-1 불일치 |
+| PROMISE-5 | OPERATIVE_PROMISE_JOIN(promised_on NOT NULL 응답 중 MAX(id) 1건) | **정합** — "자동 기록"을 파생 집계로 충족(Q14). 재응답 시 최신 약속 1건(P4) 실측. this_week(서버 산정 금요일)·date_selected 포함·paid_report·inquiry·refusal 제외 실측 |
+| CLIENT-3 | clients/show 카드(누적 청구액·진행 중 건수·이력 목록 3상태) | **정합** — 누적 청구액은 발행 계열(draft·voided 제외 — INV-6 무효는 미청구 취급)·unsettled 건수. 빈 상태 안내 확인 |
+| CLIENT-4 | PaymentScorecardQuery + 헬퍼 + _scorecard_summary + scorecard 엔드포인트 | **정합** — 평균 지연일은 약속 있던 마감 건 한정·약속 없는 거래처 nil("-")·이행률 확정 건만·6개월 마감 입금월 그룹핑(창 밖 버림·빈 달 nil)·비교 배지(02 확정 해석 3 — 모든 거래처 평균 대비·차이 ≥1일·거래처 1개 미노출)·발행 폼 select fetch 갱신·"약속일 대비" 부제 + DASH-5(만기 대비) 구분 문구 실측 |
+| PAY-1/2 | 마감 입금일 = payments MAX(paid_on) 청구별 1행 | **정합** — 부분입금 행 가중 없음 실측(DASH-5 C-1 선례 준용 — 분할 입금 2행이 평균에 이중 반영되지 않음을 (0+1+2)/3=1로 검증) |
+| TIME-1 | Date.current(KST)·t.date 컬럼 julianday 산술 | **정합** — time_zone Seoul 실측·date 컬럼이라 CAST 절삭 오차 없음·월 경계 strftime 정확 |
+| 소유권 격리(SEC) | 쿼리 이중 스코프(client_id + user_id) + 컨트롤러 Current.user.clients.find | **정합** — 타인 거래처 show·scorecard 404·비인증 302·파라미터 조작(비숫자·음수·미존재) 400대/404 수렴·500 없음 실측. 쿼리가 client.user_id를 재단언하는 방어층도 적절 |
+| INV-6 무효 | voided 제외(누적 청구액·이행률) | 정합 — 단 목록 쪽 미제외가 C-1 |
+| 아키텍처 §3.2·§4 | app/queries/clients/ Query 2종(.call 진입점·today 주입)·뷰는 결과만 소비·표현 로직 헬퍼 분리 | **정합** — F-DASH 리포트(app/queries/reports/) 선례와 동일 패턴·params/Current 미유입·컨트롤러 액션 ≤10줄·params.expect 스칼라 실측 동작 |
+| 라우트(SURF-1) | invoices collection GET scorecard | **정합** — 읽기 조회의 collection GET 정당화 주석·경로 헬퍼 사용·URL 동사 없음 |
+| Stimulus 격리 | client-scorecard 별도 컨트롤러(select·summary 타깃·url value) | **정합** — invoice-form(품목·금액 계산) 파일 미변경 실측 + new/edit 렌더에 양쪽 컨트롤러·타깃 공존 확인. recalculate 액션이 금액 요약 dl에 한정돼 select change와 이벤트 충돌 없음 |
 
-### C-1 · CRITICAL · AUTH-7.2 — create_admin! 무효 롤 파라미터에서 무처리 ArgumentError(500)
+## Tester에게 제안하는 중점 테스트 영역
 
-- **파일**: `app/services/admins/role_service.rb:71-86` (create_admin!), `app/controllers/admin/admins_controller.rb:17-29`
-- **재현(HTTP, 실측)**: owner 세션으로 `POST /admin/admins` with `admin[role]=superadmin`(폼 select 우회·조작 요청) → `ArgumentError: 'superadmin' is not a valid role` — enum 할당 시점 예외가 서비스 어디에서도 rescue되지 않아 운영 환경 500. 계정 생성은 차단됨(데이터 오염 없음 — 관찰 프로브 A4에서 created=false 확인).
-- **명세 불일치**: 같은 서비스의 `change_role!`은 `Admin.roles.key?(role.to_s)`로 무효 롤을 Result 거부로 처리(구현 문서에도 "ArgumentError 방지" 명시) — create_admin!만 이중 기준.
-- **수정 권고**: create_admin! 선두에 동일 검사 `return failure("알 수 없는 롤입니다: #{role}") unless Admin.roles.key?(role.to_s)` — 422 재렌더로 귀착. 컨트롤러·서비스 테스트에 조작 롤 케이스 1건씩 추가.
-- **심각도 근거**: 런타임 파탄이나 정상 플로우가 아닌 권한 보유자(owner)의 조작 입력 한정·무결성 영향 없음 — BLOCKER가 아닌 CRITICAL.
+1. **C-1 재발 방지(수정 후 필수)**: voided·draft 약속 건이 이력 목록에 없고, 목록 broken 행 수와 이행률 분모가 일치하는 쿼리 테스트 — "promised 상태에서 void!한 청구" 시나리오 명시
+2. **비교 배지 반올림 경계**: 반올림 전 실차이 ≥1일이어도 반올림 후 diff 0이면 미노출됨(재현 확인됨) — 기대 동작 확정·테스트 고정 권장. 이행률 80% 경계 색 전환(뷰 조건)도 병행
+3. **연말·연초 6개월 창**: travel_to 2027-01-15에서 월 라벨·창 밖 버림·빈 달 nil(strftime 연 경계)
+4. **this_week 약속의 시간 경과**: 접수 시점 pending → 약속일(금요일)+1일 travel 후 broken 전환(자정 경계 포함)
+5. **시스템 테스트(JS)**: 발행 폼에서 거래처 선택 → 요약 조각 삽입·미선택 복귀 시 hidden 복원·fetch 실패 시 조용한 수렴 — 인앱 브라우저 전제(VIEW-1은 뷰어 대상이지만 폼 JS 동작은 U2 기기 다양성과 무관하지 않음)
+6. **조기 입금(음수 지연)**: "N일 전" 표기·경향 막대 abs 정규화에서 음수 월 표기(문구·색 혼동 여부 육안 확인)
 
-### C-2 · CRITICAL · Q12(ADMIN-4) — 웹훅 회복(settle_renewal) 경로에서 used_count 미증가·metadata 쿠폰 기록 소실
+## 통과 커버리지 요약
 
-- **파일**: `app/services/subscriptions/upgrade_service.rb:101-117` (settle_renewal) — 쿠폰 연동 미반영
-- **시나리오(불변식 위반)**: 첫 차감(할인가 7,900 선기록) → 포트원 모호 실패(TIMEOUT) → 주문 pending·쿠폰 예약 유지 → 웹훅 Transaction.Paid → settle_renewal이 **실제 성공한 할인 차감**을 paid 확정하되 ① `used_count` 미증가 ② `subscriptions.coupon_id` 미해제 ③ `metadata: @payment` 덮어쓰기로 성공 경로가 남기던 `coupon{code,discount_type,discount_value}` 기록 소실.
-- **재현(실측)**: FakePortOneClient TIMEOUT 실패 → settle_renewal → `used_count=0, coupon_id=유지, metadata_keys=["id","status"], metadata_coupon=nil`(관찰 프로브 B3). 다음 갱신 시 resolve_first_charge_coupon!이 paid Plus 주문 감지로 coupon_id=nil·정상가 — **이중 할인은 없음**(완화 확인), 그러나 ②의 예약 잔존은 1개월간 유효.
-- **위반 Rule**: Q12/ADMIN-4 불변식 3("used_count는 결제 성공 시점 1회 증가")·4("첫 차감 orders.metadata에 coupon_code") — 웹훅 회복도 "결제 성공 시점"이다. ADMIN-4 사용 통계·한도 집계가 실제보다 과소 계수(예산 초과 허용의 원인).
-- **수정 권고**: settle_renewal의 확정 트랜잭션 안에서 (a) 주문이 첫 차감 할인 건임을 판정(주문 amount < PLUS_MONTHLY_PRICE 또는 subscription.coupon 존재)해 `consume_first_charge_coupon!(subscription, coupon)` 호출 (b) metadata는 `coupon_metadata(@payment, coupon)` 병합 — 기존 consume!·coupon_metadata 재사용으로 성공 경로와 단일화.
-- **테스트**: B3 시나리오 회귀 테스트 신설(TIMEOUT→웹훅 회복→used_count 1·coupon_id nil·metadata coupon 보존).
-
-### W-1 · WARNING · Q12 — 쿠폰 한도 TOCTOU 경합(redeemable? 판독 후 무한도 consume!)
-
-- **파일**: `app/models/coupon.rb:58-61` (consume!), `upgrade_service.rb:167-177`
-- **내용**: redeemable?의 used_count 판독과 consume!의 원자 증가 사이에 한도 검사가 없다(`WHERE used_count < max_redemptions` 가드 부재). 잔여 1칸 쿠폰으로 서로 다른 구독의 첫 차감이 병렬 실행되면 used_count가 max_redemptions를 초과한다. 완화 요건: 갱신 잡이 매일 06:05 단일 스케줄·find_each 순차라 현실 노출폭이 좁음 — 그러나 수동 재트리거·잡 병렬화 확장 시 열린다. PaymentPass의 with_lock 선례와 정합 권장.
-- **수정 권고**: `update_all("used_count = used_count + 1 WHERE used_count < max_redemptions")` 후 affected rows 0이면 UpgradeError(결제 중단) — 단일 SQL로 원자화.
-
-### W-2 · WARNING · Q12/P4 — 미사용·예약 보유 쿠폰의 삭제가 사용자 예약을 조용히 소멸시킨다
-
-- **파일**: `app/controllers/admin/coupons_controller.rb:52-60` (destroy), `app/models/coupon.rb:12` (`has_many :subscriptions, dependent: :nullify`)
-- **내용**: used_count==0이면 삭제 허용 — 그러나 예약(subscriptions.coupon_id)이 걸린 쿠폰도 이 조건에 해당하며, 삭제 시 nullify로 예약이 소멸해 해당 사용자가 할인 안내를 받은 상태에서 첫 차감에 정가가 청구된다(금액 불일치 UX). P4 관점에서도 예약 소멸이 기록에 남지 않는다.
-- **수정 권고**: `subscriptions.exists?` 예약 보유 시 삭제 차단(alert으로 "비활성화로 중지" 유도 — used_count 차단 문구와 병기) 또는 show/삭제 확인 문구에 예약 건수 표시.
-
-### W-3 · WARNING · AUTH-7.2 — 콘솔 생성 UI에 비밀번호 강도 안내·최소 길이 부재
-
-- **파일**: `app/views/admin/admins/new.html.erb:16`, `role_service.rb:71-86`
-- **내용**: AUTH-7.2는 강도 요건을 "ProvisionService/재설정 화면 안내"에 위임한다고 명시 — runner·재설정 화면과 달리 신규 콘솔 폼은 minlength·안내 문구가 없어 1자 비밀번호 owner 계정이 생성 가능(모델 최소 검증 정책 상 통과). 위임 대상 화면이 콘솔에 미반영.
-- **수정 권고**: `minlength: 8` + "8자 이상 권장" 안내 문구 1행(검증 강제가 문서 정책과 충돌하지 않게 UI 안내 중심).
-
-### W-4 · WARNING · ADMIN-4 — unavailability_reason의 음수 잔여 fall-through
-
-- **파일**: `app/models/coupon.rb:48-54`
-- **내용**: remaining_count가 음수(W-1 경합 발생 시)면 "0원" 사유 메시지가 나온다 — 실제 사유(한도 초과)와 불일치. `remaining_count <= 0` → "한도 소진" 분기로 1행 수선 권장.
-
----
-
-## 2. Rule ID 준수 매핑 (PRD v0.34 1:1)
-
-| Rule | 요구 | 판정 | 근거(재현 포함) |
-|---|---|---|---|
-| AUTH-7.2 | 추가 계정은 콘솔(owner 전용)만 | ✅ | staff create 차단+감사 실측, owner 생성 303+admin_create 감사, 2FA 미등록 생성 확인. 단 조작 롤 500 = C-1 |
-| AUTH-7.1/7.3 | 콘솔 진입 2FA 필수·잠금 해제 | ✅ | admin_login 2단계 전 플로우 재현, unlock 실제 잠금 계정 해제+감사, 비잠금 거부 감사 미기록 |
-| ADMIN-1 | 목록 전원·변경 owner 전용·전 행위 감사 | ✅ | staff index 200(액션 폼 미노출 실측)·new/create/change_role/unlock 전부 303 차단+admin_console_denied, owner 행위 감사 4종(admin_create/role_change/unlock/console_denied)+서비스 denied 3종. 자기 staff 강등 거부 실측 |
-| ADMIN-2 | 단일 진입점 감사 기록 | ✅ (단 B-1) | RecordService 경유 유지(컨트롤러 직접 create 없음)·감사 원자성(트랜잭션 내). nil-admin 렌더 파탄만 B-1로 |
-| ADMIN-3 ③ | staff도 회원 관리(롤만 owner) | ✅ | purge를 staff 세션으로 수행 실측(문서화된 권한 판단과 일치) |
-| ADMIN-3 ④·Q13 | 미수 차단·연쇄 삭제·감사 보존·2중 확인 | ✅ | 이메일 불일치 거부(무쓰기 실측)·미수 차단(건수·합계)·삭제 성공 시 10테이블 0건 전수(users 파생 dependent+DB FK cascade 실측: sessions·invoices·clients·items·subscription·orders·payment_passes·notice_reads·tickets·message_logs)·audit_logs 보존+이메일 스냅샷·invoice 파생(view_events·promises·payments) dependent: :destroy 확인 |
-| ADMIN-4·Q12 | 첫 결제 1회·재과금 정상가·수금 패스 미적용·0원 방지·CRUD+통계 | ⚠️ (C-2) | HTTP 적용 검증 4종 거부+예약·첫 차감 amount/metadata·실패 미소비+재시도 동일 할인가·[7,900,9,900] 시퀀스·중복 적용 차단(paid Plus 감지)·used_count params 조작 불가(A-7 실측)·admin CRUD 전수(중복 422·used 삭제 차단·미사용 삭제). 웹훅 회복 경로만 C-2 위반. 수금 패스·재과금 경로 미접촉 확인 |
-| PLAN-5 | 결제 플로우 무결성(포트원 stub) | ✅ | 전 재현 FakePortOneClient 주입 — 실호출 0 |
-| P4 | 모든 발신/행위는 기록 | ⚠️ (C-2) | order metadata 쿠폰 기록은 성공 경로만 — settle 경로 소실 |
-| SURF-3 | /admin noindex | ✅ | 재현 응답 헤더에 robots noindex 확인(admin 레이아웃 meta) |
-| §4 아키텍처 | 의존 방향·얇은 컨트롤러·뷰 쿼리 금지 | ✅ | Service→RecordService 허용 경유·컨트롤러 10줄 내·params.expect+private xxx_params(admins/coupons 모두)·뷰는 @변수만(admins index 집계 1쿼리 N+1 방지)·`@invoice.client` 선례와 동일한 연관 읽기만 존재 |
-| 3-S 라우트 | 계약 1:1 | ✅ | `resources :admins only[index new create]+member{change_role,unlock}`·`resources :coupons`·`members only[index show destroy]+기존 member patches` — 헬퍼 실명·컨트롤러 액션 전부 일치, 비인증 303 전수(new/create/delete 포함)·U1 세션 차단(세션 격리) 실측 |
-
-## 3. 통과 커버리지 (재현 완료 항목)
-
-- **T-C1 권한 매트릭스 전수(HTTP)**: owner/staff/비인증 × index/new/create/change_role/unlock 15조합 + 감사 6종 + 자기 강등 거부 + 잠금 해제(실제 잠금 계정) + 무효 롤(change_role은 Result 거부 확인).
-- **T-C2 불변식 6건**: 서버 검증(존재·활성·만료·한도·0원)·적용 1회·used_count 성공 시점(성공/실패/재시도)·orders.amount=할인가+metadata·재과금 정가 시퀀스·amount 상한(검증 매트릭스 12건) — 단 settle 경로 예외(C-2).
-- **T-C2 admin CRUD(HTTP)**: 생성(정규화·303)·중복 422·형식 위반 422·수정(used_count 편집 제외 확인)·used 삭제 차단·미사용 삭제·staff 관리 허용.
-- **T-C3 삭제 불변식 4건(HTTP)**: 이메일 불일치·미수 차단·연쇄 전수 10테이블+감사 보존·owner/staff 양 롤 실행.
-- **3-S**: 라우트 계약·nav 2링크 렌더·비인증 303·U1 세션 차단.
-- **기존 스위트 95 runs 0 failures**(관련 9파일)·임시 재현 13 runs(삭제 완료·레코드 잔존 0).
-
-## 4. Tester 중점 테스트 제안 (수정 반영 후)
-
-1. **B-1 회귀**: coupon_redeemed(admin nil) 행 존재 상태에서 `/admin/audit_logs`·`/admin/members/:id` 200 렌더(관리자 라벨 표기 확인).
-2. **C-2 회귀**: TIMEOUT→웹훅 settle 시나리오 — used_count 1·coupon_id nil·metadata.coupon 보존·다음 갱신 정상가.
-3. **C-1 회귀**: 서비스+컨트롤러에서 조작 롤("superadmin"/빈값) → Result 거부·422.
-4. **W-1 경합**: 병렬 스레드에서 consume! 동시 호출 — used_count가 max를 넘지 않는 원자성 테스트(선택).
-5. **W-2**: 예약 보유 쿠폰 삭제 시도 → 차단 안내·예약 유지 확인.
-
-## 5. 비고
-
-- `audit_log.rb`의 W-3 후속 주석("관리자보다 오래 살아야 하므로 restrict/nullify 재검토 필수") — 이번 배치에서 admin 삭제 경로가 신설되지 않아 여전히 미도달. 다음 admin 콘솔 확장 시 상기 재검토 필요(이번 배치 결함 아님·기술 부채 유지).
-- 다중 owner 상호 강등으로 극단적 동시 요청 시 owner 0명 이론 경로 존재 — 실제 운영(단일 owner 운영 전제·자기 강등 금지)에서 수용 가능 수준으로 판정, 이슈 미기록.
-
----
-
-# 재리뷰 (루프 1/2) — Phase 6 수정 통합 검증
-
-- **일시**: 2026-11-10 · **대상**: 1차 리뷰 이슈 7건(B-1·C-1·C-2·W-1~W-4) 전건 수정분
-- **방법**: 임시 통합 테스트 10 runs 80 assertions(종료 후 삭제·잔존 0) + 관련 기존 스위트 10파일 **97 runs 591 assertions, 0 failures** + 수정 파일 전수 리딩
-
-## 재현 결과 (원 이슈 해소 확인)
-
-| 이슈 | 수정 내용(실측) | 판정 |
-|---|---|---|
-| B-1 | nil-admin 행 존재 상태에서 `GET /admin/audit_logs` **200** + "사용자" 라벨 렌더 + members#show 200 · `includes(:admin)`로 N+1 동시 제거 | ✅ 해소 |
-| C-1 | role=superadmin POST → **422** + "알 수 없는 롤" 렌더 + Admin.count 무변화 + admin_create/감사 미기록(정책 유지) — 서비스 가드+컨트롤러 실패 분기 유효 롤 한정 재할당의 2중 수선 | ✅ 해소 |
-| C-2 | TIMEOUT→웹훅 settle → used_count **1**·coupon_id **nil**·metadata에 coupon 병합(SAVE2000 + @payment 원문 공존 — P4)·**다음 갱신 9,900 정상가**(중복 할인 없음) | ✅ 해소 |
-| W-1 | consume! 단일 조건부 UPDATE(`used_count < max_redemptions`) — 잔여 0 → false·used_count 불변, 잔여 있음 → true·증가 | ✅ 해소 |
-| W-2 | 예약 보유 쿠폰 HTTP DELETE → 303 alert "사용 예정인 쿠폰은 삭제할 수 없습니다"·Coupon.count 무변화·**예약 유지(nullify 미도달 — before_destroy 선언 순서 수선 실측)** + 컨트롤러 destroy 반환값 검사로 flash 정확화 | ✅ 완전 해소 |
-| W-3 | 생성 폼 `minlength="8"` + "8자 이상을 권장합니다" 렌더 실측 | ✅ 해소 |
-| W-4 | 음수 잔여(used 60/max 50) → "한도가 모두 소진" 안내 | ✅ 해소 |
-
-## 회귀 확인 (재리뷰 지시 2·3)
-
-1. **role_service 단일 기준 전환**: 무효 롤 create → 감사 실패 미기록 유지 실측(R-C1)·정상 생성 303+admin_create 감사 회귀 없음(R-C1b)·change_role 무효 롤 기존 Result 거부 유지. role_service_test 11케이스 통과.
-2. **consume! 조건부 UPDATE 상호작용**: coupon_test 소비 원자성 테스트 통과 + C-2 settle 경로에서 정상 소비 실측. upgrade_service_coupon_test 7케이스(성공·실패 미소비·재시도 동일 할인가·재과금 정가) 통과.
-3. **settle_renewal 기존 경로(쿠폰 없는 회복)**: metadata가 순수 @payment 유지(쿠폰 키 부재) — upgrade_service_test 기존 settle 테스트 통과(R-C2b 재현으로 보강 확인).
-4. **W-2 선언 순서 수선**: `before_destroy`가 `has_many dependent: :nullify` 선언보다 앞 — 예약 유지 실측으로 nullify 미도달 확인(지시 3의 flash 가드 포함 완전 해소).
-
-## 신규 이슈
-
-- **없음** (BLOCKER 0 · CRITICAL 0 · WARNING 0).
-- 비고(이슈 미기록 — 관찰 노트): ① settle_renewal에서 consume 가드 실패(W-1 경합 도달 시)는 트랜잭션 롤백으로 order pending 잔존 — 웹훅 응답 실패·PG 재시도와의 상호작용은 W-1 경합이 전제라 현실 희박, 다음 dunning 런에서 재확인 권장. ② admins create 422 재렌더 시 무효 롤 입력의 select가 enum 기본값(owner)으로 표시될 수 있음 — 경고 문구로 실용상 문제 없음.
-
-## 종판
-
-```
-status: APPROVED   (재리뷰 루프 1/2 — 원 이슈 7건 전건 해소·신규 이슈 0)
-```
+- A절(컨트롤러 경유): 전 항목 통과 — show(마감·약속 있/없음·빈 상태)·scorecard(본인 200·타인 404·비인증 302·조작 파라미터)·발행 폼(거래처 select·fetch 타깃 정합·invoice-form 무손상)·U1 세션 격리
+- B절(Q14): 전 경계 실측 통과 — ==·+1일·부분입금 MAX·재응답·kind 필터·this_week 실저장 경로
+- C절(무결성): user 스코프 이중 방어·SQL 인젝션 없음(상수 조인 SQL·파라미터 바인딩)·이스케이프 기본(raw/html_safe 미사용)·N+1 없음(이력 2쿼리·closing 해시 선산출)·innerHTML 주입은 동일 출처·서버 이스케이프 응답으로 수용 가능
+- D절(아키텍처·UI): §3.2·§4 준수·컨트롤러 10줄·뷰 쿼리 금지·tabular-nums·role/aria(경향 role="img" 라벨·막대 aria-hidden)·빈 상태·터치 타깃(min-h-11) — 단 W-1 상태색만 지적

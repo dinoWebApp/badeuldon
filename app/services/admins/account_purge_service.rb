@@ -7,8 +7,9 @@
 # audit_logs는 admin 소유(admin_id FK · user 참조 없음 — db/schema.rb 실측)라 user 삭제로
 # 소멸하지 않는다.
 #
-# 연쇄 삭제는 user.rb의 dependent: :destroy 선언(user.sessions→invoices→clients→items→
-# subscription·orders·payment_passes·notice_reads·tickets)에 위임한다 — 마이그레이션 불요.
+# 연쇄 삭제는 user.rb의 dependent: :destroy 선언(user.sessions→recurring_invoices→
+# invoices→clients→items→subscription·orders·payment_passes·notice_reads·tickets)에 위임한다
+# — recurring_invoices가 invoices보다 먼저 선언돼야 last_invoice FK restrict(B-1)가 해소된다.
 # message_logs는 user에 직접 선언되지 않지만 invoices의 DB FK on_delete: :cascade로
 # invoices 삭제 시 함께 소멸한다. 미수 차단 가드 덕분에 발행(비초안) 이력 있는 계정은
 # 원천 차단되므로 발송 기록(P4) 소실은 초안 전용 계정(발송 이력 자체가 없음)에서만 발생한다.
@@ -43,6 +44,10 @@ module Admins
       Result.new(success: true, errors: [], message: "회원 계정과 데이터를 삭제했습니다. (#{user.email})")
     rescue ActiveRecord::RecordNotDestroyed => e
       failure(e.record.errors.full_messages.join(", "))
+    rescue ActiveRecord::InvalidForeignKey => e
+      # B-1 방어선 — 연쇄 순서(선언 순서)와 FK restrict가 어긋난 재발 시 500 대신 관리자 안내
+      # 오류로 변환한다(연쇄 삭제 위임 구조의 마지막 방어 — 재발 시 user.rb 선언 순서 점검).
+      failure("연쇄 삭제 중 참조 제약에 걸렸습니다. 관리자에게 문의해 주세요. (#{e.class})")
     end
 
     private

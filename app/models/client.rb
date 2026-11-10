@@ -7,6 +7,8 @@ class Client < ApplicationRecord
 
   belongs_to :user
 
+  has_many :recurring_invoices, dependent: :destroy # INV-7 — 거래처 삭제 시 반복 청구 스케줄 연쇄 정리
+
   validates :name, :contact_name, :phone, presence: true
   validates :phone, allow_blank: true, format: { with: /\A\d{2,3}-?\d{3,4}-?\d{4}\z/ }
   validates :email, allow_blank: true, format: { with: URI::MailTo::EMAIL_REGEXP }

@@ -1,54 +1,50 @@
-# 01_plan — CLIENT-3/4·PROMISE-5 (2026-11-10, Standard · 절약 모드)
+# 01_plan — INV-7 반복 청구 + PAY-6 수금완료 PDF 병렬 배치 (2026-11-11, §6.14 parallel · 절약 모드)
 
-## §6.14 병렬 배치 판정 (사용자 명령 parallel — 3조건 대조)
+## §6.14 병렬 판정
 
-**결론: 불리 — 단일 공유 파일 중심 + 의존 사슬. Sequential Standard 런으로 전환**(Run A 선례·§6.14 적용 판단 문언 준용).
+**유리 — 2태스크 fan-out + 3-S 결선**:
+- T-D1(INV-7) = recurring 도메인(마이그레이션·모델·잡·U1 UI) / T-D2(PAY-6) = PDF 도메인(gem·서비스·invoices member 액션) — **파일 소유권 분리 ✓**
+- 상호 의존 없음(반복 청구는 PDF 미참조·PDF는 반복 청구 미참조) **✓**
+- 공유 파일(routes·app nav)은 3-S 결선 **✓**
 
-| 분해 시도 | 판정 | 사유 |
+## T-D1 · INV-7 반복 청구 (REM-1 서비스 명의·NOTI-3)
+
+- **스케줄 모델**: `recurring_invoices`(user·client FK·day_of_month 1~28 — 월말 말일 이슈 회피 권고·tax_mode·withholding_enabled·hold_if_unpaid boolean·status enum active:0/paused:1/cancelled:2·last_issued_on·next_issue_on·timestamps) + `recurring_invoice_items`(recurring_invoice FK·name·quantity·unit_price — 발행 시 스냅샷 소스)
+- **자동 발행 잡** `RecurringInvoices::IssueJob`(매일 06:30 KST — recurring.yml): next_issue_on == today && active → 발행 플로우
+  - **보류 규칙(INV-7)**: hold_if_unpaid && 직전 발행 청구가 미수(unsettled) → 발행 skip·보류 기록(schedules 상태 필드 last_skip_reason + skip 카운트 — NOTI-3 통보 대상)
+  - **PLAN-1 한도 적용**(권고·게이트 확정): 월 한도 초과 시 skip+사유 기록 — 반복 청구도 Free 3건 한도 대상
+  - 발행: Invoice 신규 생성(초안→`issue!` 재사용 — 채번·토큰·한도·수금패스 전부 기존 검증 재사용)→ **issue_notice 알림톡**(REM-1 서비스 명의 — 기존 DeliverJob enqueue 재사용·자격·가드 SendService 위임)
+  - 발행 성공: last_issued_on·next_issue_on=다음 달 N일 갱신
+- **NOTI-3 알림톡(결정 필요·Q15 제안)**: 발행 완료 통보·보류 사유 통보용 템플릿 `noti_recurring_issued`·`noti_recurring_held`가 **19종에 없음 → ALIMTALK_TEMPLATES.md B-5 초안 작성(사용자 검수 후 솔라피 등록)**·등록 전까지는 DeliverJob 수준에서 MISSING_TEMPLATE 예외를 **skipped(NO_TEMPLATE) 기록으로 흡수** — 발행 자체는 정상·템플릿 등록 후 자동 활성화. 대안(U1 대시보드 알림만)보다 이 방침 권고
+- **U1 UI**: `/app/recurring` 리소스 — 목록·신규(거래처 select·품목 행 동적[CLIENT-2 items 재사용·직접 입력]·매월 N일·tax_mode·withholding·보류 설정)·상세(발행 이력)·**일시중지/재개·해지**(INV-7) — 사이드바 "반복 청구" 메뉴(3-S)
+- 발행된 청구는 기존 Invoice로 — 상태·수금·리마인더 시퀀스 전부 기존 플로우 재사용
+- 소유 파일: 마이그레이션 1건(2테이블)·`recurring_invoice.rb`·`recurring_invoice_item.rb`·`RecurringInvoices::IssueJob`·`RecurringInvoices::IssueService`(발행+보류 판정)·`app/controllers/app/recurring_invoices_controller.rb`+views·routes(3-S)·테스트
+
+## T-D2 · PAY-6 수금완료 증빙 PDF
+
+- **기술 결정(권고)**: `prawn` gem 추가(Gemfile — T-D2 단일 소유)·**한글 폰트 Pretendard OTF 번들**(npm pretendard dist/otf Regular+Bold — public/fonts 재사용 불가, PDF는 파일시스템 경로 필요 → `app/assets/pdfs/` 또는 lib/assets 다운로드 번들)
+- **범위 한정(권고)**: PAY-6(발행자 회계 보관용)만 — VIEW-4 뷰어 PDF는 이번 범위 밖(후속 표기)
+- **서비스** `Invoices::ReceiptPdfService` — paid 청구 한정(마감 상태 아님 → 생성 불가)·내용: 거래처명·청구번호·발행일·**품목 요약(행별 명·수량·단가·합계)**·공급가액·부가세·총액·**입금일(마감 입금일 = MAX paid_on)**·원천징수(옵션 건)
+- **액션**: `GET /app/invoices/:id/payment_pdf`(member·paid 청구만 — 미마감 404/안내·본인 소유권) → send_data(파일명 `수금완료증빙_{청구번호}.pdf`)·청구서 상세(수금 완료 상태)에 다운로드 버튼
+- 소유 파일: `Gemfile`·`Gemfile.lock`·폰트 파일 2·`app/services/invoices/receipt_pdf_service.rb`·`app/controllers/app/invoices_controller.rb`(member 액션 추가)·invoice show 뷰(버튼)·routes는 3-S(간단해도 결선 통일)·테스트(생성 바이트·한글 렌더·미마감 차단)
+- 판정: ✓ 3조건(Gemfile 단일 소유·T-D1과 무관)
+
+## 3-S 결선 (단일 Developer-lite)
+- routes 결선(T-D1 recurring_invoices resources + T-D2 payment_pdf member)·app nav "반복 청구" 추가·전체 migrate·스모크(303 가드·PDF 404/200)·T-D1/T-D2 컨트롤러 테스트 실행(결선 후 최초 HTTP 검증 — Run A 교훈)
+
+## 결정 기록 제안 (게이트 확정 → Phase 2 PRD 반영)
+
+| # | 결정 | 권고 |
 |---|---|---|
-| 카드(CLIENT-3) vs 성적표(CLIENT-4) | ✗ 공유 파일 | 둘 다 `app/views/app/clients/show.html.erb`에 섹션 추가 — 동일 파일 |
-| 성적표 vs PROMISE-5 판정 | ✗ 의존 위반 | 성적표(이행률·지연일)가 PROMISE-5 이행 판정 산출을 참조 — 선행 필요 |
-| 성적표 vs 발행 직전 노출 | ✗ 공유 파일 | invoices new/edit 폼 삽입 — 성적표 산출 인터페이스 참조 |
+| Q15 | NOTI-3 알림톡 템플릿 미등록 처리 | 초안 작성(B-5)·등록 전 skipped(NO_TEMPLATE) 기록·발행 정상·등록 후 자동 활성화 |
+| Q16 | PLAN-1 한도 적용 | 반복 청구도 월 3건 한도(Free) — 초과 시 skip+사유 기록·Plus 무제한 |
+| Q17 | PDF 기술·범위 | Prawn+Pretendard OTF 번들·PAY-6(발행자용)만·VIEW-4 뷰어 PDF 후속 |
+| — | day_of_month 1~28 | 월말(29~31) 말일 이슈 회피 — 등록 UI에서 1~28 한정 |
 
-→ 단일 Developer-lite 1회 위임(Sequential · 절약).
+## 대상 파일 요약
 
-## PROMISE-5 이행 판정 정의 (PRD 미명시 — 결정 기록 Q14 제안, 게이트 확정 대상)
-
-**파생 계산 방식 채택 권고**(별도 기록 컬럼 없음 — 데이터 이중화 방지·과거 소급 정합):
-- **이행**: 해당 청구가 수금 완료(paid)이고 **마감 입금일(payments MAX paid_on) ≤ 약속일(promised_on)**
-- **미이행**: 약속일 도과(약속일+1 이후) 시점에 미수였던 기록 — 현재 기준 파생 판정(promised_on < today && invoice 미수)
-- **판정 중**: 약속 유효·아직 도과 전(unsettled + promised_on ≥ today)
-- 거래처 카드·성적표는 위 파생 판정의 집계로 "자동 기록" 충족(PRD 문언) — 리마인더 promise_overdue 발송 이력과 무관하게 파생 정합 유지
-
-## CLIENT-4 지표 정의 (권고 — 게이트 확정)
-
-1. **평균 지급 지연일**: 마감 건 중 **약속이 있었던 청구**의 (마감 입금일 − promised_on) 평균 — 약속 없던 청구 제외(참고: 만기 대비는 DASH-5와 별개 — 화면 구분 표기)
-2. **약속 이행률**: 약속 건 중 이행 비율(위 판정 기준)
-3. **최근 6개월 지급 경향**: 월별 평균 지급 지연일 추이(CSS·외부 라이브러리 금지)
-4. **비교 배지**: 동일 사용자의 전체 거래처 평균 지연일과 비교 — 차이 ≥ 1일 시 "평균보다 N일 빠른/느린 거래처" 배지(PRD 예시 문구 준용)
-
-## 구현 범위
-
-| 구분 | 파일 |
-|---|---|
-| 쿼리 | `app/queries/clients/` 신규 — PaymentScorecardQuery(거래처별 4지표+비교)·PromiseComplianceQuery(이행/미이행/판정 중 목록 — CLIENT-3 이력) 또는 단일 클래스 내 2메서드(당신 판단·규약 §3.2) |
-| 모델 | Promise·Invoice 최소 scope 추가만(파생 판정) — 마이그레이션 불요 |
-| 컨트롤러 | `app/clients_controller.rb` show 확장(@scorecard 로드) + **`app/invoices_controller.rb` scorecard 엔드포인트**(발행 폼 거래처 선택 시 Turbo 갱신 — 신규 1액션) |
-| 뷰 | `app/views/app/clients/show.html.erb`(카드 CLIENT-3+성적표 CLIENT-4 섹션)·`app/views/app/invoices/_form.html.erb`(발행 직전 요약 삽입)·scorecard 요약 파셜(신규) |
-| 라우트 | invoices scorecard 1건(app namespace — `get "scorecard" => "invoices#scorecard"` 계약·3-b 결선 아님 — sequential이라 당신 결선) |
-| 테스트 | 쿼리(판정 3상태·경계 — 입금일==약속일·월말·약속 없는 청구 제외)·컨트롤러(scorecard 엔드포인트 소유권·렌더)·시스템(발행 폼 요약) — Phase 7 |
-
-## 진행 (Standard: 2→3→4→5→6?→7→8→9 · 절약)
-
-단일 Developer-lite 1회 → Reviewer-lite(컨트롤러 경유 재현 필수) → Tester-lite(전체 게이트) → Phase 8(부트·경로) → 완료 보고.
-
-## 리스크·모호점
-
-- 약속 없는 청구만 있는 거래처: 성적표 지표 null 처리("-" 표기)·비교 배지 제외
-- 발행 폼 거래처 변경 시 갱신 UX(Turbo fetch vs 페이지 로드 기본 거래처) — 개발자 최소 구현 선택·PRD 요건("발행 직전 화면 요약 노출") 충족이 기준
-- payment MAX paid_on = 마감 입금일 정의(PAY-1 — 부분입금 합산 시 최종 입금일 기준)
-- DASH-5(만기 대비)와의 지표 혼동 — 화면 부제로 구분(DASH-5 구현 시 확정 해석 준용)
+T-D1: 마이그레이션·recurring 모델 2·잡 1·서비스 1·app/recurring 컨트롤러+뷰 4~5·테스트 / T-D2: Gemfile·폰트 2·PDF 서비스·invoices 컨트롤러·show 버튼·테스트 / 3-S: routes·nav
 
 ## 관련 Rule ID
 
-CLIENT-3·CLIENT-4·PROMISE-5·PAY-1/2(마감 입금일·잔액)·INV-4·DASH-5(경계 구분)·TIME-1·P1(문구 톤)
+INV-7·NOTI-3·REM-1(issue_notice)·PAY-1/2(마감 입금일)·PAY-6·PLAN-1·VIEW-4(범위 밖 표기)·TIME-1·SURF-3

@@ -2,6 +2,12 @@
 class User < ApplicationRecord
   has_secure_password
   has_many :sessions, dependent: :destroy
+  # INV-7 — 반복 청구 스케줄(탈퇴 시 삭제). **invoices보다 먼저 선언 필수** — 연관 선언 순서가
+  # 곧 dependent: :destroy 실행 순서라, recurring_invoices.last_invoice_id가 invoices FK
+  # (on_delete: :restrict — P4 발행 기록 보존)를 참조한다. 스케줄이 invoices보다 늦게 파괴되면
+  # restrict가 발화해 계정 삭제(ADMIN-3·AUTH-1.5)가 InvalidForeignKey로 파탄한다(B-1 교정).
+  # 참조되는 쪽(invoices)보다 참조하는 자식(스케줄)이 먼저 선언돼야 한다 — 순서 변경 금지.
+  has_many :recurring_invoices, dependent: :destroy
   # AUTH-1.5 — 연관 선언 순서가 곧 dependent: :destroy 실행 순서다. invoices는 clients를
   # 참조하므로 자식(청구서)을 손자·부모(거래처·품목)보다 먼저 선언해 탈퇴 연쇄 삭제 시
   # invoices.client_id 외래 키 위반(ActiveRecord::InvalidForeignKey)을 방지한다. 순서 변경 금지.

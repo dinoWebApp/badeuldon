@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_10_040001) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_11_040001) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.string "name", null: false
     t.string "record_type", null: false
@@ -258,6 +258,36 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_10_040001) do
     t.index ["invoice_id"], name: "index_promises_on_invoice_id"
   end
 
+  create_table "recurring_invoice_items", force: :cascade do |t|
+    t.integer "recurring_invoice_id", null: false
+    t.string "name", null: false
+    t.integer "quantity", default: 1, null: false
+    t.integer "unit_price", default: 0, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["recurring_invoice_id"], name: "index_recurring_invoice_items_on_recurring_invoice_id"
+  end
+
+  create_table "recurring_invoices", force: :cascade do |t|
+    t.integer "user_id", null: false
+    t.integer "client_id", null: false
+    t.integer "last_invoice_id"
+    t.integer "day_of_month", null: false
+    t.integer "tax_mode", default: 0, null: false
+    t.boolean "withholding_enabled", default: false, null: false
+    t.boolean "hold_if_unpaid", default: false, null: false
+    t.integer "status", default: 0, null: false
+    t.date "last_issued_on"
+    t.date "next_issue_on", null: false
+    t.string "last_skip_reason"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["client_id"], name: "index_recurring_invoices_on_client_id"
+    t.index ["last_invoice_id"], name: "index_recurring_invoices_on_last_invoice_id"
+    t.index ["user_id", "next_issue_on"], name: "index_recurring_invoices_on_user_id_and_next_issue_on"
+    t.index ["user_id"], name: "index_recurring_invoices_on_user_id"
+  end
+
   create_table "sessions", force: :cascade do |t|
     t.integer "user_id", null: false
     t.string "ip_address"
@@ -349,6 +379,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_10_040001) do
   add_foreign_key "payment_passes", "users", on_delete: :cascade
   add_foreign_key "payments", "invoices"
   add_foreign_key "promises", "invoices"
+  add_foreign_key "recurring_invoice_items", "recurring_invoices", on_delete: :cascade
+  add_foreign_key "recurring_invoices", "clients", on_delete: :cascade
+  add_foreign_key "recurring_invoices", "invoices", column: "last_invoice_id", on_delete: :restrict
+  add_foreign_key "recurring_invoices", "users", on_delete: :cascade
   add_foreign_key "sessions", "users"
   add_foreign_key "subscriptions", "coupons"
   add_foreign_key "subscriptions", "users", on_delete: :cascade

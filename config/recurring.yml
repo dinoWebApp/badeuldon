@@ -33,6 +33,11 @@ production:
   reminders_dispatch:
     class: Reminders::DispatchJob
     schedule: "0 14 * * 1-5 Asia/Seoul"
+  # INV-7 반복 청구 자동 발행 — 매일 06:30 KST(TIME-1). 발행 안내(issue_notice)는 09시 사전통보
+  # 이전에 큐에 들어가도 잡 실행은 SendService 창 가드를 통과한다.
+  recurring_invoices_issue:
+    class: RecurringInvoices::IssueJob
+    schedule: "30 6 * * * Asia/Seoul"
 
 development:
   subscription_trial_expiry:
@@ -50,3 +55,8 @@ development:
   reminders_dispatch:
     class: Reminders::DispatchJob
     schedule: "0 14 * * 1-5 Asia/Seoul"
+  # INV-7 반복 청구 자동 발행 — 매일 06:30 KST(TIME-1). 발행 안내(issue_notice)는 09시 사전통보
+  # 이전에 큐에 들어가도 잡 실행은 SendService 창 가드를 통과한다.
+  recurring_invoices_issue:
+    class: RecurringInvoices::IssueJob
+    schedule: "30 6 * * * Asia/Seoul"

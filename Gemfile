@@ -29,6 +29,11 @@ gem "bcrypt", "~> 3.1.7"
 gem "rotp"
 gem "rqrcode"
 
+# PAY-6 — 수금완료 증빙 PDF 생성(결정 기록 Q17 — Prawn+Pretendard OTF 번들, 순수 Ruby)
+gem "prawn", "~> 2.5"
+# PAY-6 — PDF 표 레이아웃(Prawn 2.x부터 표는 별도 gem — prawn-table)
+gem "prawn-table"
+
 # Windows does not include zoneinfo files, so bundle the tzinfo-data gem
 gem "tzinfo-data", platforms: %i[ windows jruby ]
 

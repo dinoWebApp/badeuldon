@@ -32,7 +32,10 @@ class Admins::SignupStatsQueryTest < ActiveSupport::TestCase
   test "경계 — 30일 창 시작일 자정 이전 가입은 제외된다 (TIME-1)" do
     clear_domain_tables
     User.delete_all
-    boundary = 30.days.ago.beginning_of_day
+    # 시간 의존 시딩 금지 — 실행일 기준 30.days.ago 시드는 창이 실행일마다 어긋나 깨진다.
+    # 기준 시각을 고정하고 창 시작일을 그 시각에서 역산한다.
+    base = Time.zone.parse("2026-11-10 09:00")
+    boundary = (base - 30.days).beginning_of_day
     travel_to(boundary - 1.second)
     User.create!(email: "just-out@example.com", password: "password")
     travel_back

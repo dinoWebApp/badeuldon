@@ -73,6 +73,26 @@ class Admins::AccountPurgeServiceTest < ActiveSupport::TestCase
     assert_equal 0, Invoice.where(user_id: @user.id).count
   end
 
+  # B-1 재발 방지 — last_invoice FK(restrict)를 참조하는 스케줄이 있어도 연쇄 순서
+  # (user.rb: recurring_invoices가 invoices보다 먼저 선언)로 restrict가 해소돼야 한다.
+  # 미수 가드 통과 상태(전량 완납)임을 명시한다.
+  test "발행 이력 있는 반복 청구 스케줄 보유 계정도 삭제된다 (B-1 — last_invoice restrict 해소)" do
+    paid = create_invoice! { |inv| inv.issue! }
+    paid.mark_paid!
+    schedule = RecurringInvoice.new(user: @user, client: @client, day_of_month: 10)
+    schedule.items.build(name: "월정액", quantity: 1, unit_price: 100_000)
+    schedule.save!
+    schedule.update!(last_invoice: paid)
+    assert_equal paid.id, schedule.reload.last_invoice_id
+
+    result = Admins::AccountPurgeService.call(admin: @admin, user: @user, confirm_email: @user.email)
+
+    assert result.success?, result.errors.join(", ")
+    assert_not User.exists?(@user.id)
+    assert_equal 0, RecurringInvoice.where(user_id: @user.id).count
+    assert_equal 0, Invoice.where(user_id: @user.id).count
+  end
+
   private
 
   # 품목 1행 초안 생성(검증 통과) — 상태 전이는 블록에서 수행(issue! 등).

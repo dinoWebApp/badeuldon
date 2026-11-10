@@ -24,6 +24,7 @@ Rails.application.routes.draw do
         patch :resume_reminders  # REM-7 — 청구 건 단위 보류 재개
         post :remind             # REM-8 — 수동 발송(현재 상황에 맞는 다음 1통·플랜 무관)
         post :restart_reminders  # REM-12/13 — 시퀀스 수동 재개(U1의 수동 재요청 — 자동 재개 없음)
+        get :payment_pdf         # PAY-6 — 수금완료 증빙 PDF(paid 한정·본인 소유 — Invoices::ReceiptPdfService)
       end
       # F-PAY — 입금 기록·마감(PAY-1 원클릭·PAY-2 부분입금 겸용 create). 청구서 하위 자원으로
       # 소유권을 스코프하며 전이 처리는 Payments::RecordService가 담당한다.
@@ -36,6 +37,17 @@ Rails.application.routes.draw do
     # member 액션으로 정당화하며, 소유권은 App::PromisesController가 청구서 스코프로 격리한다.
     resources :promises, only: [] do
       member { patch :answer }
+    end
+
+    # ── INV-7 반복 청구 — 스케줄 CRUD(부분: 열람·생성만, 수정 화면 없음) + 일시정지·재개·
+    # 종료(member PATCH — 스케줄 상태 전이라 예외적 동사로 정당화). 발행 자체는 매일
+    # RecurringInvoices::IssueJob(06:30 KST)이 스캔하며 이 리소스는 U1 관리 화면이다.
+    resources :recurring_invoices, only: %i[ index new create show ] do
+      member do
+        patch :pause
+        patch :resume
+        patch :cancel
+      end
     end
 
     # ── F-ADMIN Run C — 운영 공지 U1 노출(ADMIN-7). PRD 문언의 경로 `/app/notice`를

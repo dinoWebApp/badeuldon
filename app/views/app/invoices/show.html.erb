@@ -447,6 +447,12 @@
               <%= display_date(@payments.first.paid_on) %> 입금 분까지 확인되어 마감했습니다.
             </p>
           <% end %>
+          <%# PAY-6 — 수금완료 증빙 PDF 다운로드(결정 Q17). 마감 상태에만 노출되는 보조 액션 %>
+          <%= link_to payment_pdf_app_invoice_path(@invoice),
+                class: "mt-3 inline-flex items-center rounded-lg bg-white px-3 py-1.5 text-xs font-bold text-green-700 ring-1 ring-inset ring-green-300 transition hover:bg-green-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-700",
+                download: "수금완료증빙_#{@invoice.issue_number}.pdf" do %>
+            수금완료 증빙 PDF
+          <% end %>
         </div>
       <% elsif @invoice.unsettled? %>
         <%# PAY-1 — 원클릭 마감: 잔액 전액 1건 기록 + 마감 전이(금액은 서버가 잔액 기준값으로

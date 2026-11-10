@@ -11,6 +11,8 @@ module App
           disabled: false, locked: },
         { label: "청구서", path: app_invoices_path, active: request.path.start_with?(app_invoices_path),
           disabled: false, locked: },
+        { label: "반복 청구", path: app_recurring_invoices_path, active: request.path.start_with?(app_recurring_invoices_path),
+          disabled: false, locked: },  # INV-7 — 반복 청구 스케줄(/app/recurring_invoices)
         { label: "거래처", path: app_clients_path, active: request.path.start_with?(app_clients_path),
           disabled: false, locked: },
         { label: "품목", path: app_items_path, active: request.path.start_with?(app_items_path),

@@ -9,7 +9,7 @@ class App::InvoicesController < App::BaseController
   # Payments·Promises 컨트롤러의 load_invoice_show와 공유한다.
   include RemindersContext
 
-  before_action :set_invoice, only: %i[ show ]
+  before_action :set_invoice, only: %i[ show payment_pdf ]
   before_action :set_draft_invoice, only: %i[ edit update destroy issue ]
   before_action :set_voidable_invoice, only: %i[ void ]
   before_action :set_linkable_invoice, only: %i[ regenerate_token ]
@@ -35,6 +35,19 @@ class App::InvoicesController < App::BaseController
   end
 
   def show; end
+
+  # PAY-6 — 수금완료 증빙 PDF 다운로드(Q17). 소유권은 set_invoice(Current.user 스코프)로 담보하고,
+  # 미마감 청구는 404 대신 상세로 되돌려 안내한다 — UX 판정: 상태 안내가 사용자 혼란이 적고,
+  # 서비스 가드(Invoices::ReceiptPdfService::PdfNotAvailable)와 이중 방어를 이룬다.
+  def payment_pdf
+    pdf = Invoices::ReceiptPdfService.call(invoice: @invoice)
+    send_data pdf,
+              filename: "수금완료증빙_#{@invoice.issue_number}.pdf",
+              type: "application/pdf"
+  rescue Invoices::ReceiptPdfService::PdfNotAvailable
+    redirect_to app_invoice_path(@invoice), status: :see_other,
+                alert: "수금이 마감된 청구서만 증빙을 내려받을 수 있습니다."
+  end
 
   # CLIENT-4 — 발행 직전 거래처 지급 성적표 요약(폼 거래처 선택 시 fetch로 갱신). 조회는
   # Current.user.clients 스코프로 격리해 타인 거래처는 404로 수렴한다(소유권 격리).

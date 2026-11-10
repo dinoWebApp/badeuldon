@@ -1,0 +1,91 @@
+<% content_for :title, "반복 청구 상세 — 받을돈" %>
+
+<%# 반복 청구 상세(INV-7) — 설정·다음 발행일·마지막 사유(NOTI-3)·일시중지/재개/해지.
+    발행된 실제 청구서는 기존 청구함(app_invoice_path)으로 안내한다. 해지는 INV-7 전이(confirm). %>
+<div class="py-8">
+  <header class="flex flex-wrap items-start justify-between gap-4">
+    <div>
+      <p class="text-xs font-bold text-stone-500">
+        <%= link_to "반복 청구", app_recurring_invoices_path, class: "underline underline-offset-4 hover:text-stone-700" %> &rsaquo; 상세
+      </p>
+      <h1 class="mt-1 text-2xl font-bold tracking-tight text-emerald-900"><%= @schedule.client.name %></h1>
+      <p class="mt-2 text-sm leading-relaxed text-stone-500">
+        매월 <%= @schedule.day_of_month %>일에 이 거래처에게 청구서를 자동 발행합니다.
+      </p>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <% if @schedule.active? %>
+        <%= button_to "일시중지", pause_app_recurring_invoice_path(@schedule), method: :patch,
+              class: "inline-flex min-h-11 items-center rounded-xl border border-stone-300 bg-white px-4 text-sm font-bold text-stone-700 shadow-sm transition hover:bg-stone-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+        <%= button_to "해지", cancel_app_recurring_invoice_path(@schedule), method: :patch,
+              form: { data: { turbo_confirm: "반복 청구를 해지하면 자동 발행이 중단됩니다. 해지한 스케줄은 다시 활성화할 수 없습니다. 해지할까요?" } },
+              class: "inline-flex min-h-11 items-center rounded-xl border border-red-200 bg-white px-4 text-sm font-bold text-red-600 shadow-sm transition hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+      <% elsif @schedule.paused? %>
+        <%= button_to "재개", resume_app_recurring_invoice_path(@schedule), method: :patch,
+              class: "inline-flex min-h-11 items-center rounded-xl bg-emerald-800 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+        <%= button_to "해지", cancel_app_recurring_invoice_path(@schedule), method: :patch,
+              form: { data: { turbo_confirm: "반복 청구를 해지하면 자동 발행이 중단됩니다. 해지할까요?" } },
+              class: "inline-flex min-h-11 items-center rounded-xl border border-red-200 bg-white px-4 text-sm font-bold text-red-600 shadow-sm transition hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+      <% end %>
+    </div>
+  </header>
+
+  <% if @schedule.last_skip_reason.present? %>
+    <%# NOTI-3 — 마지막 skip 사유(보류·한도). 알림톡 활성화 전까지 U1은 이 화면에서 확인한다. %>
+    <div class="mt-6 rounded-2xl border border-orange-200 bg-orange-50 p-5" role="status">
+      <p class="text-sm font-bold text-stone-800">이번 달 발행이 보류되었습니다</p>
+      <p class="mt-1.5 text-sm leading-relaxed text-stone-600"><%= @schedule.last_skip_reason %></p>
+    </div>
+  <% end %>
+
+  <section class="mt-6 grid gap-4 sm:grid-cols-2">
+    <div class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
+      <h2 class="text-sm font-bold text-stone-500">다음 발행일</h2>
+      <p class="mt-2 text-lg font-bold tabular-nums text-stone-800"><%= display_date(@schedule.next_issue_on) %></p>
+      <p class="mt-1 text-xs text-stone-500">
+        상태: <%= @schedule.active? ? "이용 중" : @schedule.paused? ? "일시중지" : "해지" %>
+        · 만기일은 발행일 기준 30일 후로 설정됩니다.
+      </p>
+    </div>
+    <div class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
+      <h2 class="text-sm font-bold text-stone-500">마지막 발행</h2>
+      <p class="mt-2 text-lg font-bold tabular-nums text-stone-800">
+        <%= @schedule.last_issued_on.present? ? display_date(@schedule.last_issued_on) : "아직 발행 이력이 없습니다" %>
+      </p>
+      <% if @schedule.last_invoice.present? %>
+        <p class="mt-1 text-xs text-stone-500">
+          <%= link_to "발행된 청구서 보기", app_invoice_path(@schedule.last_invoice), class: "font-bold text-emerald-700 underline underline-offset-4 hover:text-emerald-900" %>
+        </p>
+      <% end %>
+    </div>
+  </section>
+
+  <section class="mt-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
+    <h2 class="text-base font-bold text-stone-800">청구 내용</h2>
+    <table class="mt-4 w-full text-left text-sm">
+      <thead class="border-b border-stone-200 text-xs font-bold text-stone-500">
+        <tr>
+          <th class="py-2 pr-4">품목명</th>
+          <th class="py-2 pr-4">수량</th>
+          <th class="py-2 pr-4">단가</th>
+          <th class="py-2 text-right">합계</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-stone-100">
+        <% @schedule.items.each do |item| %>
+          <tr>
+            <td class="py-2.5 pr-4 font-medium text-stone-800"><%= item.name %></td>
+            <td class="py-2.5 pr-4 tabular-nums text-stone-600"><%= item.quantity %></td>
+            <td class="py-2.5 pr-4 tabular-nums text-stone-600"><%= number_to_currency(item.unit_price, unit: "₩", precision: 0, delimiter: ",") %></td>
+            <td class="py-2.5 text-right tabular-nums font-bold text-stone-800"><%= number_to_currency(item.quantity * item.unit_price, unit: "₩", precision: 0, delimiter: ",") %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+    <p class="mt-4 text-xs text-stone-500">
+      부가세 <%= @schedule.tax_mode == "separate" ? "별도" : "포함" %>
+      · 원천징수 <%= @schedule.withholding_enabled ? "적용(3.3%)" : "미적용" %>
+      · 직전 미수금 시 보류 <%= @schedule.hold_if_unpaid ? "설정됨" : "설정 안 함" %>
+    </p>
+  </section>
+</div>

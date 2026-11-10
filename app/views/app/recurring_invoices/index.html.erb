@@ -1,0 +1,77 @@
+<% content_for :title, "반복 청구 — 받을돈" %>
+
+<%# 표면 ② 반복 청구(INV-7) — 월 1회 자동 발행 스케줄 목록. 상태색은 DESIGN-3(활성=딥 그린·
+    일시중지=중립 스톤)을 따르며, 보류 사유(last_skip_reason)는 NOTI-3 통보 데이터를 그대로 보인다. %>
+<div class="py-8">
+  <header class="flex flex-wrap items-start justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight text-emerald-900">반복 청구</h1>
+      <p class="mt-2 text-sm leading-relaxed text-stone-500">
+        매월 같은 날짜에 거래처에게 청구서를 자동으로 발행합니다. 발행된 청구서는 기존 청구함에서 관리됩니다.
+      </p>
+    </div>
+    <%= link_to "반복 청구 등록", new_app_recurring_invoice_path,
+          class: "inline-flex min-h-11 items-center rounded-xl bg-emerald-800 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+  </header>
+
+  <% if @schedules.any? %>
+    <div class="mt-6 overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
+      <table class="w-full text-left text-sm">
+        <thead class="border-b border-stone-200 text-xs font-bold text-stone-500">
+          <tr>
+            <th class="px-5 py-3">거래처</th>
+            <th class="px-5 py-3">상태</th>
+            <th class="px-5 py-3">다음 발행일</th>
+            <th class="hidden px-5 py-3 md:table-cell">금액(공급가액 기준)</th>
+            <th class="hidden px-5 py-3 lg:table-cell">마지막 기록</th>
+            <th class="px-5 py-3"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-stone-100">
+          <% @schedules.each do |schedule| %>
+            <tr class="transition hover:bg-stone-50">
+              <td class="px-5 py-4 font-bold text-stone-800"><%= schedule.client.name %></td>
+              <td class="px-5 py-4">
+                <% case schedule.status %>
+                <% when "active" %>
+                  <span class="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-800">이용 중</span>
+                <% when "paused" %>
+                  <span class="inline-flex rounded-full bg-stone-100 px-2.5 py-1 text-xs font-bold text-stone-600">일시중지</span>
+                <% else %>
+                  <span class="inline-flex rounded-full bg-stone-100 px-2.5 py-1 text-xs font-bold text-stone-400">해지</span>
+                <% end %>
+              </td>
+              <td class="px-5 py-4 whitespace-nowrap tabular-nums text-stone-700"><%= display_date(schedule.next_issue_on) %></td>
+              <td class="hidden px-5 py-4 text-stone-700 md:table-cell">
+                <%= number_to_currency(schedule.items.sum { |item| item.quantity * item.unit_price }, unit: "₩", precision: 0, delimiter: ",") %>
+              </td>
+              <td class="hidden px-5 py-4 text-stone-600 lg:table-cell">
+                <% if schedule.last_skip_reason.present? %>
+                  <span class="font-medium text-orange-700"><%= schedule.last_skip_reason %></span>
+                <% elsif schedule.last_issued_on.present? %>
+                  마지막 발행 <%= display_date(schedule.last_issued_on) %>
+                <% else %>
+                  —
+                <% end %>
+              </td>
+              <td class="px-5 py-4 text-right">
+                <%= link_to "자세히", app_recurring_invoice_path(schedule),
+                      class: "font-bold text-emerald-700 underline underline-offset-4 hover:text-emerald-900" %>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  <% else %>
+    <%# 빈 상태 — 첫 스케줄 등록 유도(거래처 빈 상태 패턴과 동일 문법) %>
+    <div class="mt-6 rounded-2xl border border-dashed border-stone-300 bg-white/60 p-10 text-center sm:p-14">
+      <p class="text-base font-bold text-stone-800">정기 청구를 걸어두세요</p>
+      <p class="mt-2 text-sm leading-relaxed text-stone-500">
+        월 단위로 같은 내용을 청구한다면, 매월 N일에 받을돈이 대신 발행합니다.
+      </p>
+      <%= link_to "반복 청구 등록하기", new_app_recurring_invoice_path,
+            class: "mt-6 inline-flex min-h-11 items-center rounded-xl bg-emerald-800 px-6 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+    </div>
+  <% end %>
+</div>

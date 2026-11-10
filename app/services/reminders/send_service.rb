@@ -169,11 +169,25 @@ module Reminders
       after_send_hook
       :sent
     rescue Solapi::ApiError => e
+      # Q15·NOTI-3(W-2 방침 (b)) — credentials에 템플릿 코드가 없는 키(noti_recurring_issued/
+      # held 등 등록 전 초안)는 확정 실패가 아니라 "등록 전" 상태다. failed로 남기면 재시도
+      # 잡 노이즈·P4 이력 왜곡이 생기므로 skipped(NO_TEMPLATE)로 기록하고 정상 종료한다 —
+      # 발신 측(예: 반복 청구 발행)은 무영향이며, 템플릿이 등록되면 다음 발행부터 자동 활성화.
+      return skip_no_template!(log, e) if e.code == "MISSING_TEMPLATE"
+
       log.update!(status: :failed, origin: @origin, error_code: e.code,
                   error_message: e.message, phone: recipient_phone, variables: variables)
       raise if e.retryable?  # 모호 실패 — 잡 계층 재시도로 넘긴다(기록은 완료됐다)
 
       :failed
+    end
+
+    # 등록 전 템플릿의 skipped 기록 — P4(모든 발신 시도는 기록)의 흡수 경로. 멱등 재실행은
+    # claim_log가 skipped 슬롯을 갱신 경로로 재사용해 이력이 누적되지 않는다.
+    def skip_no_template!(log, error)
+      log.update!(status: :skipped, origin: @origin, error_code: "NO_TEMPLATE",
+                  error_message: error.message, phone: recipient_phone)
+      :skipped
     end
 
     # 발송 성공 후속 — 자동 채무자 발송 한정. 시퀀스 종결(REM-12·13)과 약속 도과 U1 통보
@@ -256,7 +270,19 @@ module Reminders
         variables["complete_url"] = prenotice_button_url
         variables["pending_url"] = prenotice_button_url
       end
+      # NOTI-3(Q15·B-5 21번) — 반복 청구 보류 사유. 직전 발행 청구(last_invoice)에 연결된
+      # 스케줄의 last_skip_reason을 읽는다(등록 전 템플릿이므로 실발송은 등록 후부터).
+      if @template_key == "noti_recurring_held"
+        variables["보류사유"] = recurring_schedule&.last_skip_reason.to_s
+      end
       variables
+    end
+
+    # U1 향 noti_recurring_*의 문맥 스케줄 — last_invoice로 역조회한다. held 인큐는
+    # last_invoice가 있는 스케줄에 한정되므로(IssueService#enqueue_notifications) nil 여지는
+    # 레지스트리 방어로만 남는다.
+    def recurring_schedule
+      @recurring_schedule ||= RecurringInvoice.find_by(last_invoice_id: @invoice.id)
     end
 
     # 버튼 웹링크 — 솔라피 템플릿의 `https://#{url}` 버튼 치환값(ALIMTALK_TEMPLATES.md 버튼 명세).
@@ -267,6 +293,12 @@ module Reminders
         "#{LINK_HOST}#{Rails.application.routes.url_helpers.viewer_path(@invoice.token)}"
       elsif @template_key == "noti_due_soon"
         "#{LINK_HOST}/app"
+      elsif @template_key == "noti_recurring_held"
+        # NOTI-3(Q15·B-5 21번) — "설정 확인하기"는 반복 청구 스케줄 상세. 문맥 스케줄이
+        # 조회되지 않는 비정상 경로에서는 목록으로 폴백한다.
+        schedule = recurring_schedule
+        url_helpers = Rails.application.routes.url_helpers
+        "#{LINK_HOST}#{schedule ? url_helpers.app_recurring_invoice_path(schedule) : url_helpers.app_recurring_invoices_path}"
       else
         "#{LINK_HOST}#{Rails.application.routes.url_helpers.app_invoice_path(@invoice)}"
       end
