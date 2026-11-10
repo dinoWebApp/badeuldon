@@ -1,0 +1,14 @@
+<%# CLIENT-4 — 발행 직전 거래처 성적표 요약(1~2줄). fetch 응답 조각으로
+    client-scorecard Stimulus 컨트롤러가 #scorecard_summary 컨테이너에 삽입한다.
+    "지연"은 약속일 대비 — 만기일 대비 DASH-5와 정의가 다르다. 지표가 없으면 "-"·배지 미노출. %>
+<div class="mt-3 rounded-xl bg-stone-50 p-3 text-sm ring-1 ring-inset ring-stone-200">
+  <% badge = client_comparison_badge(scorecard) %>
+  <p class="leading-relaxed text-stone-600">
+    이 거래처의 평균 지급 지연일은 <strong class="tabular-nums text-stone-900"><%= scorecard_delay_text(scorecard.avg_delay_days) %></strong> ·
+    약속 이행률 <strong class="tabular-nums text-stone-900"><%= scorecard_rate_text(scorecard.compliance_rate) %></strong>
+    <% if badge %>
+      <span class="ml-1 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-bold <%= badge.last %>"><%= badge.first %></span>
+    <% end %>
+  </p>
+  <p class="mt-1 text-xs text-stone-400">약속일 대비 실제 입금까지의 평균입니다. 약속 이력이 없는 거래처는 표기되지 않습니다.</p>
+</div>

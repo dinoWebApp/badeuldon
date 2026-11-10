@@ -1,61 +1,59 @@
-# 01_plan — F-ADMIN Run C (2026-11-10, Full · 절약 모드)
+# 01_plan — F-ADMIN 잔여 병렬 배치 (2026-11-10, §6.14 parallel · 절약 모드)
 
 ## 범위 분할 (게이트 승인 대상)
 
-| 런 | 범위 | 사유 |
+| 항목 | 판정 | 근거 |
 |---|---|---|
-| **Run C(이번)** | **공지(ADMIN-6/7)·티켓(ADMIN-8 + `noti_ticket_reply` 발송)·FAQ 선노출(ADMIN-9)** | U1·운영자 양측 가치 완결 — credentials 등록 완료 실측(19키) |
-| 별도 후속 | ADMIN-10 콘텐츠 통합 — **블로그 자체(BLOG 도메인)가 미구현**이라 LP-11 콘텐츠 허브와 통합 검토가 정합 / 쿠폰·프로모션(결제 플로우 결선)·롤 부여/해제 콘솔·계정 삭제·데이터 파기(파급 범위) — 각 필요 시점 소규모 런 | Run B 이관 목록(03 문서) 유지 |
+| ADMIN-10 콘텐츠 통합(블로그) | **병렬 배치 제외 — LP-11 블로그와 통합하는 별도 대형 런으로 분리** | 블로그 자체(BLOG 도메인·표면·LP-11)가 미구현 — 새 도메인 신규 구현이라 독립 소규모 묶음이 아니며 PRD에도 "LP-11과 통합 검토" 명시 |
+| 롤·계정 콘솔 / 쿠폰·프로모션 / 계정 삭제·데이터 파기 | **이번 병렬 배치 3태스크** | 아래 3조건 전부 통과 |
 
-## 구현 범위
+## 태스크 분해 (병렬 안전 3조건 판정 포함)
 
-### 1. 공지 (ADMIN-6 관리 + ADMIN-7 노출)
-- `notices` 테이블: title·body(text)·importance enum(general:0/important:1)·published_at·expires_at(게시 기간 — null 허용=무기한)·timestamps
-- `notice_reads`(user_id·notice_id — **복합 유니크**): 사용자별 읽음 처리(ADMIN-7)
-- Admin: CRUD + 발행/종료(publish·close member)·목록 필터
-- U1 노출: ① /app 대시보드 상단 **일반 배너**(닫기=읽음 기록·게시 기간 내만) ② **중요 팝업**(확인 버튼 전까지 지속 노출 — 읽음 전 모든 /app 진입 시) ③ `/app/notices` 목록·상세 — noindex 유지(SURF-3 /app 전체)
-- 읽음 기록: NoticeReads::MarkService(멱등 — find_or_create_by)
+### T-C1 · ADMIN 롤·계정 콘솔 (AUTH-7.2·ADMIN-1)
+- 내용: ① admins 목록(이메일·role·잠금 상태·최근 로그인) ② **신규 관리자 생성 폼**(이메일·비밀번호·role — AUTH-7.2 "추가 계정은 최고 관리자가 콘솔에서만") ③ **role 승격/강등** ④ **잠금 해제 버튼**(기존 runner 절차의 콘솔화)·전 행위 감사 기록(RecordService 경유)
+- 권한 규칙(권고): 목록 조회 = admin 전원, **생성·role 변경·잠금 해제 = owner 전용**(ADMIN-1 문언 "부여·해제는 최고 관리자만") — staff 접근 시 403/안내
+- 소유 파일: `app/controllers/admin/admins_controller.rb`(신규)·`app/views/admin/admins/**`(신규)·`app/models/admin.rb`(role 변경·생성 헬퍼 최소)·`app/services/admins/role_service.rb`(신규)·해당 테스트
+- 판정: ✓ 3조건(마이그레이션 불요 — admins 테이블 존재)
+- 런타임 사유: Run A 잠금 해제·계정 생성의 runner 절차를 콘솔로 승격 — 운영 공수 저감
 
-### 2. 티켓 (ADMIN-8)
-- `tickets`: user_id FK·category enum(billing:0/support:1/bug:2/feature:3/etc:4 — PRD 5분류)·title·status enum(open:0 접수·answered:1 답변완료·closed:2 종료)·timestamps
-- `ticket_messages`(스레드): ticket_id FK·sender enum(user:0/admin:1)·body(text — 2,000자 상한)·timestamps. **이미지 첨부: Active Storage 1장**(disk 저장 — storage 볼륨·5MB·jpg/png/webp 한정 — **프로젝트 첫 AS 도입**·Rails 8.1.4.1에서 AS 권고 전부 해소 상태)
-- U1: `/app/tickets` 목록·작성(분류·제목·본문·이미지 선택 — **화면에 FAQ 선노출 ADMIN-9: 랜딩 `_faq` 파셜 재사용(데이터화 후속)**)·상세(스레드·추가 질문 폼 — answered 상태에서 질문 시 **open 복귀**·closed는 재문의 불가 안내)·rate_limit(작성 5회/시간 — 스팸 방지, 뷰어 패턴 준용)
-- Admin: 목록(상태·분류 필터)·상세(스레드)·답변 등록(**`noti_ticket_reply` 알림톡 발송 — credentials `KA01TP261109000802333pyOjLfFH6J4` 실측**)·종료(close)
-- **알림 발송 설계**: `Tickets::NotifyAnswerService` — Solapi 래퍼 직접 호출(청구 가드 불요 — 자격·상한·수신거부 개념 없음)·variables: `사용자명`=display_name·`문의제목`=title·`url`=`badeuldon.kr/app/tickets/{id}`·**phone 미등록 시 skipped 기록·U1 향 즉시 발송(PERF-1 성격)**·발송 성공/실패/skipped 모두 MessageLog 기록
-- 리마인더 시퀀스와 무관 — PLAN-3 상한 집계 밖(message_logs에는 기록하되 SEQUENCE_TEMPLATE_KEYS 밖)
+### T-C2 · 쿠폰·프로모션 (ADMIN-4)
+- 내용: ① **쿠폰 모델**(code 고유·discount_type enum percent:0/amount:1·discount_value·max_redemptions·used_count·expires_at·active) ② **Admin CRUD + 사용 통계** ③ **U1 적용**: /app/billing에서 쿠폰 코드 입력 → 검증 → **Plus 구독 첫 결제 1회 할인**(포트원 빌링키 첫 차감 금액 조정 — orders 금액·metadata 기록·used_count 증가) ④ 감사 기록
+- **범위 한정(권고)**: 첫 달 1회 할인만 — 재과금(자동 갱신)·수금 패스 미적용(확장 후속). PLAN-2 9,900원 기준 percent/amount 절감, 최소 0원 방지(amount 할인 상한 9,900)
+- 소유 파일: `db/migrate/` 신규 1건(coupons)·`app/models/coupon.rb`(신규)·`app/controllers/admin/coupons_controller.rb`(신규)·`app/views/admin/coupons/**`(신규)·`app/models/subscription.rb`(쿠폰 연결 컬럼 또는 orders metadata 활용 — 당신 설계)·`app/services/subscriptions/upgrade_service.rb`(첫 차감 금액 할인 반영 — Run F-PLAN 파일)·`app/views/app/billings/show.html.erb`(코드 입력 UI)·해당 테스트
+- 판정: ✓ 3조건 — 단, **결제 플로우 결선이라 규모 최대**(F-PLAN 실서비스 코드 수정 포함)·파생 리스크는 리뷰에서 집중 검증
+- 결제 안전: 할인 적용 실패 시 원가 결제 폴백 또는 중단 — 결정은 구현 후 리뷰 판정(지시서에 양안 제시)
 
-### 3. 설계 결정 (게이트 확정 대상 — 권고안)
-1. **티켓 알림 기록(REM-6/P4)**: `message_logs.invoice_id` **nullable 완화 + ticket_id nullable 추가** — 티켓 알림도 발송 이력에 기록(P4 "모든 발신은 기록"). invoice 관련 기존 쿼리 무영향(null 제외 집계 없음 확인 필요 — 리뷰 기준)
-2. **티켓 종료 주체**: 관리자만 종료·사용자 추가 질문 시 open 복귀(스레드 보존)
-3. **공지 읽음 규칙**: 일반 배너 닫기=읽음(다시 노출 안 함)·중요 팝업 확인=읽음·미확인 중요는 전 /app 화면 진입 시 모달
-4. **FAQ**: 랜딩 LP-8 파셜(`/app/tickets/new` 삽입 — ADMIN-9)·FAQ 데이터화는 후속
-5. **Active Storage 첫 도입**: disk 서비스(Kamal storage 볼륨 재사용 — `config.active_storage.service = :local`·production 볼륨 내 storage/ 디렉터리)
+### T-C3 · 계정 삭제·데이터 파기 (ADMIN-3·AUTH-1.5 준용)
+- 내용: 관리자 주도 U1 계정 영구 삭제 — ① **미수 청구 존재 시 차단**(unsettled 잔액 > 0 → 거부·안내 — 운영 안전·권고) ② 진행 시퀀스·발송 중단 확인 ③ 연쇄 삭제(clients·invoices·items·message_logs·tickets·notice_reads·sessions·orders·payment_passes·subscriptions — user.rb dependent 연쇄 실측) ④ **감사 로그는 보존**(admin_id=admin 본인·detail에 대상 이메일 스냅샷 기록 후 삭제) ⑤ 삭제 전 2중 확인 UI(이메일 타이핑 확인)
+- AUTH-1.5 준용: 탈퇴 즉시 데이터 삭제·링크 폐기(토큰 소유 데이터 삭제로 자동)·진행 중 자동 시퀀스 중단
+- 소유 파일: `app/services/admins/account_purge_service.rb`(신규)·`app/controllers/admin/members_controller.rb`(destroy 액션 추가 — Run B 파일)·`app/views/admin/members/show.html.erb`(삭제 UI 추가)·해당 테스트
+- 판정: ✓ 3조건(마이그레이션 불요 — dependent 연쇄 실측 기반)
 
-## 대상 파일 (예상)
+### 3-S 직렬 통합 (단일 Developer-lite)
+- `config/routes.rb`: T-C1 `resources :admins, only: %i[index new create] + member { patch :change_role; patch :unlock }`·T-C2 `resources :coupons`·T-C3 members destroy(`resources :members`에 destroy 추가)
+- admin nav 링크(관리자 계정·쿠폰)·전체 migrate 1회·부트 스모크(303 가드)
 
-| 구분 | 파일 |
-|---|---|
-| DB | 마이그레이션 1건(notices·notice_reads·tickets·ticket_messages + message_logs 컬럼 조정) |
-| 모델 | notice.rb·notice_read.rb·ticket.rb·ticket_message.rb(신규)·message_log.rb(invoice optional·ticket) |
-| 서비스 | notice_reads/mark_service.rb·tickets/notify_answer_service.rb·tickets/create_service.rb(신규) |
-| 컨트롤러 | admin/notices·admin/tickets(신규)·app/tickets·app/notices(신규) |
-| 뷰 | admin 공지·티켓 화면·app 티켓·공지 화면·app 대시보드 배너/팝업·layouts/app(팝업) |
-| 라우트 | admin(notices CRUD·tickets)·app(tickets·notices) |
-| 솔라피 | credentials template_ids noti_ticket_reply(등록 완료 — 코드 참조만) |
-| 테스트 | models·services·controllers(admin·app) — Phase 7 |
+## 파일 소유권 표 (§6.14 필수)
 
-## 진행 (Full 순차 — Developer-lite 2회 분할로 리스크 저감)
+| 파일/영역 | T-C1 | T-C2 | T-C3 | 3-S | 비고 |
+|---|---|---|---|---|---|
+| admin/admins 컨트롤러·views·role_service | **소유** | | | | |
+| coupons 마이그레이션·coupon.rb·admin/coupons·upgrade_service·billings 뷰 | | **소유** | | | 결제 플로우 결선 |
+| account_purge_service·members 컨트롤러·members show 뷰 | | | **소유** | | |
+| config/routes.rb·layouts/admin nav | | | | **소유(3-S)** | |
+| PRD·AGENTS·progress.json | ✗ | ✗ | ✗ | ✗ | 오케스트레이터 전용 |
 
-2(문서 현행화) → 3-a(공지+FAQ+U1 노출) → 3-b(티켓+알림) → 4(게이트) → 5(Reviewer-lite — **컨트롤러 경유 재현 필수**) → 6? → 7(Tester-lite) → 8 → 9
+## 파이프라인
 
-## 리스크
+✋(이 문서) → 2(문서 현행화 직렬) → 3-P(3태스크 동시, 상한 3) → 3-S(결선·migrate·스모크) → 4(게이트) → 5(Reviewer-lite — **컨트롤러 경유 재현 필수·특히 C-2 결제 플로우 실측**) → 6? → 7(Tester-lite) → 8 → 9
 
-- Active Storage 첫 도입 — 부트·마이그레이션(as associated tables) 영향. 프로덕션 볼륨 경로 확인(Phase 8)
-- message_logs 스키마 완화의 기존 쿼리 영향 — Invoice 집계는 invoice_id null 행을 자연 배제(티켓 알림은 invoice_id nil)·리뷰에서 전수 확인
-- 팝업 모달의 UX(모든 /app 진입 시 중요 미확인 노출) — Turbo 내비게이션에서의 렌더 타이밍
-- 티켓 스팸 — rate_limit·본문 상한·분류 강제(enum)
-- noti_ticket_reply 실발송 검증 — 4종 레거시 변수명 이슈와 달리 신규 템플릿(#{사용자명}·#{문의제목}·#{url}) — 라이브 검증은 배포 후(기술 부채 패턴 준용)
+## 리스크·모호점 (게이트 확정 대상)
+
+1. **T-C2 쿠폰 결제 결선** — 첫 차감 금액 조정이 포트원 결제·orders·subscription 주기와 상호작용. 권고: 할인 적용 주문은 **가격 9,900원 → 할인가로 첫 차감**·재과금은 정상가(구독 주기 무변경)·할인 실패 시 결제 중단(원가 폴백은 금액 불일치 혼란 유려)·실제 포트원 호출은 stub 경유만 검증(라이브 실측은 운영 첫 쿠폰 사용 시)
+2. **T-C3 삭제 파급** — user dependent 연쇄는 user.rb에 이미 정의(AUTH-1.5 주석)·tickets·notice_reads 포함 확인. 감사 로그 P4 균형: **admin 행위 로그 보존 + 대상 개인정보는 스냅샷 최소화**(이메일 정도)를 권고
+3. **T-C1 owner 전용 가드** — staff로 로그인해 role 변경 시도 → 차단 실측을 리뷰에서 필수
+4. 쿠폰 코드 형식: 대문자 영숫자 8~16자 권고·중복·만료·한도 초과·비활성 검증 매트릭스
 
 ## 관련 Rule ID
 
-ADMIN-6·7·8·9 · NOTI-1(운영 사본 참조)·REM-10(솔라피 공유)·REM-6/P4(발신 기록 — 티켓 확장)·SEC-5(읽음 멱등)·PERF-1·SURF-3(/app noindex)·LP-8/ADMIN-9(FAQ)·P5(운영 표면 분리)·TIME-1
+ADMIN-1·3·4 · AUTH-7.2 · PLAN-2/5(쿠폰 할인과 결제)·PLAN-4(미적용 경계)·AUTH-1.5(삭제 준용)·P4(감사 보존)·TIME-1·SURF-3

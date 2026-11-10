@@ -1,140 +1,47 @@
-# 07_test_report — F-ADMIN Run C Phase 7 (테스트 정식화·실행)
+# 07_test_report — CLIENT-3/4·PROMISE-5 런 Phase 7 (검증·보강·전체 게이트)
 
 작성: Tester(절약 모드) · 2026-11-10
-대상: Run C 3-a(공지 ADMIN-6/7)·3-b(티켓 ADMIN-8/9) + Phase 6 수정(C-1·W-1·W-3·W-4)
+대상: F-CLIENT 지급 성적표(CLIENT-3/4·PROMISE-5·Q14) + Phase 6 수정(C-1 모집단 일치·W-1 배지 색). 기존 13건(쿼리 9 + 컨트롤러 5… 실측 9+5=개별 파일 기준 아래 표) 검증 + 리뷰 Tester 중점 6건 보강.
 
 ## 최종 결과
 
-- **전체 `bin/rails test`: 876 runs · 4,946 assertions · 0 failures · 0 errors · 0 skips**
-- 기존 815건 회귀 0 + 신규 52건(34 tests + 기존 18건 파일 이동 없음 — 아래 대조표 기준 신규 파일 7개) 전부 통과
-- `bin/rubocop test/` — 104 files inspected, **no offenses**
-- 솔라피 실호출 0회 — `with_solapi_client` 방어선 경유(admin reply·notify 서비스·skipped는 호출 차단 객체로 실측)
-- 코드 버그 0건 — Phase 6 수정(C-1·W-3·W-1)이 모두 테스트로 재확인됨
+- **전체 `bin/rails test`: 967 runs · 5,466 assertions · 0 failures · 0 errors · 0 skips** (기준 954건 회귀 0 + 보강 +13)
+- `bin/rubocop` 신규·수정 테스트 파일 5개 — **no offenses**
+- 외부 API(솔라피·포트원) 실호출 0건 — 보강 테스트는 전부 내부 조회 경로만 사용
+- **코드 버그 0건** — Phase 6 수정(C-1·W-1)이 테스트로 재확인됨
 
-## 신규 파일(7개)
+## 리뷰 6건 처리 대조표 (05_review Tester 중점)
 
-| 파일 | tests | 커버 |
-|---|---|---|
-| `test/models/notice_read_test.rb` | 3 | 복합 유니크·조합 허용·MarkService 2회 1건(SEC-5) |
-| `test/models/ticket_test.rb` | 7 | category/status enum·title 100자·상태 전이 guard 3종(answered 멱등·closed reopen 거부·close 멱등)·종료 권한 경로·dependent 삭제 |
-| `test/models/ticket_message_test.rb` | 7 | sender enum·body 2,000자·jpg/png/webp 수용·csv/gif 거부·HTML→png 위조 거부(Marcel)·5MB 초과 거부·첨부 선택 |
-| `test/services/tickets/create_service_test.rb` | 5 | Result 성공/실패·첨부·트랜잭션 롤백(gif 실패 시 티켓 없음)·상한 |
-| `test/services/tickets/follow_up_service_test.rb` | 6 | open 유지·answered→open 복귀·closed 거부·타인 404 경로·blank/2,001자 |
-| `test/services/tickets/notify_answer_service_test.rb` | 5 | sent/failed/skipped 3분기·MessageLog(invoice nil·ticket_id·variables·phone 스냅샷)·PLAN-3 집계 밖 |
-| `test/controllers/admin/tickets_controller_test.rb` | 9 | 비인증 303·U1 admin 접근 불가(세션 비공유)·필터·reply(sent 기록)·blank 거부·close+ticket_close 감사·강제 종료·close 멱등·admin 이미지 서빙 |
-| `test/controllers/app/tickets_controller_test.rb` | 10 | 작성 303·422·FAQ 선노출(ADMIN-9)·상한 422·분류 etc 귀속·타인 404·follow_up/closed alert·비로그인 리다이렉트 |
-
-合计 52 tests / 221 assertions(신규 파일 기준).
-
-## 리뷰 16 시나리오(05_review §3) 테스트화 대조표
-
-| 리뷰 시나리오 | 정식 테스트 | 상태 |
-|---|---|---|
-| 공지 ①~⑧(노출·닫기·확인·close·만료 경계·404·mark_read 멱등) | 기존 `app/notices_controller_test.rb`(14)·`admin/notices_controller_test.rb`(9) — 유지 | ✅ 기존 |
-| 공지 ⑨ C-1 초안 선읽음 우회 | 기존 `app/notices_controller_test.rb` C-1 회귀 4건(초안 404·미래 404·종료 허용·발행 후 정상) — 유지 | ✅ Phase 6 |
-| 티켓 ① 작성 303+open | `app/tickets_controller_test.rb` 작성 303 | ✅ |
-| 티켓 ② FAQ 선노출 | 동일 파일 FAQ 테스트 | ✅ |
-| 티켓 ③ 스레드·폼 | 상세 200 + 발화 노출 | ✅ |
-| 티켓 ④ 타인 404(show·follow_up) | app 404 + FollowUpService 타인 nil | ✅ |
-| 티켓 ⑤ admin 답변→answered+MessageLog | `admin/tickets_controller_test.rb` reply(sent·invoice nil·ticket_id) + NotifyAnswerService sent 전체 단언 | ✅ |
-| 티켓 ⑥ 상태 필터 | admin index 필터(상태·분류) | ✅ |
-| 티켓 ⑦ 추가 질문 open 복귀 | app follow_up + FollowUpService answered→open | ✅ |
-| 티켓 ⑧ 종료+감사 1건 | admin close + AuditLog sole 단언 | ✅ |
-| 티켓 ⑨ closed follow_up 거부 | app alert + FollowUpService 거부 | ✅ |
-| 티켓 ⑩ NO_PHONE skipped | NotifyAnswerService skipped(NO_PHONE·호출 차단) | ✅ |
-| 티켓 ⑪ Solapi 400→failed | NotifyAnswerService failed(E400·error_code/message) | ✅ |
-| 티켓 ⑫ 답변 blank 거부 | admin blank reply alert | ✅ |
-| 티켓 ⑬ 이미지(csv/gif/위조/5MB/정상) | `ticket_message_test.rb` 5건 + 기존 `tickets_image_serving_test.rb`(4) 유지 | ✅ |
-| 티켓 ⑭ 본문 2,001·제목 101 | 모델·서비스·컨트롤러 3계층 | ✅ |
-| 티켓 ⑮ rate_limit 429 | **미정식화** — test env NullStore·부팅 시 store 캡처로 실 스토어 주입(격리 프로세스) 필요. 05_review §4-2·03_implementation §3-b 노트 유지. 기술 부채로 기록 권장 | ⚠️ 인계 |
-| 티켓 ⑯ single_subject | 기존 `message_log_test.rb` + NotifyAnswerService PLAN-3 밖 테스트 | ✅ |
-
-W-3(publish 실패 alert)·W-1(인증 서빙)은 기존 테스트(admin notices 1건·tickets_image_serving 4건+admin 이미지 신규)로 커버. 시스템 테스트(Turbo 팝업)는 리뷰 §4-3 제안이나 통합 테스트가 레이아웃 재평가까지 커버 완료 상태라 본 라운드 생략 — 운영 판단 인계.
-
-## 원인 분류
-
-실패·에러 이력(자체 수정 — 테스트 오류 3건): ① `assert_predicate ... :include?(…)` 파서 오류(문법) ② NoticeRead 테스트가 fixture(gamma_read_general) 중복 생성 ③ `assert_no_difference` 블록 누락. **코드 버그 0건** — Developer 위임 불요.
-
-## 잔존(기술 부채 인계)
-
-1. rate_limit 429 실측(실 캐시 스토어 주입) — 05_review §4-2 유지
-2. 시스템 테스트(Turbo 팝업 소멸·모바일 z-index·DESIGN-6) — 리뷰 §4-3·4-4
-3. NOTICE: not applicable — dev/test DB 잔존 레코드 없음(트랜잭션 롤백), 스토리지 blob은 테스트 DB 정리 대상
-
----
-
-# 07_test_report — 수동 발송 스텝 선택 결함 수정 Phase 7 (Standard 런 — 검증·보강·전체 게이트)
-
-작성: Tester(절약 모드) · 2026-11-10
-대상: 03_implementation §9·§9.1(수동 스텝 선택 재정의 + Phase 6 C-1·C-2 수정) — 리뷰(05_review §4 후반부) Tester 중점 제안 4건 중 미커버 보강
-
-## 최종 결과
-
-- **전체 `bin/rails test`: 883 runs · 5,003 assertions · 0 failures · 0 errors · 0 skips** (Phase 6 이후 기준 878건 회귀 0 + 신규 5건 통과)
-- `bin/rubocop` — 변경 테스트 3파일 **no offenses**
-- 솔라피 실호출 0회 — 신규 전 케이스 `with_solapi_client` 방어선 경유(IntegrationTest·시스템 테스트 포함)
-- **코드 버그 0건** — C-1(수동 템플릿 무관 상한)·C-2(nil 창·라벨 nil 숨김)가 모두 테스트로 재확인됨
-
-## 신규 테스트(5건 — 리뷰 §4 제안 커버 맵)
-
-| 리뷰 제안 | 테스트 | 파일 | 결과 |
+| # | 중점 영역 | 처리 | 결과 |
 |---|---|---|---|
-| ① 수동 issue_notice 후 자동 스캔 무결성 | "수동 issue_notice 발송 후에도 D-1 자동 스캔은 invoice_notice를 발송한다 (SEC-5 키 분리·무결성)" — 컨트롤러 수동 POST(만기 17일 전) → travel D-1 → `DispatchService.new.call` → `[issue_notice sent, invoice_notice sent]`·origin 구분 단언 | `test/controllers/app/invoices_reminders_test.rb` | ✅ |
-| ① 약속 트랙 동일 무결성 | "수동 issue_notice 발송 후 약속 전날 자동 스캔은 promise_d1을 발송한다 (PROMISE-3·SEC-5 무결성)" — 수동 issue_notice(만기 전+약속 원격) → travel 약속 전날 → 자동 스캔 promise_d1 sent | 동일 | ✅ |
-| ② 상한 혼합 시나리오 정식화(서비스 레벨) | "수동 상한은 시퀀스성·1회성 혼합 총량 5통에서 발동하고 6통째 manual 발송을 차단한다 (PLAN-3·Q11·C-1)" — 서로 다른 템플릿 5종(issue_notice·confirm_d1·requeue_d7·final_d14·promise_d1) 실발송 5통 → 6통째 skipped+CAP_REACHED·호출 0·**자동 1회성(partial_paid)은 무영향**(Q10 경계 동시 단언) | `test/services/reminders/send_service_test.rb` | ✅ |
-| ③ 시스템 테스트(뷰 정합) | "만기 17일 전 청구서의 다음 안내 라벨과 발송 이력은 발행 안내로 표기된다 (REM-8·Q11)" — "다음 안내: 발행 안내" 라벨·invoice_notice 라벨("만기 예정 안내") 부재·발송 후 이력 행 "발행 안내"·fake 호출 template_key 단언 | `test/system/app_invoice_reminders_test.rb` | ✅ |
-| ④ Q11 삼분 경계(4·5·6) | "수동 발송 총량 경계 — 4통째·5통째는 성공하고 6통째만 CAP_REACHED로 차단된다 (Q11 삼분 경계)" — 컨트롤러 경유 실 POST 6회: 4·5통째 성공 flash, 6통째 상한 안내 flash·skipped 1건·sent 5건·fake 호출 5회 | `test/controllers/app/invoices_reminders_test.rb` | ✅ |
+| 1 | C-1 재발 방지(voided·draft 모집단 일치) | 기존 쿼리 테스트 존재 확인 + 신규 "voided·draft 약속 건은 이행률·평균 지연 집계에서도 제외된다"(scorecard 쿼리 — 이행률 nil·avg nil·목록 empty 동시 단언, promised 상태에서 void! 시나리오) | 통과 |
+| 2 | 배지 반올림 경계 + 이행률 80% 색 | 신규 helper 단위 테스트 5건(`test/helpers/app/clients_helper_test.rb`) — diff 정확 1일 노출(느림=주황·빠름=emerald, W-1 색 판정)·diff 0(반올림 상쇄) 미노출·지표 결손·거래처 1개 미노출 + 쿼리 레벨 반올림 상쇄 테스트(두 평균 모두 0.5→1) | 통과 |
+| 3 | 연말 6개월 창 | 신규 쿼리 테스트 — travel_to 2027-01-15, 라벨 2026-08~2027-01(연 롤오버)·2026-12 +3·창 밖(2026-07) 버림·빈 달 nil | 통과 |
+| 4 | this_week 약속 시간 경과 | 신규 쿼리 테스트 — 접수 당일(약속일==오늘 경계) pending → 자정 경과 +1일 broken 전이(travel 2회·kind: this_week) | 통과 |
+| 5 | 발행 폼 JS 시스템 테스트 | 신규 `test/system/app_invoice_form_scorecard_test.rb` — 실제 브라우저: 초기 hidden → select change → fetch 응답 조각 삽입("평균 지급 지연일 1일·이행률 100%") → 프롬프트 복귀 시 조각 제거·hidden 복원 | 통과 |
+| 6 | 조기 입금(음수 지연) | 신규 3건 — 쿼리(−3·−1 → avg −2·이행률 100%), helper("2일 전"/"0일"/nil="-"·경향 막대 abs 정규화 50%/100%/최소 12), 통합 뷰(show가 "2일 전" 렌더·"-" 오노출 없음·거래처 1개 배지 미노출) | 통과 |
 
-## 기존 스위트 무충돌 확인
+## 보강 테스트 파일 (신규 2 + 수정 3, +13 tests)
 
-- Run C의 `message_stats`·PLAN-3 상한 테스트와의 충돌 없음 — 수동 집계(`manual_cap_reached?` — 채무자 sent 전체)와 시퀀스 집계(`sequence_sent_count` — SEQUENCE_TEMPLATE_KEYS 한정)가 분리돼 있어 기존 어설션(예: send_service_test "상한 도달에도 1회성 발송…"· tickets PLAN-3 밖) 전부 원치와 같이 통과. 티켓 알림(noti_ticket_reply·recipient_role=user)도 수동 총량 집합(invoice 스코프·debtor) 밖으로 자연 배제됨(전체 스위트 883건으로 실측).
-- W-1 판별력 보강 — 기존 컨트롤러 테스트의 `variables "(내일)" 단언은 유지하되, 본 런의 시스템 테스트가 템플릿 본문·라벨 레벨의 판별 단언("만기 예정 안내" 부재)을 보강했다.
+| 파일 | tests | 내용 |
+|---|---|---|
+| `test/helpers/app/clients_helper_test.rb` (신규) | 5 | 비교 배지 경계·방향 색(W-1)·delay/rate 텍스트·경향 막대 음수 정규화 |
+| `test/system/app_invoice_form_scorecard_test.rb` (신규) | 1 | 발행 폼 Stimulus client-scorecard fetch E2E |
+| `test/queries/clients/payment_scorecard_query_test.rb` (+4) | — | 연말 창·음수 평균·반올림 상쇄·voided 집계 제외(C-1) |
+| `test/queries/clients/promise_compliance_query_test.rb` (+1) | — | this_week 약속일 경계→도과 전이(seed에 kind 인자 추가) |
+| `test/controllers/app/clients_scorecard_test.rb` (+2) | — | 조기 입금 뷰 "N일 전"·느린 배지 주황 렌더(W-1) |
 
-## 원인 분류 (실패·에러 이력 — 전부 테스트 오류, 자체 수정 후 재실행 통과)
+## 기존 스위트와의 충돌 확인 (게이트 7-S)
 
-1. 무결성 테스트를 gamma(Free)로 작성 → 자동 스캔 INELIGIBLE_PLAN skip — delta로 변경(자격 필요는 REM-8 기존 규칙, 코드 결함 아님)
-2. D-1 travel일 착오(만기 11-27 기준 D-1=11-26) — 날짜 정정
-3. 수동 issue_notice sent 후 **자동** issue_notice 재발송은 step_sent?(origin 무관)가 duplicate로 흡수하는 것이 SEC-5 정상 동작 — 단언을 partial_paid(미발송 1회성)로 교체하고 주석에 duplicate 정상 기록
+- DASH-5(`Reports::ClientDelayQuery` — 만기 대비)와 신규 CLIENT-4(약속일 대비) 쿼리가 서로 다른 파일·모집단으로 분리 — 전체 스위트 동시 통과로 회귀 없음 확인
+- 기존 954건(679건 기존 + Phase 5~6 13건 포함) 전부 통과 — 클라이언트 show 확장(invoices_controller clients 변수)이 기존 clients/invoices 컨트롤러 테스트에 영향 없음
 
-## 잔존
+## 테스트 오류 자체 수정 이력 (코드 버그 아님 — 3건)
 
-- 없음(본 런 범위) — 리뷰 §4 제안 4건 전부 소화. test DB 잔존 레코드 없음(트랜잭션 롤백), 스토리지 blob 생성 없음
+1. 시스템 테스트: hidden 요소 `find` 실패 → `visible: :all` 지정
+2. 시스템 테스트: 시드 지연 +2로 기대 "1일" 불일치(시드 산수 실수) → paid_on 수정
+3. 통합 테스트: 배지 diff가 (3+2)/2=1.5→2로 상쇄되어 미노출(동작이 오히려 경계 규격 준수) → 시드를 +3/+1로 조정해 diff 1 확보
 
----
+## 코드 버그 절
 
-# 잔여 배치 (T-C1~C3+3-S) — Phase 7 검증·보강·전체 게이트
-
-- **일시**: 2026-11-10 · **수행**: badeuldon-tester (절약 모드) · **기준**: 05_review.md 재리뷰 APPROVED + 말미 Tester 중점 제안 5건
-- **보강 파일**: `test/services/subscriptions/upgrade_service_coupon_test.rb` (+3 시나리오 — 7 runs → 10 runs)
-
-## 리뷰 제안 5건 처리
-
-| # | 제안 | 처리 | 근거 |
-|---|---|---|---|
-| 1 | C-2 웹훅 settle 경합 후속(비고 1 — 가드 실패 시 pending 잔존·재시도 상호작용) | **테스트 보강** | 신설 "settle 중 쿠폰 한도 가드 실패 시 주문은 pending 잔존하고 재시도로 정산된다" — used_count=max 재현 → settle UpgradeError → order pending·예약·used_count 롤백 유지 → 슬롯 확보 후 재시도 → paid·used_count 1·metadata coupon 정상 정산 |
-| 2 | admins create 422 재렌더 시 무효 롤 select 표기 | **문서화(테스트 불요)** | 비고 2 실측대로 경고 문구("알 수 없는 롤") 렌더로 운영자 재선택 유도 — enum 기본값 표기는 실용상 영향 없음. P4·무결성 영향 0(Admin.count 무변화는 C-1 회귀 테스트로 고정) |
-| 3 | owner 전용 경계 정식 테스트 존재 확인 | **스킵(이미 존재)** | `test/controllers/admin/admins_controller_test.rb` — staff의 new/create 차단+admin_console_denied 감사·staff 롤 변경 차단·index staff 허용(버튼 미노출 단언) 전건 정식 존재 |
-| 4 | percent/amount 각각의 첫 차감 후 재과금 정상가 | **1건 보강** | amount는 기존 "재과금(두 번째 갱신)은 정상가"로 커버 — percent 신설 "percent 쿠폰의 재과금(두 번째 갱신)도 정상가로 차감된다": [7,920, 9,900] 시퀀스·used_count 1·예약 해제 단언 |
-| 5 | (제안 2 — C-2 회귀 정식화) | **테스트 보강** | 리뷰어 임시 재현(B3)을 정식 회귀로 이식 — "모호 실패 후 웹훅 회복도 쿠폰을 정산하고 재과금은 정상가다": TIMEOUT → pending·쿠폰 예약 유지·used_count 0 → settle_renewal → used_count 1·coupon_id nil·pg_payment_id·metadata에 coupon(SAVE2000)+@payment 원문 공존 → 다음 갱신 9,900 정상가 |
-
-## 기존 스위트 무충돌 확인
-
-- Q12/Q13·쿠폰 정산·audit optional 신규 규칙과 기존 스위트 충돌 없음 — 전체 게이트에서 회귀 0으로 실측. upgrade_service_test의 쿠폰 없는 settle 경로(순수 @payment metadata)도 무변경 통과.
-- 외부 API 실호출 0 — 포트원은 FakePortOneClient 주입(raise_on TIMEOUT·ApiError), 솔라피 경로 미접촉(본 배치 스코프 밖).
-
-## 원인 분류 (실패·에러 이력 — 전부 테스트 오류, 자체 수정 후 재실행 통과)
-
-1. 가드 실패 경로의 예약 단언 착오 — 롤백이므로 coupon_id는 nil이 아니라 "유지"가 정답. assert_nil → assert_equal coupon.id 정정
-2. settle_renewal의 metadata는 coupon_metadata(@payment, coupon)로 갱신됨(모호 실패 시 last_code는 보존되지 않음 — 구현 원칙, P4는 @payment 원문으로 충족) — last_code 단언을 @payment status 공존 단언으로 정정. 코드 버그 아님(리뷰어 재현과 동일 관찰)
-3. raise_on TIMEOUT이 두 번째 renew 호출에도 적용돼 미포착 예외 — 재과금 검증용으로 raise_on 없는 신규 fake로 분리
-
-## 최종 결과 (게이트 7-S)
-
-```
-bin/rails test  →  941 runs, 5349 assertions, 0 failures, 0 errors, 0 skips
-bin/rubocop (보강 테스트 파일)  →  1 file, no offenses
-```
-
-- 보강 4건 신설(제안 1·4·5에 대응 3 시나리오 + 기존 7건) — 10 runs 61 assertions 0 failures 개별 실측
-- 코드 버그: **0건** (수정 보고 없음 — Developer 위임 불요)
-- test DB 잔존 레코드 없음(트랜잭션 롤백)
+없음 — 0건.

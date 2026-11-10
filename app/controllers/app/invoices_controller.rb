@@ -36,6 +36,15 @@ class App::InvoicesController < App::BaseController
 
   def show; end
 
+  # CLIENT-4 — 발행 직전 거래처 지급 성적표 요약(폼 거래처 선택 시 fetch로 갱신). 조회는
+  # Current.user.clients 스코프로 격리해 타인 거래처는 404로 수렴한다(소유권 격리).
+  # 지표 산출은 Clients::PaymentScorecardQuery(Q14 파생 판정)가 단일 담당한다.
+  def scorecard
+    client = Current.user.clients.find(params.expect(:client_id))
+    render partial: "scorecard_summary",
+           locals: { scorecard: Clients::PaymentScorecardQuery.call(client: client) }
+  end
+
   def new
     @invoice = Current.user.invoices.build(
       due_on: Date.current + Invoice::DEFAULT_DUE_IN_DAYS,          # INV-3

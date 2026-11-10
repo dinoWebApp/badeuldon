@@ -10,7 +10,11 @@ class App::ClientsController < App::BaseController
     @limit_reached = Current.user.client_limit_reached?(Current.user.clients.count)
   end
 
-  def show; end
+  def show
+    # CLIENT-3/4 — 거래처 카드·지급 성적표·약속 이행 이력(Q14 파생 판정 — Queries::Clients).
+    @scorecard = Clients::PaymentScorecardQuery.call(client: @client)
+    @compliance = Clients::PromiseComplianceQuery.call(client: @client)
+  end
 
   def new
     @client = Current.user.clients.build

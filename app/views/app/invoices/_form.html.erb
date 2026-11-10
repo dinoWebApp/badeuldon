@@ -26,14 +26,21 @@
         <h2 class="text-base font-bold text-stone-800">기본 정보</h2>
 
         <div class="mt-5 grid gap-5 sm:grid-cols-2">
-          <div>
+          <%# CLIENT-4 — 거래처 선택 시 성적표 요약 fetch 갱신(client-scorecard). 기존
+              invoice-form(품목·금액 계산)과 별개 컨트롤러로 격리해 기존 로직에 손대지 않는다. %>
+          <div data-controller="client-scorecard"
+                data-client-scorecard-url-value="<%= scorecard_app_invoices_path %>"
+                data-action="change->client-scorecard#onChange">
             <%= form.label :client_id, "거래처", class: "block text-sm font-medium text-stone-700" %>
             <%= form.collection_select :client_id, clients, :id, :name, { prompt: "거래처 선택" },
+                  data: { client_scorecard_target: "select" },
                   class: form_input_classes(invoice, :client_id) %>
             <p class="mt-1.5 text-xs text-stone-500">거래처가 없으면 먼저 등록해 주세요.</p>
             <% if form_error_message(invoice, :client_id) %>
               <p class="mt-1.5 text-xs font-medium text-red-600"><%= form_error_message(invoice, :client_id) %></p>
             <% end %>
+            <%# 요약 조각(_scorecard_summary) — 거래처 미선택 시 비노출(hidden 유지) %>
+            <div data-client-scorecard-target="summary" hidden></div>
           </div>
           <div>
             <%= form.label :due_on, "만기일", class: "block text-sm font-medium text-stone-700" %>

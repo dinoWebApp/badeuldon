@@ -28,6 +28,9 @@ Rails.application.routes.draw do
       # F-PAY — 입금 기록·마감(PAY-1 원클릭·PAY-2 부분입금 겸용 create). 청구서 하위 자원으로
       # 소유권을 스코프하며 전이 처리는 Payments::RecordService가 담당한다.
       resources :payments, only: :create
+      # CLIENT-4 — 발행 직전 거래처 지급 성적표 요약(폼 거래처 선택 시 Turbo fetch).
+      # 거래처 성적의 읽기라 collection GET으로 정당화 — 소유권은 컨트롤러가 격리한다.
+      collection { get :scorecard }
     end
     # F-PROMISE — 문의 답변 등록(PROMISE-6). 응답 자원의 상태 전이(무답변→답변·1문의 1답변)라
     # member 액션으로 정당화하며, 소유권은 App::PromisesController가 청구서 스코프로 격리한다.

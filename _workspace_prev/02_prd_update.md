@@ -1,22 +1,27 @@
-# 02_prd_update — F-ADMIN Run C 문서 현행화 (2026-11-10, Phase 2)
+# 02_prd_update — F-ADMIN 잔여 병렬 배치 문서 현행화 (2026-11-10, Phase 2)
 
-PRD v0.31 → **v0.32**. Run C(공지·티켓·FAQ) 승인에 따른 구현 확정 반영.
+PRD v0.33 → **v0.34**. 배치 승인(T-C1~C3 전부)에 따른 구현 확정 반영.
 
 ## PRD.md 변경 내역 요약
 
 | 위치 | 변경 요지 |
 |---|---|
-| 문서 버전 | v0.32 (F-ADMIN Run C 구현 확정) |
-| ADMIN-6 | notices 테이블(중요도 enum·게시 기간)·관리자 CRUD+발행/종료 |
-| ADMIN-7 | notice_reads(복합 유니크·멱등)·일반 배너 닫기=읽음·중요 팝업 확인 전 지속·경로 `/app/notice`(PRD 문언 준수 — path: "notice") |
-| ADMIN-8 | tickets+ticket_messages 스레드·AS 이미지 1장(5MB·jpg/png/webp)·rate_limit 5회/시간·본문 2,000자·관리자 종료·사용자 추가 질문 open 복귀·`noti_ticket_reply` 발송 연동(등록 완료 전환)·REM-6 확장(message_logs.invoice_id nullable+ticket_id) |
-| ADMIN-9 | LP-8 파셜 재사용(데이터화 후속) |
-| ADMIN-10 | 후속 분리 — LP-11 블로그와 통합 검토·쿠폰·롤 콘솔·계정 삭제도 범위 밖 명시 |
+| 문서 버전 | v0.34 (F-ADMIN 잔여 구현 확정) |
+| AUTH-7.2 | 콘솔 생성 UI 동일 요건 제공 — 최초 계정만 runner, 추가 계정은 콘솔(owner 전용) |
+| ADMIN-1 | admins 목록·생성·role 승강·잠금 해제 콘솔 — owner 전용 경계·전 행위 감사 |
+| ADMIN-3 | ④ 계정 삭제·데이터 파기 **구현 확정(Q13)** — 미수 차단·연쇄 삭제·감사 보존·이메일 스냅샷·2중 확인 |
+| ADMIN-4 | 쿠폰 **구현 확정(Q12)** — Plus 첫 결제 1회 할인·percent/amount·한도·만료·CRUD+통계·재과금·수금 패스 미적용 |
+| 결정 기록 | Q12(쿠폰 범위)·Q13(계정 삭제 조건) 신설 |
+| ADMIN-10 | 기존 "후속 분리" 유지 — LP-11 블로그와 통합하는 별도 대형 런(이번 배치 제외 확정) |
 
-## Developer 지시서 전달 해석
+## fan-out 전달 확정 해석 (각 지시서에 첨부)
 
-1. **공지 읽음**: `NoticeReads::MarkService` — find_or_create_by 멱등(SEC-5 성격). 배너 닫기/팝업 확인/Turbo POST 읽음 endpoint
-2. **티켓 알림**: `Tickets::NotifyAnswerService` — Solapi 래퍼 직접(청구 가드 불요)·variables `사용자명`·`문의제목`·`url=badeuldon.kr/app/tickets/{id}`·phone blank → skipped+NO_PHONE·모든 시도 MessageLog 기록(invoice_id: nil·ticket_id 세팅)
-3. **message_logs 완화**: 기존 Invoice 기반 집계·스코프는 invoice_id null 행 자연 배제 — 리뷰에서 전수 확인
-4. **AS 첫 도입**: `bin/rails active_storage:install` — disk service(config storage yml)·Kamal storage 볼륨 경로 확인은 Phase 8
-5. **티켓 rate_limit**: 뷰어 rate_limit 패턴 준용(to: 5, within: 1.hour, by: Current.user)
+1. **라우트 계약(3-S 결선용 — fan-out routes 금지)**:
+   - T-C1: `resources :admins, only: %i[index new create]` + `member { patch :change_role; patch :unlock }` (admin namespace)
+   - T-C2: `resources :coupons` (admin namespace, 표준 CRUD)
+   - T-C3: 기존 `resources :members, only: %i[index show] + member{...}` → `only: %i[index show destroy]` 확장 + 기존 member 유지
+2. **T-C2 쿠폰 불변식**: 코드 검증은 서버(코드·만료·활성·한도)·적용 1회·used_count는 **결제 성공 시점**만 증가(멱등)·첫 차감 orders.amount=할인가·metadata에 coupon_code·재과금 정상가·amount 할인 상한 9,900(0원 방지)·구현 구조(사용자 컬럼/세션/메타데이터)는 당신 설계 — 리뷰어가 불변식 전수 재현
+3. **T-C3 삭제 불변식**: 미수(invoice remaining>0) 존재 → 차단·감사 기록은 삭제 트랜잭션과 원자(detail에 이메일 스냅샷)·admin 행위 감사는 절대 삭제되지 않음(audit_logs.admin_id는 admin 본인)
+4. **T-C1 owner 경계**: staff 세션으로 생성·role 변경·잠금 해제 시도 → 차단+안내(403 계열)·감사에 시도 기록
+5. **컨트롤러 경유 검증 공백(Run A/B 교훈)**: fan-out은 라우트 미결선 — runner 중심 자기검증(서비스·모델·쿼리), 컨트롤러 검증은 Phase 5(리뷰어 재현 필수)·7
+6. 마이그레이션: T-C2 coupons 신규 1건만 — 자기 버전 `db:migrate:up/down` 개별 검증, 전체 migrate은 3-S
