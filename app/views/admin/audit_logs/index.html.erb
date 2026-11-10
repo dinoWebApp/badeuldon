@@ -46,7 +46,7 @@
       <% @audit_logs.each do |log| %>
         <tr class="border-b border-stone-100 hover:bg-stone-50">
           <td class="py-2 pr-4 whitespace-nowrap"><%= l(log.created_at, format: :long) %></td>
-          <td class="py-2 pr-4"><%= log.admin.email %></td>
+          <td class="py-2 pr-4"><%= log.admin&.email || "사용자" %></td>
           <td class="py-2 pr-4"><%= log.action %></td>
           <td class="py-2 pr-4"><%= log.target_type %>#<%= log.target_id %></td>
           <td class="py-2 pr-4"><%= truncate(log.detail, length: 60) %></td>

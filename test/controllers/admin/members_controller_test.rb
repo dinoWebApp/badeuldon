@@ -184,6 +184,29 @@ class Admin::MembersControllerTest < ActionDispatch::IntegrationTest
     assert_equal 0, AdminSession.count
   end
 
+  # ── 계정 삭제·데이터 파기(ADMIN-3 ④·Q13) — 라우트는 3-S 결선: members resources destroy ──
+
+  test "destroy는 정상 삭제 후 목록으로 리다이렉트하고 감사를 남긴다 (Q13)" do
+    admin_login(@admin)
+    purgeable = users(:beta) # 청구서 fixture 없는 계정(초안·완납·무효만 허용 대상)
+
+    delete admin_member_path(purgeable), params: { confirm_email: purgeable.email }
+
+    assert_redirected_to admin_members_path
+    assert_not User.exists?(purgeable.id)
+    assert_predicate AuditLog.find_by(action: "account_purge", target_type: "User", target_id: purgeable.id), :present?
+  end
+
+  test "destroy 미수 청구 보유 계정은 차단되고 상세로 되돌아간다 (Q13)" do
+    admin_login(@admin)
+
+    delete admin_member_path(users(:delta)), params: { confirm_email: users(:delta).email }
+
+    assert_redirected_to admin_member_path(users(:delta))
+    assert_predicate users(:delta).reload, :present?
+    assert_nil AuditLog.find_by(action: "account_purge")
+  end
+
   private
 
   def plan_change_audits

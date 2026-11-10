@@ -5,6 +5,8 @@ class App::BillingsController < App::BaseController
   def show
     @subscription = Current.user.subscription || Current.user.create_subscription!(plan: :free)
     @usable_passes = Current.user.payment_passes.usable.order(expires_at: :asc)
+    # ADMIN-4 쿠폰(Q12) — "Plus 첫 결제" 여부(성공한 Plus 결제 존재)를 뷰에 넘긴다(쿼리 호출 뷰 금지).
+    @has_paid_plus_order = Current.user.orders.paid.plus_monthly.exists?
     # 수금 패스 결제 대기 주문(구매 버튼 → 위젯 체크아웃 전환) — 위변조 방지로 본인 pending만
     @checkout_order = Current.user.orders.pending.collection_pass
                                 .find_by(pg_order_id: params[:checkout]) if params[:checkout].present?

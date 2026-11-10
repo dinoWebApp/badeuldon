@@ -108,8 +108,14 @@ module Subscriptions
         next unless order.pending?
 
         ActiveRecord::Base.transaction do
+          # C-2(Q12) — 웹훅 회복도 "결제 성공 시점"이다: 첫 차감 할인 건(예약 쿠폰 존재)이면
+          # 성공 경로와 동일하게 consume_first_charge_coupon!로 used_count 증가·예약 해제를
+          # 정산하고, metadata는 @payment에 coupon 기록을 병합(덮어쓰기 아님 — P4).
+          coupon = subscription.coupon
+          metadata = coupon_metadata(@payment, coupon)
           order.update!(status: :paid, paid_at: Time.current,
-                        pg_payment_id: @payment[:id], metadata: @payment)
+                        pg_payment_id: @payment[:id], metadata: metadata)
+          consume_first_charge_coupon!(subscription, coupon) if coupon
           extend_period!(subscription.reload) unless renewal_current?(subscription)
         end
       end
@@ -133,31 +139,81 @@ module Subscriptions
     # 차감·연장 — 잠금 하에서 호출된다. 차감 전 pending 주문을 선기록해 포트원 결제 ID
     # (pg_order_id)를 확정한다(이슈 #4): 차감 성공 후 프로세스 종료·DB 실패로 주기 연장이
     # 누락돼도 재실행은 같은 주문(같은 paymentId)으로 재시도하므로 포트원이 중복 차감을 거부한다.
+    #
+    # ADMIN-4 쿠폰(Q12) — 구독에 쿠폰이 예약돼 있고 성공한 Plus 결제가 아직 없으면 이 차감이
+    # "첫 결제"로 할인가로 진행된다. used_count 증가·쿠폰 예약 해제는 차감 성공 트랜잭션에서만
+    # 수행되므로(SEC-5) 차감 실패 시 소비되지 않고, 이후 재과금은 항상 정상가다.
     def charge_and_extend!(subscription)
-      order = prepare_renewal_order!(subscription)
+      coupon = resolve_first_charge_coupon!(subscription)
+      charge_amount = coupon ? coupon.final_price_for(Subscription::PLUS_MONTHLY_PRICE)
+                             : Subscription::PLUS_MONTHLY_PRICE
+      order = prepare_renewal_order!(subscription, charge_amount)
       response = @client.charge_billing_key(
         payment_id: order.pg_order_id, billing_key: subscription.pg_billing_key,
-        channel_key: portone_channel_key_billing, amount: Subscription::PLUS_MONTHLY_PRICE,
+        channel_key: portone_channel_key_billing, amount: charge_amount,
         customer_id: subscription.pg_customer_key, order_name: "받을돈 Plus 월 구독"
       )
       ActiveRecord::Base.transaction do
         # 포트원 결제 ID는 우리가 지정한 paymentId(pg_order_id)와 같다.
         order.update!(status: :paid, paid_at: Time.current, pg_payment_id: order.pg_order_id,
-                      pg_billing_key: subscription.pg_billing_key, metadata: response)
+                      pg_billing_key: subscription.pg_billing_key,
+                      metadata: coupon_metadata(response, coupon))
         extend_period!(subscription)
+        consume_first_charge_coupon!(subscription, coupon) if coupon
       end
     rescue PortOne::ApiError => e
       @renewal_error = record_charge_failure!(subscription, order, e)
     end
 
+    # 첫 차감 쿠폰 확정 — 예약 쿠폰이 없으면 nil(정상가). 있으면 적용 자격을 재검증한다:
+    # ① 쿠폰이 유효하지 않게 됐으면(만료·한도·비활성·0원) 결제를 중단한다(정가 폴백 금지 —
+    #   사용자가 안 내받은 금액을 차감하는 금액 불일치 방지).
+    # ② 이미 성공한 Plus 결제가 있으면(방어 — 정상 경로에서는 발생 없음) 예약을 해제하고
+    #   정상가로 진행해 중복 할인을 원천 차단한다("적용 1회").
+    def resolve_first_charge_coupon!(subscription)
+      coupon = subscription.coupon
+      return nil if coupon.nil?
+      if subscription.user.orders.paid.plus_monthly.exists?
+        subscription.update!(coupon_id: nil)
+        return nil
+      end
+      raise UpgradeError, "쿠폰(#{coupon.code})을 사용할 수 없습니다 — #{coupon.unavailability_reason}. 결제가 중단되었습니다" unless coupon.redeemable?
+
+      coupon
+    end
+
+    # 쿠폰 소비 — used_count 1회 증가(원자 연산·SEC-5·한도 가드 W-1) + 구독 예약 해제를
+    # 같은 트랜잭션에서. 가드 미적용(경합으로 잔여 소진)이면 예외로 결제를 중단한다.
+    # 이후 모든 차감은 정가다(재과금 할인 없음 — Q12).
+    def consume_first_charge_coupon!(subscription, coupon)
+      raise UpgradeError, "쿠폰(#{coupon.code}) 한도가 소진되었습니다. 결제가 중단되었습니다" unless coupon.consume!
+
+      subscription.update!(coupon_id: nil)
+    end
+
+    # 주문 metadata — 포트원 응답 원문(P4) + 쿠폰 적용 사실. ADMIN-4 매출 집계·CS 추적 근거.
+    def coupon_metadata(response, coupon)
+      return response if coupon.nil?
+
+      response.to_h.merge(
+        "coupon" => { "code" => coupon.code, "discount_type" => coupon.discount_type,
+                      "discount_value" => coupon.discount_value }
+      )
+    end
+
     # 차감 대상 pending 주문 확보 — 잔존 pending 주문(선기록 후 실패한 시도)이 있으면 재사용해
-    # 같은 결제 ID로 재시도하고, 없으면 새로 만든다.
-    def prepare_renewal_order!(subscription)
-      subscription.user.orders.where(product: :plus_monthly, status: :pending)
-                  .order(:created_at).first ||
-        subscription.user.orders.create!(product: :plus_monthly,
-                                         amount: Subscription::PLUS_MONTHLY_PRICE,
+    # 같은 결제 ID로 재시도하고, 없으면 새로 만든다. 재사용 시 금액을 이번 차감 금액으로
+    # 맞춘다(쿠폰 할인 반영·정가 잔존 주문과의 불일치 방지).
+    def prepare_renewal_order!(subscription, amount)
+      order = subscription.user.orders.where(product: :plus_monthly, status: :pending)
+                           .order(:created_at).first
+      if order
+        order.update!(amount: amount) unless order.amount == amount
+        order
+      else
+        subscription.user.orders.create!(product: :plus_monthly, amount:,
                                          pg_order_id: SecureRandom.uuid)
+      end
     end
 
     # 정기결제 채널 키 — 빌링키 발급·차감을 INIBillTst(정기결제 테스트 채널)로 라우팅한다.

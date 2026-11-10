@@ -11,6 +11,9 @@ class Subscription < ApplicationRecord
   PERIOD_MONTHS = 1
 
   belongs_to :user
+  # ADMIN-4 쿠폰(Q12) — 첫 Plus 차감에 1회 소비될 쿠폰 예약. 첫 차감 성공 트랜잭션에서
+  # nil로 환원되므로 "적용 1회·재과금 정상가"가 상태로 보장된다(UpgradeService 참조).
+  belongs_to :coupon, optional: true
 
   enum :plan, { free: 0, plus: 1 }, default: :free
   # status — trialing: 체험 중, active: 이용 중(Free 가입 기본값 포함 — 현재 요금제가 효력 중),

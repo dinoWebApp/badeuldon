@@ -7,7 +7,7 @@ class Admin::AuditLogsController < Admin::BaseController
     scope = filtered_audit_logs
     @total_count = scope.count
     @page = [ params.fetch(:page, 1).to_i, 1 ].max
-    @audit_logs = scope.limit(PAGE_SIZE).offset((@page - 1) * PAGE_SIZE)
+    @audit_logs = scope.includes(:admin).limit(PAGE_SIZE).offset((@page - 1) * PAGE_SIZE)
     @admins = Admin.order(:email).pluck(:email, :id) # W-4 — 뷰 쿼리 금지(컨트롤러에서 로드)
   end
 

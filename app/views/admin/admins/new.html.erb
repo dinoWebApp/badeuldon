@@ -1,0 +1,32 @@
+<%# AUTH-7.2 신규 관리자 생성 — owner 전용(가드는 컨트롤러 require_owner). %>
+<div class="admin-card max-w-xl">
+  <h1 class="admin-title">신규 관리자 생성</h1>
+  <p class="text-sm text-stone-500 mb-4">
+    생성된 계정은 최초 로그인 시 2FA(TOTP)를 등록해야 콘솔에 진입할 수 있습니다(AUTH-7.1).
+  </p>
+
+  <%= form_with model: @admin, url: admin_admins_path, local: true, class: "space-y-4" do |f| %>
+    <div>
+      <%= f.label :email, "이메일", class: "block text-xs text-stone-500 mb-1" %>
+      <%= f.email_field :email, required: true,
+            class: "border border-stone-300 rounded px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-stone-400" %>
+    </div>
+    <div>
+      <%= f.label :password, "비밀번호", class: "block text-xs text-stone-500 mb-1" %>
+      <%= f.password_field :password, required: true, minlength: 8,
+            class: "border border-stone-300 rounded px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-stone-400" %>
+      <p class="text-xs text-stone-400 mt-1">8자 이상을 권장합니다.</p>
+    </div>
+    <div>
+      <%= f.label :role, "롤", class: "block text-xs text-stone-500 mb-1" %>
+      <%= f.select :role, options_for_select([ [ "owner(최고 관리자)", "owner" ], [ "staff(운영자)", "staff" ] ], "staff"),
+            class: "border border-stone-300 rounded px-3 py-2 text-sm" %>
+    </div>
+    <div class="flex gap-2">
+      <%= f.submit "생성",
+            class: "rounded bg-stone-800 text-white px-4 py-2 text-sm hover:bg-stone-700 transition-colors" %>
+      <%= link_to "취소", admin_admins_path,
+            class: "inline-block rounded border border-stone-300 px-4 py-2 text-sm hover:bg-stone-100" %>
+    </div>
+  <% end %>
+</div>

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_10_023150) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_10_040001) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.string "name", null: false
     t.string "record_type", null: false
@@ -68,7 +68,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_10_023150) do
   end
 
   create_table "audit_logs", force: :cascade do |t|
-    t.integer "admin_id", null: false
+    t.integer "admin_id"
     t.string "action", null: false
     t.string "target_type"
     t.integer "target_id"
@@ -93,6 +93,20 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_10_023150) do
     t.datetime "reminders_suspended_at"
     t.datetime "refused_at"
     t.index ["user_id"], name: "index_clients_on_user_id"
+  end
+
+  create_table "coupons", force: :cascade do |t|
+    t.string "code", null: false
+    t.string "name", null: false
+    t.integer "discount_type", default: 0, null: false
+    t.integer "discount_value", null: false
+    t.integer "max_redemptions", null: false
+    t.integer "used_count", default: 0, null: false
+    t.date "expires_at"
+    t.boolean "active", default: true, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["code"], name: "index_coupons_on_code", unique: true
   end
 
   create_table "invoice_items", force: :cascade do |t|
@@ -265,6 +279,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_10_023150) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.boolean "used_trial", default: false, null: false
+    t.integer "coupon_id"
+    t.index ["coupon_id"], name: "index_subscriptions_on_coupon_id"
     t.index ["pg_customer_key"], name: "idx_subscriptions_on_pg_customer_key_uniq", unique: true, where: "pg_customer_key IS NOT NULL"
     t.index ["user_id"], name: "index_subscriptions_on_user_id", unique: true
   end
@@ -334,6 +350,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_10_023150) do
   add_foreign_key "payments", "invoices"
   add_foreign_key "promises", "invoices"
   add_foreign_key "sessions", "users"
+  add_foreign_key "subscriptions", "coupons"
   add_foreign_key "subscriptions", "users", on_delete: :cascade
   add_foreign_key "ticket_messages", "tickets", on_delete: :cascade
   add_foreign_key "tickets", "users", on_delete: :cascade

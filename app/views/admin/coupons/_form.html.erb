@@ -1,0 +1,57 @@
+<%# ADMIN-4 쿠폰 생성·수정 공용 폼 — 코드·이름·할인 유형/값·한도·만료일·활성. used_count는 제외. %>
+<div class="admin-card">
+  <h1 class="admin-title"><%= coupon.persisted? ? "쿠폰 수정" : "새 쿠폰" %></h1>
+
+  <%= form_with model: coupon, url: (coupon.persisted? ? admin_coupon_path(coupon) : admin_coupons_path), local: true, class: "space-y-4" do %>
+    <div class="flex gap-4">
+      <div>
+        <label class="block text-xs text-stone-500 mb-1" for="coupon_code">코드 (대문자 영숫자 8~16자)</label>
+        <%= text_field :coupon, :code, required: true, autocomplete: "off",
+              class: "w-48 border border-stone-300 rounded px-3 py-2 text-sm font-mono uppercase" %>
+        <% if coupon.errors.key?(:code) %><p class="mt-1 text-xs text-red-600"><%= coupon.errors[:code].first %></p><% end %>
+      </div>
+      <div>
+        <label class="block text-xs text-stone-500 mb-1" for="coupon_name">이름 (관리자 식별용)</label>
+        <%= text_field :coupon, :name, required: true,
+              class: "w-64 border border-stone-300 rounded px-3 py-2 text-sm" %>
+        <% if coupon.errors.key?(:name) %><p class="mt-1 text-xs text-red-600"><%= coupon.errors[:name].first %></p><% end %>
+      </div>
+    </div>
+    <div class="flex gap-4">
+      <div>
+        <label class="block text-xs text-stone-500 mb-1" for="coupon_discount_type">할인 유형</label>
+        <%= select :coupon, :discount_type,
+              options_for_select([ [ "정률(%)", "percent" ], [ "정액(원)", "amount" ] ], coupon.discount_type),
+              class: "border border-stone-300 rounded px-2 py-1.5 text-sm" %>
+      </div>
+      <div>
+        <label class="block text-xs text-stone-500 mb-1" for="coupon_discount_value">할인 값 (%는 1~100 · 원은 1~9,900)</label>
+        <%= number_field :coupon, :discount_value, required: true, min: 1,
+              class: "w-32 border border-stone-300 rounded px-3 py-2 text-sm tabular-nums" %>
+        <% if coupon.errors.key?(:discount_value) %><p class="mt-1 text-xs text-red-600"><%= coupon.errors[:discount_value].first %></p><% end %>
+      </div>
+    </div>
+    <div class="flex gap-4">
+      <div>
+        <label class="block text-xs text-stone-500 mb-1" for="coupon_max_redemptions">총 사용 한도(건)</label>
+        <%= number_field :coupon, :max_redemptions, required: true, min: 1,
+              class: "w-32 border border-stone-300 rounded px-3 py-2 text-sm tabular-nums" %>
+        <% if coupon.errors.key?(:max_redemptions) %><p class="mt-1 text-xs text-red-600"><%= coupon.errors[:max_redemptions].first %></p><% end %>
+      </div>
+      <div>
+        <label class="block text-xs text-stone-500 mb-1" for="coupon_expires_at">만료일 (비우면 무기한)</label>
+        <%= date_field :coupon, :expires_at,
+              class: "border border-stone-300 rounded px-2 py-1.5 text-sm" %>
+        <% if coupon.errors.key?(:expires_at) %><p class="mt-1 text-xs text-red-600"><%= coupon.errors[:expires_at].first %></p><% end %>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <%= check_box :coupon, :active, checked: coupon.new_record? || coupon.active? %>
+      <label for="coupon_active" class="text-sm text-stone-700">활성</label>
+    </div>
+    <div class="flex gap-2">
+      <%= submit_tag "저장", class: "rounded bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800" %>
+      <%= link_to "취소", admin_coupons_path, class: "rounded border border-stone-300 px-4 py-2 text-sm text-stone-600 hover:bg-stone-100" %>
+    </div>
+  <% end %>
+</div>

@@ -8,7 +8,9 @@
 # (AUTH-7.2 공개 가입·삭제 UI 부재, 운영 절차만 존재). 감사 이력은 관리자보다 오래 살아야
 # 하므로 Run B(회원 관리 UI)에서 restrict/nullify 정책 재검토 필수.
 class AuditLog < ApplicationRecord
-  belongs_to :admin
+  # admin nullable — ADMIN-4 coupon_redeemed(U1 행위 추적)는 관리 행위가 아니라 admin 부재로
+  # 기록된다(CreateCoupons 마이그레이션에서 admin_id null 허용 완화). admin 행위 로그는 전부 admin을 갖는다.
+  belongs_to :admin, optional: true
 
   # ADMIN-2 감사 로그 뷰(Run B) 필터용 스코프 — 최신순 기본, action·관리자·기간 조합 필터.
   scope :recent, -> { order(created_at: :desc, id: :desc) }

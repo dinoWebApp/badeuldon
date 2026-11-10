@@ -99,3 +99,42 @@ W-3(publish 실패 alert)·W-1(인증 서빙)은 기존 테스트(admin notices 
 ## 잔존
 
 - 없음(본 런 범위) — 리뷰 §4 제안 4건 전부 소화. test DB 잔존 레코드 없음(트랜잭션 롤백), 스토리지 blob 생성 없음
+
+---
+
+# 잔여 배치 (T-C1~C3+3-S) — Phase 7 검증·보강·전체 게이트
+
+- **일시**: 2026-11-10 · **수행**: badeuldon-tester (절약 모드) · **기준**: 05_review.md 재리뷰 APPROVED + 말미 Tester 중점 제안 5건
+- **보강 파일**: `test/services/subscriptions/upgrade_service_coupon_test.rb` (+3 시나리오 — 7 runs → 10 runs)
+
+## 리뷰 제안 5건 처리
+
+| # | 제안 | 처리 | 근거 |
+|---|---|---|---|
+| 1 | C-2 웹훅 settle 경합 후속(비고 1 — 가드 실패 시 pending 잔존·재시도 상호작용) | **테스트 보강** | 신설 "settle 중 쿠폰 한도 가드 실패 시 주문은 pending 잔존하고 재시도로 정산된다" — used_count=max 재현 → settle UpgradeError → order pending·예약·used_count 롤백 유지 → 슬롯 확보 후 재시도 → paid·used_count 1·metadata coupon 정상 정산 |
+| 2 | admins create 422 재렌더 시 무효 롤 select 표기 | **문서화(테스트 불요)** | 비고 2 실측대로 경고 문구("알 수 없는 롤") 렌더로 운영자 재선택 유도 — enum 기본값 표기는 실용상 영향 없음. P4·무결성 영향 0(Admin.count 무변화는 C-1 회귀 테스트로 고정) |
+| 3 | owner 전용 경계 정식 테스트 존재 확인 | **스킵(이미 존재)** | `test/controllers/admin/admins_controller_test.rb` — staff의 new/create 차단+admin_console_denied 감사·staff 롤 변경 차단·index staff 허용(버튼 미노출 단언) 전건 정식 존재 |
+| 4 | percent/amount 각각의 첫 차감 후 재과금 정상가 | **1건 보강** | amount는 기존 "재과금(두 번째 갱신)은 정상가"로 커버 — percent 신설 "percent 쿠폰의 재과금(두 번째 갱신)도 정상가로 차감된다": [7,920, 9,900] 시퀀스·used_count 1·예약 해제 단언 |
+| 5 | (제안 2 — C-2 회귀 정식화) | **테스트 보강** | 리뷰어 임시 재현(B3)을 정식 회귀로 이식 — "모호 실패 후 웹훅 회복도 쿠폰을 정산하고 재과금은 정상가다": TIMEOUT → pending·쿠폰 예약 유지·used_count 0 → settle_renewal → used_count 1·coupon_id nil·pg_payment_id·metadata에 coupon(SAVE2000)+@payment 원문 공존 → 다음 갱신 9,900 정상가 |
+
+## 기존 스위트 무충돌 확인
+
+- Q12/Q13·쿠폰 정산·audit optional 신규 규칙과 기존 스위트 충돌 없음 — 전체 게이트에서 회귀 0으로 실측. upgrade_service_test의 쿠폰 없는 settle 경로(순수 @payment metadata)도 무변경 통과.
+- 외부 API 실호출 0 — 포트원은 FakePortOneClient 주입(raise_on TIMEOUT·ApiError), 솔라피 경로 미접촉(본 배치 스코프 밖).
+
+## 원인 분류 (실패·에러 이력 — 전부 테스트 오류, 자체 수정 후 재실행 통과)
+
+1. 가드 실패 경로의 예약 단언 착오 — 롤백이므로 coupon_id는 nil이 아니라 "유지"가 정답. assert_nil → assert_equal coupon.id 정정
+2. settle_renewal의 metadata는 coupon_metadata(@payment, coupon)로 갱신됨(모호 실패 시 last_code는 보존되지 않음 — 구현 원칙, P4는 @payment 원문으로 충족) — last_code 단언을 @payment status 공존 단언으로 정정. 코드 버그 아님(리뷰어 재현과 동일 관찰)
+3. raise_on TIMEOUT이 두 번째 renew 호출에도 적용돼 미포착 예외 — 재과금 검증용으로 raise_on 없는 신규 fake로 분리
+
+## 최종 결과 (게이트 7-S)
+
+```
+bin/rails test  →  941 runs, 5349 assertions, 0 failures, 0 errors, 0 skips
+bin/rubocop (보강 테스트 파일)  →  1 file, no offenses
+```
+
+- 보강 4건 신설(제안 1·4·5에 대응 3 시나리오 + 기존 7건) — 10 runs 61 assertions 0 failures 개별 실측
+- 코드 버그: **0건** (수정 보고 없음 — Developer 위임 불요)
+- test DB 잔존 레코드 없음(트랜잭션 롤백)

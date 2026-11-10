@@ -1,160 +1,163 @@
-# 05_review — F-ADMIN Run B 병렬 배치(T-B1~B3 + 3-S) 코드 리뷰 (2026-11-10, Phase 5 · 절약 모드)
+# 05_review — F-ADMIN Run C(공지 ADMIN-6/7·티켓 ADMIN-8/9) Phase 5
 
-**종판 상태: `APPROVED`** — Phase 6 재리뷰(2026-11-10) 완료: BLOCKER 1건(B-1)·WARNING 5건(W-1~W-5) 전부 해소 확인. 최초 리뷰 기록은 §1~5, 재리뷰 기록은 §6.
+- 리뷰어: Reviewer(절약 모드) · 2026-11-10
+- 리뷰 대상: Run C 3-a(공지)·3-b(티켓) 미커밋 분 — Run A/B는 기존 APPROVED 유지
+- 방법: 전 파일 정독 + **컨트롤러 경유 HTTP 통합 재현 16 시나리오**(IntegrationTest·관리자 2FA 실로그인·U1 실로그인 — 임시 테스트로 실행 후 삭제, test DB만 사용·dev 레코드 없음·솔라피 실호출 0회 — with_solapi_client 방어선 실측)
+- 전체 테스트 815건·rubocop 240 files는 오케스트레이터 확인치(재실행 생략 — 지시 준수)
 
-- 검증 방식: **A절 전 항목을 test 환경 rails runner + `ActionDispatch::Integration::Session` HTTP 요청 수준으로 실행 재현**(Run A 교훈 반영 — 서비스 계층 자기검증 종판 없음). 총 4회 세션 + 1회 진단, 관리자 실제 로그인 플로우(비밀번호→TOTP 검증→세션 발급) 경유.
-- 전체 테스트(668건)·rubocop(211 files)은 오케스트레이터 확인치(0실패·0 offenses)로 재실행하지 않음.
-- 재현 종료 후 임시 레코드 전량 정리 확인(users/orders/clients/audit_logs/admin 잔존 0)·임시 스크립트(/tmp) 삭제 완료·tracked 파일 무변경(리뷰는 읽기 전용).
+---
+
+## 종판: `status: CHANGES_REQUESTED`
+
+- CRITICAL 1(C-1 — mark_read 미게시 공지 우회, HTTP 실측 확정) 수정 후 재리뷰 필요.
+- 나머지는 WARNING 4건(운영·테스트·성능)으로 진행 가능하나 W-2(티켓 정식 테스트 부재)는 Phase 7 진입 전제.
 
 ---
 
 ## 1. 이슈 목록
 
-### BLOCKER
+### C-1 · CRITICAL · ADMIN-7 — `mark_read`가 미게시(초안·미래 발행) 공지에도 성공한다(우회 경로)
+- 위치: `app/controllers/app/notices_controller.rb:17` — `notice = Notice.find(params[:id])`
+- 재현(HTTP 실측, 컨트롤러 경유):
+  1. U1이 `POST /app/notice/{초안 id}/mark_read` → **303 성공 + NoticeRead 생성**(404 아님)
+  2. 관리자가 해당 공지를 **이후 발행** → 이 사용자에게 배너·팝업이 **영구 미노출**(재현 단언 통과)
+  3. 부수: 존재하지 않는 id는 404 → **초안·예정 공지의 존재 프빙**(id는 자동증가로 열거 가능)
+- 근거: ADMIN-7 "중요 공지는 확인 버튼 클릭 전까지 미확인 사용자에게 지속 노출" — 초안 단계 선읽음으로 이 보장이 우회된다. `show`는 `published_now` 스코프인데 `mark_read`만 무스코프라 경로 간 비대칭.
+- 권고: `Notice.where(published_at: ..Time.current).find(params[:id])` — 초안(published_at nil)·미래 발행 모두 차단(우회 원천 봉쇄), 이미 종료된 공지는 허용해 세션 도중 만료 클릭의 404 UX를 유지. 대안으로 `published_now` 스코프도 가능(만료 직후 클릭 404 트레이드오프). 컨트롤러 테스트에 "초안 mark_read 404"·"미래 발행 mark_read 404" 2건 추가.
 
-**B-1 · ADMIN-4 · `app/views/admin/orders/show.html.erb:34` ↔ `app/controllers/admin/orders_controller.rb:20` — 환불 기록 폼이 컨트롤러 파라미터 계약과 불일치. UI에서 환불 기록 제출 시 100% 실패(400)**
-- 재현(test env, 관리자 로그인 세션): `PATCH /admin/orders/:id/mark_refunded`에 **폼이 실제로 생성하는 페이로드**(최상위 `refund_reason`)를 전송 → `ActionController::ParameterMissing` 발생(운영 환경에서는 400 Bad Request). 주문은 환불 기록되지 않음(데이터 손상 없음 — 기능이 UI 경로에서 동작 불능).
-- 원인: `form_with url: mark_refunded_admin_order_path(@order), method: :patch`에 `scope`/`model`이 없어 `form.text_area :refund_reason`이 `name="refund_reason"`(최상위)을 생성. 컨트롤러는 `params.expect(order: [:refund_reason])`로 `order[refund_reason]`를 기대.
-- 교차 검증: 동일 요청을 `order: { refund_reason: "..." }` 네임스페이스로 보내면 303 + 기록 + 감사(order_refund)까지 정상 — 폼↔컨트롤러 접착만의 결함(Run A 컨트롤러 접착 BLOCKER와 동일 유형).
-- 수정 권고(택1, 전자 권장 — 컨트롤러 무변경):
-  1. 뷰: `form_with scope: :order, url: mark_refunded_admin_order_path(@order), method: :patch`로 변경 → 필드가 `order[refund_reason]`로 생성됨.
-  2. 또는 컨트롤러: `params.expect(:refund_reason)`로 최상위 키를 읽도록 변경(뷰 그대로).
-- Developer 자기검증 문서(T-B3 03)의 "컨트롤러 HTTP 검증: 라우트 미결선으로 미수행(해석 6)" 대로라면 Phase 5에서 반드시 잡혔어야 하는 결함 — Run A 교훈 재확인 사례.
+### W-1 · WARNING · SEC(이미지 접근) — 티켓 첨부 이미지가 비인증 다운로드 가능(AS 기본 구조)
+- 위치: `app/views/app/tickets/show.html.erb:27`·`app/views/admin/tickets/show.html.erb:27` — `image_tag message.image`(AS redirect 서명 URL)
+- 재현(HTTP 실측): 첨부 이미지의 `/rails/active_storage/blobs/redirect/{signed_id}/...` URL을 **비로그인 GET → 302 → 최종 200(image/jpeg 본문 다운로드 성공)**. 타 U1 로그인 세션으로도 200. `X-Content-Type-Options: nosniff`는 확인됨.
+- 판정: BLOCKER로 보지 않은 근거 — signed_id는 HMAC 서명 비추측성이며 Rails Active Storage 기본 포스트처리라 "URL 보유자"로 한정된다. 다만 티켓 첨부는 CS 증빙(개인정보·화면 캡처 가능)이고 서명 URL은 만료 없어 Referer·브라우저 이력·프록시 로그 유출 시 영구 유효다.
+- 권고: 티켓 이미지를 인증 서빙으로 전환(App::BaseController 상속 서빙 컨트롤러에서 소유자·관리자만 stream) — AS 커스텀 routes는 기술 부채 목록에 기록 권장. 최소한은 Tester 시나리오에 URL 유출 경로 점검 추가.
 
-### CRITICAL
+### W-2 · WARNING · 테스트 — ADMIN-8 티켓 도메인 정식 테스트가 전무하다
+- 위치: `test/models/ticket*_test.rb`·`test/services/tickets/`·`test/controllers/{app,admin}/tickets_controller_test.rb` 모두 부재(03_implementation 3-b "임시 통합 테스트 실행 후 삭제 — Phase 7에서 정식화" 인계).
+- 판정: 현재 전체 815건은 티켓 회귀 방어막 없음 — 본 리뷰 A절 재현이 임시 대체일 뿐이다. 게이트(테스트 통과)는 통과했으나 커버리지 결여는 WARNING.
+- 권고: Phase 7 정식화 필수 — 모델(상태 전이 open→answered→open→closed·guard·제목/본문 상한·single_subject)·서비스 3종(Create/FollowUp/NotifyAnswer — sent/failed/skipped·NO_PHONE·variables)·컨트롤러(격리 404·rate_limit 실 스토어 주입·ticket_close 감사)·이미지 검증(spoof 포함). 본 리뷰 재현 시나리오 목록(§3)을 그대로 테스트 케이스로 전환 가능.
 
-(없음 — 명세 불일치·집계 오류·감사 누락 모두 재현 결과 미발견. 상세는 §3 통과 커버리지)
+### W-3 · WARNING · ADMIN-6 — `publish`가 update 실패에도 "발행되었습니다" 플래시(무음 실패)
+- 위치: `app/controllers/admin/notices_controller.rb:57` — `@notice.update(published_at: Time.current) if @notice.draft?`
+- 시나리오: expires_at이 이미 과거로 설정된 초안(발행 지연 후)을 발행 → `expires_at_after_published_at` 검증 실패 → **저장 안 됐는데 성공 플래시**. 데이터 무결성은 검증이 지켜지만 운영자가 발행됐다고 오인.
+- 권고: `if @notice.update(...)` 분기로 실패 시 alert 플래시(또는 폼 재렌더). close는 만료=현재라 검증상 실패 불가라 해당 없음.
 
-### WARNING
+### W-4 · WARNING · PERF(경미) — 티켓 스레드 뷰의 첨부 이미지 N+1
+- 위치: `app/controllers/app/tickets_controller.rb:55` / `admin/tickets_controller.rb:35` — `ticket_messages.ordered`에 attachment 미프리로드, 뷰의 `message.image.attached?`가 메시지마다 exists? 쿼리.
+- 권고: `with_attached_image`(Rails 제공 프리로드 스코프) 결합. 스레드가 길어질수록 선형 증가 — 경미하나 수정 1줄.
 
-**W-1 · ADMIN-4 · `app/controllers/admin/orders_controller.rb:19-27` — blank 사유 요청 시 `ArgumentError` 미변환 → 500**
-- 재현: `order: { refund_reason: "" }` PATCH → `Order#mark_refunded!`가 `ArgumentError` raise → test env에서 예외 전파(운영에서 500). 데이터는 오염되지 않음(미기록 확인).
-- 정상 폼 경로에는 `required: true` 클라이언트 가드가 있어 도달 불가하나, T-B3 문서의 "실패 422 render(show)" 명세와 어긋나는 방어 결여.
-- 권고: 컨트롤러에서 `rescue ArgumentError` → 422 render(show) + flash. 또는 `mark_refunded!`가 blank 때 ArgumentError 대신 `false`를 반환해 이중 거부와 동일한 422 경로로 통일(모델 계약 변경 시 Run C에서 상속되는 호출부는 컨트롤러 1곳뿐 — 영향 범위 확인 후).
-
-**W-2 · ADMIN-2 · `app/models/audit_log.rb` by_period — 무효 날짜 파라미터 → 500**
-- 재현: `GET /admin/audit_logs?from=garbage` → `Time.zone.parse`가 nil 반환 → `nil.beginning_of_day` NoMethodError. `from=2026-13-45` → ArgumentError. 둘 다 test env 예외 전파(운영 500).
-- 권고: `Time.zone.parse(from) rescue nil` 후 nil이면 해당 필터 생략(또는 flash 안내 + 전체 목록). 감사 로그 뷰는 읽기 전용이므로 데이터 위험 없음 — 가용성 방어만.
-
-**W-3 · ADMIN-3/4 · members index·orders index N+1**
-- 정적 확인: `app/controllers/admin/members_controller.rb:36-42` `left_joins(:subscription)` 후 뷰(`index.html.erb:40`)에서 행마다 `user.subscription` — left_joins는 preload가 아니므로 최대 100행 = 100질의. `app/views/admin/orders/index.html.erb:29` `subscription.user.email`, `:73` `order.user.email` — 행마다 질의(limit 20/100).
-- 운영 영향은 관리자 전용·행 수 상한으로 경미하지만 규약 성능 관점 권고: `filtered_users`에 `includes(:subscription)`, orders index에 `includes(:user)` / `@expiring_trials`에 `includes(:user)`.
-
-**W-4 · ADMIN-2 · `app/views/admin/audit_logs/index.html.erb:18` — 뷰에서 DB 쿼리(컨벤션 위반)**
-- `Admin.order(:email).pluck(:email, :id)`가 뷰 템플릿에서 직접 실행됨 — AGENTS.md "뷰에서 DB 쿼리/모델 클래스 메서드 호출 금지" 위반(관리자 목록 select 옵션용).
-- 권고: `Admin::AuditLogsController#index`에서 `@admins = Admin.order(:email).pluck(:email, :id)`로 로드해 @변수로 전달(컨트롤러 액션 10줄 이내 유지 가능).
-
-**W-5 · ADMIN-3 · `app/services/admins/member_admin_service.rb:27` — extend_trial months 0·음수 허용**
-- 재현: `plan_change: { action: "extend_trial", months: "0" }` → "이용 기간을 0개월 연장했습니다" 303 + `member_plan_change` 감사 기록(실질 무변경 행위의 감사 오염). 음수는 period_end를 과거로 이동 가능(관리자 신뢰 전제라 위험 낮음).
-- 권고: 서비스 진입에서 `months = months.clamp(1, 12)` 또는 `months < 1`이면 failure("연장 개월은 1~12개월") 반환. 뷰 number_field의 min:1은 클라이언트 전용.
+### 관찰(이슈 아님 — 운영 노트)
+- `Tickets::NotifyAnswerService`는 TIMEOUT/CONNECTION(모호 실패)도 failed 기록 후 종료한다. SendService는 `retryable?` 시 잡 재시도로 넘기는 것과 대비되나, 티켓 알림은 1회성·요청 컨텍스트라 재시도 부적합 — 03_implementation의 "ADMIN-8 확정 해석"으로 문서화된 의도적 설계. 실제 발송됐을 가능성이 있는데 failed로 남을 수 있음은 P4 이력 정확도 관점 운영 노트로 유지 권장.
+- `Admin::TicketsController#close` 감사에 `ip:` 미전달 — Run B `order_refund`와 동일 패턴(로그인 계열만 ip 기록)이라 컨벤션 정합.
+- `message_logs` FK `on_delete: :cascade`(ticket)는 기존 invoice FK와 동일 관행 — Run C 신규 리스크 아님(향후 계정 삭제 런에서 P4 영향 일괄 검토 대상).
 
 ---
 
-## 2. PRD v0.31 Rule ID 1:1 대조 (§6~7)
+## 2. Rule ID 준수 매핑
 
-| 규칙(PRD v0.31 확정문) | 구현 위치 | 재현 결과 |
+| Rule | 요구(PRD v0.32) | 구현·검증 | 판정 |
+|---|---|---|---|
+| ADMIN-6 | 제목·본문·중요도·게시 기간 설정 발행 | notices 테이블(enum·published_at/expires_at nil=무기한)·CRUD·publish/close 멱등·상태 배지·중요도 필터(화이트리스트) | ✅ (W-3 경계) |
+| ADMIN-7 | 배너(일반)·팝업(중요·전 화면·확인 전 지속)·/app/notice·사용자별 읽음 | notice_reads 복합 유니크·MarkService 멱등·레이아웃 팝업(/app 타 화면 노출 실측)·배너 닫기=읽음 재노출 없음 실측·path "notice"·SURF-3 noindex 자동 적용 | ✅ (C-1 예외 — 수정 필요) |
+| ADMIN-8 | 5분류·AS 1장 5MB jpg/png/webp·rate_limit 5회/시간·본문 2,000자·관리자만 종료·재질문 open 복귀·REM-6 확장(message_logs invoice nullable+ticket_id)·skipped(NO_PHONE) | 전 항목 HTTP 실측 통과(§3 B1~B9·C2·C3) — 분류 화이트리스트 밖은 etc 귀속·종료는 admin 전용 경로(사용자 종료 권한 없음 — PROMISE-7 준용)·감사 ticket_close 1건 실측 | ✅ |
+| ADMIN-9 | 문의 작성 화면에 FAQ(LP-8) 선노출 | `render "landing/faq"`(파셜 무수정 — 랜딩 회귀 방지)·/app/tickets/new 렌더 실측("자주 묻는 질문") | ✅ |
+| REM-6 확장·P4 | 티켓 알림도 발신 이력 영구 기록 | MessageLog.sent/failed/skipped 전부 기록 실측·single_subject(invoice·ticket 정확히 하나) 검증 실측·variables 스냅샷(사용자명·문의제목·url=badeuldon.kr/app/tickets/{id}) 실측 | ✅ |
+| SEC-5(성격) | 발송·읽음 멱등 | mark_read 2회 POST → 레코드 1건·303 실측 / 티켓 알림은 이벤트성 — debtor×pending 부분 유니크 인덱스 밖(recipient_role=user) 설계 문서화·sent 생성 성공 실측 | ✅ |
+| PLAN-3 | 청구 건당 5통 상한 집계 | noti_ticket_reply는 SEQUENCE_TEMPLATE_KEYS 밖·sent_sequence invoice 스코프 — 티켓 행 자연 배제(코드 확인) | ✅ |
+| REM-3 | 발송 창은 채무자 향만 | 티켓·U1 향 즉시 발송 — NotifyUserService와 동일 해석 | ✅ |
+| AUTH-7·ADMIN-2 | 관리자 세션·감사 | 2FA 실로그인 경유 검증·ticket_close AuditLog 1건 실측 | ✅ |
+| SURF-2/3/4 | 표면 분리·noindex | /app 프리픽스 noindex 자동 적용(head partial)·뷰어 규칙 대상 아님 | ✅ |
+| TIME-1 | KST 고정 | Time.current 기준·만료 경계(== 포함) 동결 실측 | ✅ |
+| §4 아키텍처 | 의존 방향·컨트롤러 10줄·뷰 쿼리 금지 | Model→Service 없음(상태 전이 메서드만)·감사는 컨트롤러 경유·Service는 params/Current 미참조·뷰 @변수+인스턴스 술어·액션 본문 10문장 이내·routes member 정당화·Zeitwerk(Admin 헬퍼 회피) | ✅ |
+| DESIGN/UI | 톤·접근성·이스케이프 | Run B admin 톤 준용·min-h-11 터치 타깃·aria(role=dialog/region·aria-modal·labelledby)·사용자 입력 전부 `<%= %>` 이스케이프·whitespace-pre-line·금지 표현 없는 문구 | ✅ |
+
+---
+
+## 3. 통과 커버리지 — 컨트롤러 경유 HTTP 재현 16/16(159 assertions)
+
+공지: ① 관리자 생성→초안→발행→U1 배너·팝업 노출 ② 팝업 /app 타 화면(공지·티켓·청구서) 커버 ③ 닫기=읽음→재노출 없음 ④ 팝업 확인→재노출 없음 ⑤ close 후 노출 중단 ⑥ 만료 경계(== 포함·과거 제외) ⑦ 목록·상세·미게시 404 ⑧ mark_read 멱등 2회 1건 ⑨ (C-1 실측 — 초안 선읽음 우회 확정)
+티켓: ① U1 작성(이미지 첨부)→303·open ② FAQ 선노출 ③ 상세 스레드·추가 질문 폼 ④ 타인 티켓 404(show·follow_up) ⑤ admin 답변→answered+MessageLog 1건(sent·invoice nil·variables 정확·phone 스냅샷)·SolapiStubbing 실호출 차단 확인(fake 1회) ⑥ 목록 상태 필터 ⑦ U1 추가 질문→open 복귀 ⑧ admin 종료→closed+ticket_close 감사 1건 ⑨ closed follow_up 거부(메시지 불변) ⑩ NO_PHONE skipped ⑪ Solapi 400→failed·답변 자체는 303 ⑫ 답변 blank 거부 ⑬ csv 422·HTML→png 위조 422(Marcel 매직바이트 방어 실측)·5MB 초과 422·정상 png 성공 ⑭ 본문 2,001자·제목 101자 422 ⑮ rate_limit 실 스토어 주입 6회차 429 ⑯ single_subject(양쪽 지정·양쪽 공백) 검증 실패
+무결성: message_logs 완화 영향 전수 — sent_sequence·PLAN-3 상한(invoice 스코프)·부분 유니크 인덱스(debtor×pending 밖)·reports 쿼리 3종(MessageLog 미사용)·admin members 뷰(nil invoice 컬럼 미렌더)·message_stats(티켓도 실발송이라 정반영)·reminders_context(invoice 스코프) — 오염 0건 확인
+
+리뷰 재현 방식: 임시 IntegrationTest(실행 후 삭제 완료) — test DB 트랜잭션 롤백, dev DB·스토리지 잔존 레코드 없음, 솔라피 실호출 0회(with_solapi_client 생성자 차단 경유 확인)
+
+---
+
+## 4. Tester 중점 테스트 제안(Phase 7)
+
+1. **C-1 회귀**: 초안·미래 발행 mark_read 404 단언 + 정상 mark_read 플로우 회귀(수정 후 최우선)
+2. **티켓 정식 스위트**(W-2): §3 시나리오 16건을 models/services/controllers 계층으로 정식화 — rate_limit은 실 캐시 스토어 주입(test NullStore 무시 실측 반영)
+3. **시스템 테스트(Turbo 클라이언트)**: 팝업 확인→Turbo 내비 후 소멸·배너 닫기 303 후 재노출 없음·여러 중요 공지 순차 노출(HTTP 재현은 레이아웃 재평가까지만 커버)
+4. **모바일 뷰**: 팝업 z-50 vs 사이드바 드로어 z-40 겹침·모달 스크롤 잠금(DESIGN-6 터치)
+5. **이미지**(W-1 전환 시): 인증 서빙 컨트롤러의 소유자·관리자만 200/타인 404·만료/무효 signed URL 404
+6. **집계 회귀**: 티켓 알림 다수 발생 후 admin message_stats·members 발송 이력 오염 없음
+
+---
+---
+
+# 05_review — 수동 발송 스텝 선택 결함 수정 Phase 5 (2026-11-10 — Standard 런)
+
+- 리뷰어: Reviewer(절약 모드) · 2026-11-10
+- 리뷰 대상: `app/services/reminders/dispatch_service.rb`(manual_step_key 재설계)·`test/services/reminders/dispatch_service_test.rb`(10케이스 재작성)·`test/controllers/app/invoices_reminders_test.rb`(컨트롤러 재검증 신설)·`_workspace/03_implementation.md` §9
+- 방법: 전 파일 정독 + diff 대조(자동 스캔 무변경 확인) + **runner 재현 4종**(PLAN-3 상한 대조·SEC-5 키 분리·월말/연말/당일 경계·약속 트랙 변수 정합 — RAILS_ENV=test·fake client 주입·실호출 0회·재현 후 test DB drop/re-prepare·/tmp 스크립트 삭제) + 컨트롤러 경유는 신설 IntegrationTest로 실측
+- 전체 테스트(876건)·전체 rubocop은 오케스트레이터 확인치 — 변경 3파일 rubocop 0 offense·관련 테스트 31건(129 assertions)은 리뷰 환경에서 직접 재실행 통과
+
+---
+
+## 종판: `status: CHANGES_REQUESTED`
+
+- 보고된 결함 자체(만기 전 구간 수동 발송이 "(내일)" 박힌 invoice_notice 선택·약속 트랙 promise_d1 동일)는 수정됐고, 기본 트랙 경계·SEC-5·자동 스캔 회귀는 전부 정상 확인.
+- 단, **CRITICAL 2건**이 신설됐다: ① 수동 issue_notice가 PLAN-3 상한 밖으로 빠져 "무상한 반복 발송" 우회로가 됨(runner 실측 — 같은 청구서 12통 발송) ② 약속 트랙의 issue_notice 폴백이 만기 도과 구간에서 과거 날짜("결제 예정일: 만기일")를 발송 — 이번 런이 고치는 결함과 동일 종류의 거짓 문구가 약속 분기에 잔존.
+- 2건 모두 manual_step_key 주변 소폭 수정으로 해소 가능한 범위. 수정 후 재리뷰 대상.
+
+---
+
+## 1. 이슈 목록
+
+### C-1 (CRITICAL · PLAN-3·REM-8·P1) — 수동 issue_notice 반복 발송이 상한 우회로가 됨
+- `app/services/reminders/send_service.rb:116` — `CAP_REACHED if sequence_step? && cap_reached?`: 가드가 `SEQUENCE_TEMPLATE_KEYS`에만 적용되고 issue_notice는 1회성 3종이라 집계·가드 모두 밖(Q10). 그런데 이번 수정으로 issue_notice가 **수동 버튼으로 매일 선택 가능한 반복 템플릿**이 됐다 — Q10의 "1회성(발행 즉시 1회)" 전제가 깨졌는데 가드는 그대로다.
+- **runner 재현**: (대조1) 같은 청구서 수동 `confirm_d1` 7회 → `sent 5 + skipped 2(CAP_REACHED)` — 시퀀스 키 가드 정상. (대조2) **같은 청구서, 상한 5 도달 후** 수동 `issue_notice` 7회 → **7/7 sent**, 채무자 sent 누계 12통(이후 무한). PLAN-3 "하드리밋(수동 발송 포함)"·REM-8 "수동은 상한 내" 기준 미충족. 수정 전에는 만기 전 수동 발송이 invoice_notice(집계 대상)라 5통에 걸렸으므로, 이번 수정이 만든 보호 후퇴다.
+- 제안: SendService 가드에 `return "CAP_REACHED" if @origin == "manual" && cap_reached?` 추가(수동은 템플릿 무관 상한 적용 — 자동 1회성 3종은 Q10대로 무영향). 또는 manual_step_key가 상한 도달 시 nil 반환 + 컨트롤러 flash 안내. 어느 쪽이든 Q10 문언("집계 제외")과의 긴장이므로 02_prd_update에 결정 기록 1줄 병행 권고.
+
+### C-2 (CRITICAL · REM-2·PROMISE-3) — 약속 트랙의 issue_notice 폴백이 만기 도과 구간에서 과거 날짜를 발송
+- `app/services/reminders/dispatch_service.rb:75-77` — 약속 분기: 전날→promise_d1·도과→promise_overdue·**그 외→issue_notice**. 그런데 issue_notice 본문은 "결제 예정일: #{만기일}"이고 변수는 `invoice.due_on`(send_service.rb:238) — 만기가 지나고 약속일만 미래인 청구서(재약속 표준 시나리오)에서 "그 외" 창이 만기 도과 구간을 포함한다.
+- **runner 재현**: 만기 11-27·약속 12-05 청구서, 12-01 수동 발송 → template `issue_notice`, `variables["만기일"]="11월 27일(금)"`(과거), `variables["약속일"]="12월 5일(토)"`(본문 미사용). **약속 당일(12-05)도 issue_notice**. 채무자에게 "지났는데 예정일 11월 27일" 발송 — 이번 런이 고치는 결함과 동일 종류의 거짓 문구. 주석·03 문서의 불변식("어느 날 보내도 내용이 참")은 기본 트랙(`due >= today` 보장)에서만 성립하고 약속 분기에서는 위반된다.
+- 제안: 약속 분기 issue_notice 폴백을 `due >= today`인 경우로 한정. 만기 도과+약속 전날 이전(및 약속 당일) 창은 현 18종 중 참인 템플릿이 없으므로(promise_d1 "(내일)"·promise_overdue "도과" 모두 부적절) ① manual_step_key가 nil 반환 + 컨트롤러/뷰에서 "약속일 전날 자동 안내 예정" 안내(버튼 비노출 또는 flash) — 최소 변경, ② PRD 차원 신규 템플릿 결정 — 중 하나를 02_prd_update에 기록 후 구현.
+
+### W-1 (WARNING · 테스트 품질) — C-2를 포착하는 테스트 부재·경계 1건 누락·판별력 없는 단언
+- 서비스 테스트에 ① 만기 도과+미래 약속(전날 제외) 케이스의 **변수 정합 단언** ② 약속 당일(`promised_on == today`) 케이스가 없다 — 있었다면 C-2는 구현 단계에서 잡혔다.
+- 컨트롤러 테스트의 `assert_not far_log.variables.values.join.include?("(내일)")`는 어느 템플릿이든 variables에 "(내일)"이 없어 판별력이 없다(문구는 템플릿 본문에 박혀 있음). 부하 단언은 `template_key` 동일성이므로 기능 검증에는 문제 없으나, 단언 의도(거짓 문구 0)를 본문 검증으로 옮기면 더 명시적이다.
+- 제안: C-2 수정 테스트에 "모든 수동 발송 variables['만기일'] >= today" 성격의 단언·약속 당일 경계 추가.
+
+### W-2 (WARNING · 주석·문서 정합) — "어느 날 보내도 내용이 참" 서술이 약속 트랙에서 부정확
+- `dispatch_service.rb:66-68` 주석과 `03_implementation.md` §9의 issue_notice 근거 서술이 C-2와 충돌한다. C-2 수정 시 두 서술을 함께 정정할 것(주석이 다음 리뷰어·유지보수자에게 잘못된 불변식을 심는 것을 방지).
+
+---
+
+## 2. Rule ID 준수 매핑
+
+| Rule ID | 판정 | 근거 |
 |---|---|---|
-| ADMIN-3 ① users.status enum — 정지 시 로그인 차단+기존 세션 전부 파기, 해제 가능 | `20261110000003_add_status_to_users.rb`·`user.rb:23`·`member_admin_service.rb:36-52`·`sessions_controller.rb:18-21` | PASS — 정지 PATCH→suspended+세션 0건, 기존 쿠키로 /app 접근 302 차단(세션 파기로 resume 실패), 재로그인 422 전용 문구("이용이 정지된 계정입니다"), 해제 후 재로그인 303 성공. 자격 증명 확인 후에만 정지 문구 노출(계정 열거 방지 유지) |
-| ADMIN-3 ② 활성(Plus) 구독 보유 시 체험 전환 금지 | `member_admin_service.rb:59` | PASS — 활성 Plus에 grant_trial 303+거부 문구, 구독 active plus 유지 |
-| ADMIN-3 ② 체험 연장 = current_period_end 연장 | `member_admin_service.rb:69-79` | PASS — base(period_end·trial_ends·now 최대)+3개월, trialing이면 trial_ends_at 동기화 실측(2027-02-13) |
-| ADMIN-3 ② 구독 해지 = cancel!(기간 말까지 유효 — PLAN-5) | `member_admin_service.rb:81-89` | PASS — cancelled 전환, plan은 plus 유지(기간 말 자동 만료 설계와 정합), 재해지 거부 |
-| ADMIN-3 ② 전건 감사 기록(ADMIN-2) | `member_admin_service.rb:45-47,95-97` | PASS — 성공 4건(체험 전환·연장 3개월·연장 0개월·해지) 전건 `member_plan_change`, 정지·해제 `member_suspend`/`member_unsuspend` 1쌍. 실패 4건(활성→체험·재체험·재해지·미지 action) 미기록 — "변경"만 기록하는 설계로 적정 |
-| ADMIN-3 ② 체험 1회 가드 | `member_admin_service.rb:60,65-67` + `Subscription#start_trial!` | PASS — 재체험 요청 "무료 체험은 계정당 1회입니다" 거부(TrialAlreadyUsedError rescue 포함 이중 가드) |
-| ADMIN-3 ③ staff도 플랜 수동 변경 가능(롤 부여·해제만 owner — AUTH-7.2) | `members_controller.rb` change_plan — 롤 게이트 없음(=staff 가능) | PASS(정합). **확인 요청**: 롤 부여·해제 콘솔은 01_plan Run B 범위 밖(ADMIN-1 runner 절차 유지) — Run C 범위 표기가 PRD에도 필요한지 오케스트레이터 확인 권장 |
-| ADMIN-3 ④ 계정 삭제·데이터 파기는 Run C | 미구현(문서 표기) | PASS — 정지까지만 구현(범위 준수) |
-| ADMIN-4 환불 기록 = orders.refunded_at·refund_reason, PG 콘솔 수동 명시(PLAN-5) | `20261110000002`·`order.rb:25-36`·컨트롤러/뷰 확인 문구 | PASS(로직) — refunded_at 존재 기준 판정, status는 paid 이력 보존, 콘솔 수동 안내 문구 뷰+모델+컨트롤러 3중 명시. 단 UI 경로 파탄은 B-1 |
-| ADMIN-4 환불 기록 시 감사 로그 필수 | `orders_controller.rb:21-22` | PASS — 성공 시 `order_refund` 감사 기록 재현(target Order·detail 사유) |
-| ADMIN-4 쿠폰·프로모션 Run C 이관 | PRD §275 표기 | PASS — 구현 미포함·문서 이관 일치 |
-| ADMIN-4 결제 실패 건 관리 | `orders/index.html.erb` failed 필터 + dunning 미구현 명시 | PASS — 실패 필터 동작, "재시도(dunning)는 미구현" 주석 명시(범위 한정 문서화) |
-| ADMIN-5 ① MRR = active Plus × 9,900(cancelled 제외 — PLAN-2 상수 인용) | `revenue_stats_query.rb:14` | PASS — 독립 SQL과 일치 렌더(active plus 1명 → 9,900₩), `Subscription::PLUS_MONTHLY_PRICE` 상수 인용 |
-| ADMIN-5 ② 매출 집계는 환불 기록 주문 제외(refunded_at 기준 — 3-S 통합) | `revenue_stats_query.rb:10` `Order.paid.not_refunded` | PASS — 환불 전 19,800₩ → mark_refunded 후 재렌더 9,900₩ 실측(제외 반영 확정) |
-| ADMIN-5 ③ 북극성 = 발행 후 30일 내 수금 완료율 | `collection_stats_query.rb:22-34` | PASS — 시드(30일 내 2건/초과 0건)에서 100.0% 렌더, 마감 0건 → "-"(nil) 설계, 부분입금 가중 방지(MAX(paid_on) 서브쿼리 — v0.28 DASH-5 패턴) |
-| ADMIN-5 ④ MessageLog 로컬 집계(발송량·실패율·skip 사유) | `message_stats_query.rb` | PASS — sent/failed/skipped·실패율 분모 sent+failed·skip 사유 분포·recipient_role 키 정규화(정수/문자열 양쪽) 렌더 확인 |
-| ADMIN-5 ⑤ 솔라피 크레딧 API [INFERENCE] 기술 부채 | `message_stats_query.rb:4`·`dashboards/show.html.erb:128` | PASS — 쿼리 주석+뷰 하단 안내 문구 이중 명시 |
-| TIME-1 집계·기록 KST 고정 | `config/application.rb:25`(Seoul) + Date.current/Time.current | PASS — 당월 마감(paid_on ≥ 월초)·paid_at 월 매출·환불 기록 시각 전부 KST 기준 재현 |
-| §4.2 감사 기록 경로(모델→서비스 호출 금지) | grep 확인: order/user/audit_log 모델에 서비스 호출 없음 | PASS — orders는 컨트롤러 경유, members는 서비스→RecordService(Service→Service 허용) — T-B2가 02 확정 해석 4의 문구("컨트롤러가 경유")와 다른 방식을 채택했으나 Run A W-4의 실질 금지(모델→서비스)는 위반하지 않으며 산출물 문서에 결정 사유 명시됨. 수용 |
-| 라우트 계약(02 확정 해석 1) | `config/routes.rb:73-83` | PASS — `audit_logs only:index`·`members only:%i[index show]+member patch 2`·`orders only:%i[index show]+member patch 1` 계약 그대로. 상태 전이 member PATCH 정당화 주석 존재 |
-| 마이그레이션 2건 독립·null/default 명시·schema 동기 | `db/schema.rb`(orders.refunded_at/refund_reason·users.status), `db:migrate:status` 3건 up | PASS |
+| REM-2(단계·톤) | 부분 미충족(C-2) | 기본 트랙 D-1/D-2/당일 경계 전수 정확(runner). 약속 트랙 폴백이 거짓 문구 창 포함 |
+| REM-8(수동) | 부분 미충족(C-1) | "현재 상황에 맞는 다음 1통"은 개선됐으나 상한 내 원칙이 issue_notice에서 공백 |
+| PLAN-3(상한 5 하드리밋) | 미충족(C-1) | runner 실측 — 수동 issue_notice 무한, 같은 청구서 12통 실측 |
+| SEC-5(멱등) | 충족 | runner — 수동 issue_notice(sent·manual) 후 D-1 자동 invoice_notice 정상 sent. step_sent?·claim_log 키 분리 실측. 수동은 멱등 밖(재발송 허용) 기존 설계 유지 |
+| PROMISE-3(트랙 대체) | 충족(구조)·부분(C-2) | 약속 D-1→promise_d1·도과→promise_overdue 정확(runner·테스트). 기본 트랙 템플릿 폴백의 문구 정합만 미달 |
+| REM-3(발송 창) | 충족 | 가드 SendService 유지 — 컨트롤러 테스트 10:00 발송·토요일 재예약 실측(P4 기록 포함) |
+| REM-12/13(종결·재개) | 충족(무변경) | steps_for·steps_due_today·restartable? diff 0 — 소급 창·종결 훅 영향 없음 |
+| P4(모든 발신 기록) | 충족 | 수동 issue_notice도 MessageLog 기록(runner 실측)·skip 사유 기록 경로 유지 |
+| 아키텍처(§4.3·W-1) | 충족 | 단일 출처(DispatchService#manual_step_key) 유지·컨트롤러는 소비만·뷰는 라벨 헬퍼만 |
 
----
+## 3. 통과 커버리지 — 재현 실측 요약
 
-## 3. 통과 커버리지 (A절 HTTP 재현 — 요청 수준)
+- **경계(runner, travel_to)**: 연말 12-31 D-1=invoice_notice·12-30(D-2)=issue_notice·15일 전=issue_notice·당일(1-1)=issue_notice·D+1=confirm_d1 / 월말 10-31(D-30)=issue_notice·11-29(D-1)=invoice_notice — Date 산수로 월·연 경계 안전
+- **약속 트랙(runner)**: 전날→promise_d1·도과→promise_overdue(테스트에서 update_column 우회)·전날 이전→issue_notice — 판정 자체는 정확, 문구 정합만 C-2
+- **컨트롤러 경유(IntegrationTest — with_solapi_client stub 실측)**: 만기 17일 전 `POST /app/invoices/:id/remind` → MessageLog template_key=issue_notice·303, 만기 전날 → invoice_notice. 수정 전 결함(17일 전 invoice_notice) 미재발 확인
+- **회귀**: diff는 manual_step_key+주석 한정 — 자동 스캔(steps_for·nominal·소급 창·종결 훅) 0변경. 소비처(RemindersContext→remind 액션→show 뷰 "다음 안내" 라벨)·TEMPLATE_LABELS["issue_notice"]="발행 안내" 정합. 기존 시스템 테스트 라벨 단언("최종 안내(만기 14일 후)")는 D+14 건이라 영향 없음. Free 수동 허용(INELIGIBLE_PLAN 밖) 기존 유지
+- **게이트(변경 3파일)**: rubocop 0 offense · 관련 테스트 31 runs/129 assertions 0 fail(클린 test DB에서 2회 — 재현 전후)
 
-| # | 검증 | 결과 |
-|---|---|---|
-| 1 | 비인증 `/admin`·`/members`·`/orders`·`/audit_logs` → 303 → /admin/session/new | PASS(4경로) |
-| 2 | **U1 세션으로 /admin/members → 303 /admin/session/new**(상호 격리 — Run A 유지) | PASS |
-| 3 | 관리자 실제 로그인 플로우(1단계 303→totp_setup→코드→totp_verify 303→/admin·AdminSession 발급) | PASS |
-| 4 | 관리자 로그인 상태 대시보드 200 — 6 섹션 렌더, 응답 5ms/sql 27(타임아웃 없음), 수치 전부 독립 SQL 일치(당월 수금 금액·MRR·당월 매출) | PASS |
-| 5 | 북극성 시나리오: 30일 내 마감 2건 → 100.0% 렌더 | PASS |
-| 6 | members index 200·검색(q=이메일 → 해당 회원만)·plan=plus 필터·status=active/suspended 필터 | PASS |
-| 7 | members 무효 enum 필터(status=hacked) → 200 빈 목록(500 없음) | PASS |
-| 8 | members show 200 — 프로필·청구/미수·플랜 변경 폼·발송 10건·문의 5건·감사 10건 섹션 | PASS |
-| 9 | change_plan 4규칙 + 재체험 가드 + 재해지 거부 + 미지 action 거부 | PASS(전건) |
-| 10 | toggle_suspension 정지→세션 전부 파기→기존 세션 /app 차단→재로그인 422→해제→재로그인 303 | PASS |
-| 11 | orders index 200·플랜 분포 카드 4종·체험 만료 예정(7일 window 실측)·주문 목록 | PASS |
-| 12 | orders 필터 status=paid·refund=refunded/not_refunded(화이트리스트), 비화이트리스트(status=DROP TABLE·refund=ZZZ) 무시 → 전체 | PASS |
-| 13 | orders show 200 상세(pg_order_id·금액·상태) | PASS |
-| 14 | mark_refunded(order 네임스페이스) 303+기록+감사+flash / 이중 거부 422 render show | PASS |
-| 15 | audit_logs index 200·총건수 == SQL·action_filter 총건수 == SQL·admin_id·기간(당일)·페이지네이션 | PASS |
-| 16 | RevenueStats 환불 제외 — 환불 전/후 당월 매출 렌더 변화 | PASS |
-| 17 | 정지 계정 로그인 차단 회귀 테스트(`sessions_controller_test.rb` 신규 1건) 존재·성공(오케스트레이터 확인치) | PASS |
+## 4. Tester 중점 테스트 제안(Phase 7)
 
-비고: 뷰 통화는 ko 로케일(`%n%u` — "9,900₩")으로 렌더된다. 금액이 단위 앞이 아닌 뒤에 붙는 것은 rails-i18n ko 표준 포맷으로 결함이 아님(재현 중 어설션 아티팩트였음을 확인).
-
----
-
-## 4. Tester 중점 테스트 제안 (Phase 7)
-
-1. **B-1 회귀(최우선)**: 시스템 테스트로 관리자 로그인 → 주문 상세 → 환불 사유 입력 → 제출 → 303·`order_refund` 감사·`Order.not_refunded` 집계 제외까지 E2E. B-1 수정 커밋에 필수.
-2. mark_refunded 경계: blank 사유(W-1 수정 후 422)·이중 기록 422· refunded 건 재요청.
-3. 정지 시나리오 시스템 테스트: 정지 → 기존 세션 만료(로그인 리다이렉트) → 재로그인 422 문구 → 해제 → 재로그인 성공.
-4. change_plan 각 action의 성공/실패 + `AuditLog` assertion(성공 전건·실패 미기록) — months 경계(W-5 수정 시 0·13 거부 포함).
-5. audit_logs 필터 경계: 무효 from/to(W-2 수정 후 500 아님)·기간 조합·페이지네이션 100건 경계.
-6. 대시보드 집계 경계: 북극성 issued_at+30일 경계값(30일 23:59 vs 31일 00:00)·마감 0건 "-"·실패율 분모 0(nil).
-7. members 필터 조합(검색+플랜+상태 동시)·무효 enum 값 → 빈 목록.
-
----
-
-## 5. 결론
-
-- **BLOCKER 1건(B-1)** — Run A와 동일한 "fan-out 컨트롤러 접착 미검증" 유형. 3-S가 라우트를 결선한 지금, UI 폼 경로의 최소 재현(runner + Integration::Session PATCH)이 원인 특정에 결정적이었다. B-1 수정은 1줄(scope: :order)로 종결 가능.
-- 서비스·쿼리·모델 계층(T-B1 집계 5종·T-B2 서비스·T-B3 모델)과 라우트·마이그레이션·감사 체계는 **명세 1:1 정합 + 요청 수준 재현 통과** — 로직 자체의 재작업은 불필요.
-- B-1 수정 후 재리뷰 범위: `app/views/admin/orders/show.html.erb`(또는 orders_controller) 1파일 + 환불 폼 경로 재현 1회면 충분.
-
-~~**status: CHANGES_REQUESTED**~~ → **status: APPROVED**(§6 Phase 6 재리뷰 — 하단)
-
----
-
-## 6. Phase 6 재리뷰 (2026-11-10 — 축소 범위: B-1 환불 폼 경로 재현 + W-1~W-5 코드 확인·회귀 스폿)
-
-**검증 방식**: test 환경 rails runner + `ActionDispatch::Integration::Session` — 최초 리뷰와 동일하게 관리자 실제 로그인 플로우(비밀번호→TOTP→세션 발급) 경유로 HTTP 요청 수준 재현. 총 2회 세션(B-1·회귀 스폿 + W-5 보완), 종료 후 임시 레코드 잔존 0 확인·/tmp 스크립트 삭제.
-
-### 6.1 해소 확인 표
-
-| 이슈 | 수정 위치(코드 확인) | 재검증 결과 |
-|---|---|---|
-| **B-1** | `views/admin/orders/show.html.erb:34` — `form_with scope: :order` (1줄·컨트롤러 무변경) | **PASS** — 주문 상세 렌더에 `name="order[refund_reason]"` 필드 생성 확인, **폼 그대의 페이로드 PATCH → 303 + refunded? + order_refund 감사 + 성공 flash**(최초 리뷰에서 400이던 경로 소멸), 이중 기록 422 유지 |
-| **W-1** | `admin/orders_controller.rb` mark_refunded에 `rescue ArgumentError → 422 render show + flash` | **PASS** — blank 사유 PATCH → 422 + "환불 사유는 필수입니다" 문구·미기록(500 소거), 정상·이중 경로 회귀 없음 |
-| **W-2** | `models/audit_log.rb` — `by_period`을 클래스 메서드로 전환, `safe_boundary`(파싱 실패·nil → nil, rescue ArgumentError, private_class_method) | **PASS** — `from=garbage`·`from=2026-13-45` 모두 200(필터 생략), 유효 날짜 필터 정상 |
-| **W-3** | `members_controller.rb` index `includes(:subscription)` / `orders_controller.rb` index `includes(:user)`·`@expiring_trials.includes(:user)` | **PASS** — members GET에서 subscriptions 관련 질의 1회(preload)·orders GET에서 users 질의 0회(14 users·13 orders 기준), 목록 렌더 정상 |
-| **W-4** | `audit_logs_controller.rb` `@admins = Admin.order(:email).pluck(...)` / 뷰에서 `@admins` 사용 | **PASS** — 뷰의 `Admin.` 직접 쿼리 제거 확인, 관리자 select 옵션이 `@admins`로 렌더(`<option value="{id}">` 확인) |
-| **W-5** | `member_admin_service.rb` extend_trial! 선두 `(1..12).cover?(months)` → Result failure | **PASS** — months=0·13 → 303 + "연장 개월은 1~12개월 사이로 입력해 주세요." + period 불변, months=12 → 성공 + trialing trial_ends_at 동기화(base+12개월), 감사 delta=1(거부 2건 미기록) |
-
-### 6.2 회귀 스폿 검사
-
-- **by_period → safe_boundary 전환**: `by_period`의 유일 호출처는 `Admin::AuditLogsController#filtered_audit_logs`(grep 확인 — members#show는 `recent`만 사용). 무효 날짜 2종 200 확인 — 스코프→클래스 메서드 전환의 체인 인터페이스 변경 없음(인자 순서 동일).
-- **@admins 전달 경로**: 컨트롤러 로드 → 뷰 `options_for_select([["전체",""]] + @admins, params[:admin_id])` — 필터 기능(params[:admin_id]) 재확인 200.
-- **includes 전환**: members의 `left_joins`(검색용) + `includes(:subscription)` 병용 시에도 목록·필터(q·plan·status) 정상 렌더 확인.
-- 재현 중 내 스크립트 어설션 1건이 nil base 참조로 예외를 냈으나(제품 코드 아님), base를 명시 설정한 보완 세션에서 W-5 전항목 재확인 완료.
-
-### 6.3 Run C 이관 목록(리뷰어 확인 요청 답변 — 수용)
-
-03_implementation.md Phase 6 절에 정리됨: ① ADMIN-3 롤 부여·해제 콘솔(AUTH-7.2 — Run B 미포함·ADMIN-1 runner 절차 운영) ② ADMIN-4 쿠폰·프로모션 ③ ADMIN-3 ④ 계정 삭제·데이터 파기(AUTH-1.5 재검토 포함). PRD 문서와 정합 — 수용.
-
-### 6.4 재리뷰 결론
-
-- BLOCKER 0 · CRITICAL 0 · WARNING 미해소 0 — B-1은 제안된 최소 수정(scope: :order 1줄)로 종결, W-1~W-5는 전부 명시 권고 방향과 일치하게 구현됨.
-- 개발자 자기 재검증 보고(Integration 세션·관리자 실로그인 동일 방식)와 리뷰어 독립 재현이 일치.
-
-**status: APPROVED**
+1. **C-1 회귀(최우선)**: 상한 5 도달 청구서에서 수동 발송 → skipped+CAP_REACHED·flash 안내. 수정 방식(SendService 가드 vs manual_step_key nil)에 맞춰 컨트롤러 경유로 검증
+2. **C-2 회귀**: 만기 도과+미래 약속 청구서 수동 발송 — 거짓 날짜 0건 단언(발송되지 않는 설계라면 skipped/비노출, 발송된다면 variables["만기일"] 과거 아님)·약속 당일 경계 포함
+3. **무결성 회귀**: 수동 issue_notice 다수 후 자동 스캔 — D-1 invoice_notice·약속 전날 promise_d1·D+1 분기 무변경(키 분리 SEC-5)
+4. **실측 보강**: "지금 1통 보내기" 라벨이 만기 17일 전 청구서에서 "발행 안내"로 표기되는지 시스템 테스트 1건(뷰 정합 — 현재 컨트롤러 테스트는 API 레벨만)

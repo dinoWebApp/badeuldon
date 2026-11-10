@@ -90,7 +90,14 @@ Rails.application.routes.draw do
     # 계약: _workspace/02_prd_update.md 확정 해석 1 그대로. 상태 전이(정지 전환·플랜 변경·
     # 환불 기록)는 예외적 동사라 member PATCH로 정당화.
     resources :audit_logs, only: :index                                             # ADMIN-2
-    resources :members, only: %i[ index show ] do                                   # ADMIN-3
+    resources :admins, only: %i[ index new create ] do                              # ADMIN-1 관리자 계정 콘솔(owner 전용 — AUTH-7.2). role 승강·잠금 해제는 상태 전이라 member PATCH로 정당화
+      member do
+        patch :change_role
+        patch :unlock
+      end
+    end
+    resources :coupons                                                              # ADMIN-4 쿠폰 관리(표준 CRUD — Q12)
+    resources :members, only: %i[ index show destroy ] do                           # ADMIN-3 (계정 삭제·데이터 파기 — Q13)
       member do
         patch :toggle_suspension
         patch :change_plan

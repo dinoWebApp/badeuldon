@@ -1,0 +1,84 @@
+<%# ADMIN-1·AUTH-7.2 관리자 계정 콘솔 — 목록(전원)·생성/롤 변경/잠금 해제 버튼(owner만 노출). %>
+<div class="admin-card">
+  <div class="flex items-center justify-between mb-4">
+    <h1 class="admin-title">관리자 계정</h1>
+    <% if current_admin.owner? %>
+      <%= link_to "신규 관리자 생성", new_admin_admin_path,
+            class: "inline-block rounded bg-stone-800 text-white px-4 py-2 text-sm hover:bg-stone-700 transition-colors" %>
+    <% end %>
+  </div>
+
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="text-left text-xs text-stone-500 border-b border-stone-200">
+        <th class="py-2 pr-4">이메일</th>
+        <th class="py-2 pr-4">롤</th>
+        <th class="py-2 pr-4">2FA</th>
+        <th class="py-2 pr-4">잠금 상태</th>
+        <th class="py-2 pr-4">최근 로그인</th>
+        <% if current_admin.owner? %>
+          <th class="py-2 pr-4">액션</th>
+        <% end %>
+      </tr>
+    </thead>
+    <tbody>
+      <% @admins.each do |admin| %>
+        <% last_login = @last_logins[admin.id] %>
+        <tr class="border-b border-stone-100 hover:bg-stone-50">
+          <td class="py-2 pr-4"><%= admin.email %></td>
+          <td class="py-2 pr-4">
+            <% if admin.owner? %>
+              <span class="inline-block rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-xs font-medium">owner</span>
+            <% else %>
+              <span class="inline-block rounded-full bg-stone-100 text-stone-600 px-2 py-0.5 text-xs font-medium">staff</span>
+            <% end %>
+          </td>
+          <td class="py-2 pr-4">
+            <% if admin.two_factor_enabled? %>
+              <span class="text-emerald-600">등록</span>
+            <% else %>
+              <span class="text-orange-600">미등록</span>
+            <% end %>
+          </td>
+          <td class="py-2 pr-4">
+            <% if admin.locked? %>
+              <span class="text-orange-600 font-medium">잠금</span>
+            <% else %>
+              <span class="text-stone-500">정상</span>
+            <% end %>
+          </td>
+          <td class="py-2 pr-4 whitespace-nowrap">
+            <% if last_login %>
+              <%= l(Time.zone.at(last_login).to_date, format: :long) %>
+            <% else %>
+              <span class="text-stone-400">-</span>
+            <% end %>
+          </td>
+          <% if current_admin.owner? %>
+            <td class="py-2 text-right whitespace-nowrap">
+              <% unless admin.id == current_admin.id %>
+                <%= form_with model: admin, url: change_role_admin_admin_path(admin),
+                      method: :patch, local: true, class: "inline-block" do %>
+                  <%= select_tag "admin[role]",
+                        options_for_select([ [ "owner", "owner" ], [ "staff", "staff" ] ], admin.role),
+                        class: "border border-stone-300 rounded px-2 py-1 text-xs mr-2" %>
+                  <%= submit_tag "롤 변경",
+                        class: "rounded border border-stone-300 px-3 py-1 text-xs hover:bg-stone-100" %>
+                <% end %>
+              <% end %>
+              <% if admin.locked? %>
+                <%= button_to "잠금 해제", unlock_admin_admin_path(admin),
+                      method: :patch,
+                      class: "rounded border border-orange-300 text-orange-700 px-3 py-1 text-xs hover:bg-orange-50 ml-2" %>
+              <% end %>
+            </td>
+          <% end %>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+  <p class="mt-3 text-xs text-stone-400">
+    계정 생성·롤 변경·잠금 해제는 최고 관리자(owner)만 수행할 수 있습니다(AUTH-7.2·ADMIN-1).
+    모든 행위는 감사 로그에 기록됩니다.
+  </p>
+</div>

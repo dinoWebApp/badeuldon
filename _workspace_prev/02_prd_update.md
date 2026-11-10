@@ -1,25 +1,22 @@
-# 02_prd_update — F-ADMIN Run B 문서 현행화 (2026-11-10, Phase 2)
+# 02_prd_update — F-ADMIN Run C 문서 현행화 (2026-11-10, Phase 2)
 
-PRD v0.30 → **v0.31**. 배치 승인(T-B1~T-B3 전부)에 따른 구현 확정 해석 반영.
-(미커밋 Run A·템플릿 문서·credentials는 이번 런 커밋에 포함)
+PRD v0.31 → **v0.32**. Run C(공지·티켓·FAQ) 승인에 따른 구현 확정 반영.
 
 ## PRD.md 변경 내역 요약
 
 | 위치 | 변경 요지 |
 |---|---|
-| 문서 버전 | v0.31 (F-ADMIN Run B 구현 확정) |
-| ADMIN-3 | users.status enum(정지 시 로그인 차단+세션 파기)·플랜 수동 변경 규칙(활성→체험 금지·연장=period 연장·해지=cancel!·전건 감사 기록)·staff 변경 가능(롤만 owner)·삭제·파기는 Run C |
-| ADMIN-4 | 환불 기록 = orders.refunded_at·refund_reason(실 PG 환불은 포트원 콘솔 수동 — PLAN-5)·감사 필수·**쿠폰·프로모션은 Run C 이관**(결제 플로우 결선) |
-| ADMIN-5 | MRR=active Plus×9,900·매출=환불 제외·북극성=30일 내 수금 완료율·MessageLog 로컬 집계·**솔라피 크레딧 API는 기술 부채([INFERENCE])** |
+| 문서 버전 | v0.32 (F-ADMIN Run C 구현 확정) |
+| ADMIN-6 | notices 테이블(중요도 enum·게시 기간)·관리자 CRUD+발행/종료 |
+| ADMIN-7 | notice_reads(복합 유니크·멱등)·일반 배너 닫기=읽음·중요 팝업 확인 전 지속·경로 `/app/notice`(PRD 문언 준수 — path: "notice") |
+| ADMIN-8 | tickets+ticket_messages 스레드·AS 이미지 1장(5MB·jpg/png/webp)·rate_limit 5회/시간·본문 2,000자·관리자 종료·사용자 추가 질문 open 복귀·`noti_ticket_reply` 발송 연동(등록 완료 전환)·REM-6 확장(message_logs.invoice_id nullable+ticket_id) |
+| ADMIN-9 | LP-8 파셜 재사용(데이터화 후속) |
+| ADMIN-10 | 후속 분리 — LP-11 블로그와 통합 검토·쿠폰·롤 콘솔·계정 삭제도 범위 밖 명시 |
 
-## fan-out 전달 확정 해석 (각 지시서에 첨부)
+## Developer 지시서 전달 해석
 
-1. **라우트 계약(3-S 결선용 — fan-out 태스크 routes 금지)**:
-   - T-B2: `resources :audit_logs, only: :index` · `resources :members, only: %i[index show]` + `member { patch :toggle_suspension; patch :change_plan }`
-   - T-B3: `resources :orders, only: %i[index show]` + `member { patch :mark_refunded }`
-   - T-B1: 신규 라우트 없음(admin root 유지·확장)
-2. **의존 회피 규칙**: T-B1의 매출 집계는 이번 배치에서 `Order.paid` 합계로 구현 — `refunded_at: nil` 제외는 **3-S 통합 항목**(T-B3 마이그레이션 적용 후 1줄 추가, 계약은 본 문서로 확정)
-3. **마이그레이션**: T-B2(users.status)·T-B3(orders refund) 각자 독립 신규 파일 — 자기 마이그레이션만 `db:migrate:up VERSION=<자기 버전>` 적용 검증, 전체 migrate는 3-S
-4. **감사 기록**: 모든 관리 행위는 컨트롤러가 `AuditLogs::RecordService` 경유(Run A 교훈 W-4 — 모델→서비스 호출 금지 §4.2)
-5. **정지 시 세션 파기**: user.sessions 전부 destroy + authentication 로직에 suspended 차단(T-B2가 sessions_controller 수정 — 소유권에 포함)
-6. **컨트롤러 경유 검증 표준**(Run A 교훈): fan-out 개발자는 라우트 미결선이라 서비스·쿼리·모델 runner 검증만, 컨트롤러 검증은 Phase 5(리뷰어 재현 필수)·7(테스트)에서
+1. **공지 읽음**: `NoticeReads::MarkService` — find_or_create_by 멱등(SEC-5 성격). 배너 닫기/팝업 확인/Turbo POST 읽음 endpoint
+2. **티켓 알림**: `Tickets::NotifyAnswerService` — Solapi 래퍼 직접(청구 가드 불요)·variables `사용자명`·`문의제목`·`url=badeuldon.kr/app/tickets/{id}`·phone blank → skipped+NO_PHONE·모든 시도 MessageLog 기록(invoice_id: nil·ticket_id 세팅)
+3. **message_logs 완화**: 기존 Invoice 기반 집계·스코프는 invoice_id null 행 자연 배제 — 리뷰에서 전수 확인
+4. **AS 첫 도입**: `bin/rails active_storage:install` — disk service(config storage yml)·Kamal storage 볼륨 경로 확인은 Phase 8
+5. **티켓 rate_limit**: 뷰어 rate_limit 패턴 준용(to: 5, within: 1.hour, by: Current.user)

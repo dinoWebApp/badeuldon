@@ -111,13 +111,32 @@
   </ul>
 </div>
 
+<%# ADMIN-3 ④ 계정 삭제·데이터 파기(Q13) — 2중 확인(이메일 타이핑)·미수 청구 보유 시 서비스에서 차단. %>
+<div class="admin-card mb-4 border border-red-200">
+  <h2 class="admin-title text-red-700">계정 삭제</h2>
+  <p class="text-xs text-stone-500 mb-3">
+    계정과 모든 데이터(청구서·거래처·구독·문의 등)를 즉시·영구 삭제합니다. 되돌릴 수 없습니다.
+    미수 청구가 있는 계정은 삭제할 수 없습니다. 이메일 감사 기록은 보존됩니다.
+  </p>
+  <%= form_with url: admin_member_path(@user), method: :delete, local: true,
+        class: "flex flex-wrap items-end gap-2",
+        data: { turbo_confirm: "정말 삭제하시겠습니까? 되돌릴 수 없습니다." } do %>
+    <div>
+      <label class="block text-xs text-stone-500 mb-1" for="confirm_email">확인 — 이메일 직접 입력</label>
+      <%= text_field_tag :confirm_email, nil, placeholder: @user.email, autocomplete: "off",
+            class: "border border-stone-300 rounded px-2 py-1.5 text-sm w-64" %>
+    </div>
+    <%= submit_tag "계정 삭제", class: "bg-red-700 text-white rounded px-4 py-1.5 text-sm hover:bg-red-800" %>
+  <% end %>
+</div>
+
 <div class="admin-card">
   <h2 class="admin-title">대상 감사 로그</h2>
   <ul class="text-sm divide-y divide-stone-100">
     <% @audit_logs.each do |log| %>
       <li class="py-2">
         <span class="text-stone-500"><%= l(log.created_at, format: :long) %></span>
-        · <%= log.action %> (<%= log.admin.email %>)
+        · <%= log.action %> (<%= log.admin&.email || "사용자" %>)
         <% if log.detail.present? %> — <%= truncate(log.detail, length: 60) %><% end %>
       </li>
     <% end %>

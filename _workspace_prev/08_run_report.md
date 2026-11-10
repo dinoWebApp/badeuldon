@@ -1,24 +1,25 @@
-# 08_run_report — F-ADMIN Run B 병렬 배치 실행 검증 (2026-11-10, Phase 8)
+# 08_run_report — F-ADMIN Run C 실행 검증 (2026-11-10, Phase 8)
 
 - 부트: 포트 3002·pid 분리 — Puma 정상·**WARN/deprecated 0건**
-- 라우트 실측(신규 4종 + 기존):
+- 라우트 실측:
   | 경로 | 기대 | 실측 |
   |---|---|---|
   | `GET /admin/session/new` | 200 | 200 ✓ |
-  | `GET /admin/members` | 303(가드) | 303 ✓ |
-  | `GET /admin/orders` | 303(가드) | 303 ✓ |
-  | `GET /admin/audit_logs` | 303(가드) | 303 ✓ |
-  | `GET /admin` | 303(가드) | 303 ✓ |
+  | `GET /admin/tickets`·`/admin/notices`·`/admin` | 303(가드) | 전부 303 ✓ |
+  | `GET /app/notice`(PRD 문언 경로 — path: "notice") | 302(로그인 가드) | 302 ✓ |
+  | `GET /app/tickets` | 302(로그인 가드) | 302 ✓ |
+  | `GET /app/notices`(복수) | 404(미정의 — 정상) | 404 ✓ |
   | `GET /up` | 200 | 200 ✓ |
-- 마이그레이션: 2건(users.status·orders refund 컬럼) 적용 완료 — schema 동기
-- 인증 후 화면(지표·목록·상세)은 Phase 7 컨트롤러 테스트 67건으로 검증(0실패)
+- 마이그레이션: 20261110000004(notices·notice_reads)·20261110000005(tickets·ticket_messages·message_logs 완화)·AS 테이블 — 전부 적용
+- Active Storage 첫 도입 — disk(local) 서비스·storage/ 경로 확인(production은 Kamal 볼륨 내 storage/ 재사용)
+- 인증 후 화면(공지 목록·상세·배너·팝업·티켓 스레드)은 Phase 7 테스트로 검증(0실패)
 - 검증 서버 정리 완료
 
 | 게이트 | 결과 |
 |---|---|
-| 7-S 전체 테스트 | 783 runs·0 failures(+신규 67) |
-| rubocop | 211 files 0 offenses |
+| 7-S 전체 테스트 | 876 runs·0 failures(+신규 52·모델/서비스 정식화 포함) |
+| rubocop | 242 files 0 offenses |
 | zeitwerk·migrate | 통과 |
-| Phase 5→6→재리뷰 | CHANGES_REQUESTED(B1·W5) → 통합 수정 → **재리뷰 APPROVED**(축소 재현) |
-| 위임 실측 | T-B1 Flash/low 일치·T-B2·B3 로그 휘발 미실측(quirk#7)·3-S·리뷰·테스트 일치 |
-| §6.14 운영 | fan-out 3태스크·소유권 위반 0·3-S 결선(routes·nav·migrate·환불 제외 1줄)·Run A 교훈(컨트롤러 경유 재현)이 리뷰어·개발자 양측 지시서에 적용돼 BLOCKER 1건(B-1 폼 불일치)을 리뷰에서 정확히 포착 |
+| Phase 5→6 | CHANGES_REQUESTED(C-1 mark_read 우회·W4) → 수정(app·admin 인증 서빙 전환·C-1 스코프) — 리뷰어 재현 시나리오 15/16 테스트화(rate_limit 429는 NullStore 기술 부채) |
+| 위임 실측 | 3-a·3-b·리뷰·테스트 전부 정의 일치(Flash/low·high) |
+| 후속(기술 부채) | 티켓 rate_limit 429 test env 검증(스토어 주입)·noti_ticket_reply 실발송 검증(배포 후)·FAQ 데이터화·ADMIN-10 블로그 통합(LP-11) |

@@ -31,6 +31,19 @@ class Admin::MembersController < Admin::BaseController
                 alert: (result.errors.first unless result.success?)
   end
 
+  # ADMIN-3 ④ 계정 삭제·데이터 파기(Q13) — Admins::AccountPurgeService가 가드(2중 확인·미수 차단)와
+  # 트랜잭션 삭제를 담당한다. 성공은 목록으로, 실패는 상세로 되돌린다(가드 사유 alert).
+  def destroy
+    result = Admins::AccountPurgeService.call(
+      admin: current_admin, user: User.find(params[:id]), confirm_email: params[:confirm_email]
+    )
+    if result.success?
+      redirect_to admin_members_path, status: :see_other, notice: result.message
+    else
+      redirect_to admin_member_path(params[:id]), status: :see_other, alert: result.errors.first
+    end
+  end
+
   private
 
   def filtered_users

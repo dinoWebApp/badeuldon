@@ -1,0 +1,46 @@
+# ADMIN-4 쿠폰 fixture — 검증 매트릭스·적용 플로우 테스트 공용.
+active_coupon:
+  code: WELCOME2026
+  name: 웰컴 20% 할인
+  discount_type: percent
+  discount_value: 20
+  max_redemptions: 100
+  used_count: 0
+  active: true
+
+amount_coupon:
+  code: SAVE2000
+  name: 2,000원 할인
+  discount_type: amount
+  discount_value: 2000
+  max_redemptions: 50
+  used_count: 0
+  active: true
+
+depleted_coupon:
+  code: EMPTY9999
+  name: 한도 소진
+  discount_type: amount
+  discount_value: 1000
+  max_redemptions: 3
+  used_count: 3
+  active: true
+
+expired_coupon:
+  code: OLDCODE123
+  name: 만료
+  discount_type: percent
+  discount_value: 10
+  max_redemptions: 10
+  used_count: 0
+  expires_at: <%= Date.current - 1 %>
+  active: true
+
+inactive_coupon:
+  code: STOPEX01
+  name: 비활성
+  discount_type: amount
+  discount_value: 9900
+  max_redemptions: 10
+  used_count: 0
+  active: false

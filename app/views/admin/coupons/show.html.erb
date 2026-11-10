@@ -1,0 +1,24 @@
+<%# ADMIN-4 쿠폰 상세 — 사용 통계와 적용 중 구독 예약 현황. %>
+<div class="admin-card">
+  <div class="flex items-center justify-between">
+    <h1 class="admin-title">쿠폰 <%= @coupon.code %></h1>
+    <%= link_to "목록", admin_coupons_path, class: "rounded border border-stone-300 px-3 py-1.5 text-xs text-stone-600 hover:bg-stone-100" %>
+  </div>
+
+  <dl class="mt-4 grid grid-cols-2 gap-y-2 text-sm">
+    <dt class="text-stone-500">이름</dt><dd><%= @coupon.name %></dd>
+    <dt class="text-stone-500">할인</dt><dd class="tabular-nums"><%= coupon_discount_label(@coupon) %></dd>
+    <dt class="text-stone-500">사용</dt><dd class="tabular-nums"><%= @coupon.used_count %> / <%= @coupon.max_redemptions %> (잔여 <%= @coupon.remaining_count %>)</dd>
+    <dt class="text-stone-500">만료일</dt><dd class="tabular-nums"><%= @coupon.expires_at || "무기한" %></dd>
+    <dt class="text-stone-500">활성</dt><dd><%= @coupon.active? ? "예" : "아니오" %></dd>
+    <dt class="text-stone-500">적용 예약 중인 구독</dt><dd class="tabular-nums"><%= @coupon.subscriptions.count %>건 (첫 결제 시 소비)</dd>
+  </dl>
+
+  <div class="mt-4 flex gap-2">
+    <%= link_to "수정", edit_admin_coupon_path(@coupon),
+          class: "rounded bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800" %>
+    <%= button_to "삭제", admin_coupon_path(@coupon), method: :delete,
+          data: { turbo_confirm: "쿠폰을 삭제하시겠습니까? 사용 이력이 있는 쿠폰은 삭제할 수 없습니다." },
+          class: "rounded border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50" %>
+  </div>
+</div>
