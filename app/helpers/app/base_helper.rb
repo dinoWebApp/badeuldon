@@ -19,6 +19,10 @@ module App
           disabled: false, locked: },
         { label: "리포트", path: app_report_path, active: request.path.start_with?(app_report_path),
           disabled: false, locked: },  # DASH-5/6 — 리포트 페이지
+        { label: "공지", path: app_notices_path, active: request.path.start_with?(app_notices_path),
+          disabled: false, locked: },  # ADMIN-7 — 운영 공지 목록(/app/notice)
+        { label: "문의", path: app_tickets_path, active: request.path.start_with?(app_tickets_path),
+          disabled: false, locked: },  # ADMIN-8 — 1:1 문의 티켓(/app/tickets)
         { label: "설정", path: edit_app_profile_path, active: request.path.start_with?(app_profile_path),
           disabled: false, locked: false }
       ]

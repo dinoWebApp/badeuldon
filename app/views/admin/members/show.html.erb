@@ -1,0 +1,128 @@
+<%# ADMIN-3 회원 상세 — 프로필·청구/미수 요약·발송·문의 이력·플랜 수동 변경·정지/해제. %>
+<div class="admin-card mb-4">
+  <div class="flex items-start justify-between">
+    <div>
+      <h1 class="admin-title mb-1"><%= @user.display_name.presence || @user.email %></h1>
+      <p class="text-sm text-stone-500">
+        <%= @user.email %> ·
+        <%= @user.business_type&.capitalize || "미설정" %> ·
+        가입 <%= l(@user.created_at.to_date, format: :long) %> ·
+        <% if @user.suspended? %>
+          <span class="text-orange-600 font-medium">정지</span>
+        <% else %>
+          <span class="text-green-700">활성</span>
+        <% end %>
+      </p>
+    </div>
+    <%= button_to(@user.suspended? ? "정지 해제" : "계정 정지",
+          toggle_suspension_admin_member_path(@user),
+          method: :patch,
+          class: "rounded px-4 py-2 text-sm text-white #{@user.suspended? ? 'bg-green-700 hover:bg-green-800' : 'bg-orange-600 hover:bg-orange-700'}") %>
+  </div>
+
+  <div class="grid grid-cols-1 gap-4 mt-4 sm:grid-cols-3">
+    <div class="rounded-lg border border-stone-200 p-4">
+      <p class="text-xs text-stone-500">발행 청구서(초안 제외)</p>
+      <p class="mt-1 text-2xl font-bold"><%= number_with_delimiter(@invoice_count) %>건</p>
+    </div>
+    <div class="rounded-lg border border-stone-200 p-4">
+      <p class="text-xs text-stone-500">미수 금액 합계</p>
+      <p class="mt-1 text-2xl font-bold text-orange-600"><%= number_to_currency(@unsettled_amount, unit: "₩", precision: 0) %></p>
+    </div>
+    <div class="rounded-lg border border-stone-200 p-4">
+      <p class="text-xs text-stone-500">현재 플랜</p>
+      <p class="mt-1 text-2xl font-bold"><%= @user.subscription&.plus? ? "Plus" : "Free" %></p>
+    </div>
+  </div>
+</div>
+
+<% subscription = @user.subscription %>
+<div class="admin-card mb-4">
+  <h2 class="admin-title">플랜 수동 변경</h2>
+  <p class="text-xs text-stone-500 mb-3">
+    구독 상태: <%= subscription&.status || "-" %>
+    <% if subscription&.current_period_end.present? %>
+      · 기간 종료 <%= l(subscription.current_period_end.to_date, format: :long) %>
+    <% end %>
+    · 활성 Plus 구독 보유 시 체험 전환은 금지됩니다.
+  </p>
+  <%= form_with url: change_plan_admin_member_path(@user), method: :patch, local: true,
+        class: "flex flex-wrap items-end gap-2" do %>
+    <div>
+      <label class="block text-xs text-stone-500 mb-1" for="plan_change_action">변경</label>
+      <%= select_tag "plan_change[action]",
+            options_for_select([ [ "체험 시작(14일)", "grant_trial" ],
+                                 [ "이용 기간 연장", "extend_trial" ],
+                                 [ "구독 해지", "cancel_subscription" ] ], params.dig(:plan_change, :action)),
+            id: "plan_change_action",
+            class: "border border-stone-300 rounded px-2 py-1.5 text-sm" %>
+    </div>
+    <div>
+      <label class="block text-xs text-stone-500 mb-1" for="plan_change_months">연장 개월(연장 시)</label>
+      <%= number_field_tag "plan_change[months]", 1, min: 1, max: 12,
+            class: "border border-stone-300 rounded px-2 py-1.5 text-sm w-36" %>
+    </div>
+    <%= submit_tag "적용", class: "bg-stone-800 text-white rounded px-4 py-1.5 text-sm hover:bg-stone-700" %>
+  <% end %>
+</div>
+
+<div class="admin-card mb-4">
+  <h2 class="admin-title">최근 발송 이력(10건)</h2>
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="text-left text-xs text-stone-500 border-b border-stone-200">
+        <th class="py-2 pr-4">일시</th><th class="py-2 pr-4">템플릿</th>
+        <th class="py-2 pr-4">상태</th><th class="py-2">수신</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @message_logs.each do |log| %>
+        <tr class="border-b border-stone-100">
+          <td class="py-2 pr-4 whitespace-nowrap"><%= l(log.created_at, format: :long) %></td>
+          <td class="py-2 pr-4"><%= log.template_key %></td>
+          <td class="py-2 pr-4"><%= log.status %></td>
+          <td class="py-2"><%= log.recipient_role == "debtor" ? "채무자" : "프리랜서" %></td>
+        </tr>
+      <% end %>
+      <% if @message_logs.empty? %>
+        <tr><td colspan="4" class="py-4 text-center text-stone-400">발송 이력이 없습니다.</td></tr>
+      <% end %>
+    </tbody>
+  </table>
+</div>
+
+<div class="admin-card mb-4">
+  <h2 class="admin-title">최근 문의(5건)</h2>
+  <ul class="text-sm divide-y divide-stone-100">
+    <% @inquiries.each do |inquiry| %>
+      <li class="py-2">
+        <span class="text-stone-500"><%= l(inquiry.created_at, format: :long) %></span>
+        · 청구서#<%= inquiry.invoice_id %> — <%= truncate(inquiry.memo, length: 80) %>
+        <% if inquiry.answered_at.present? %>
+          <span class="text-green-700">(답변 완료)</span>
+        <% else %>
+          <span class="text-orange-600">(미답변)</span>
+        <% end %>
+      </li>
+    <% end %>
+    <% if @inquiries.empty? %>
+      <li class="py-4 text-center text-stone-400">문의 이력이 없습니다.</li>
+    <% end %>
+  </ul>
+</div>
+
+<div class="admin-card">
+  <h2 class="admin-title">대상 감사 로그(10건)</h2>
+  <ul class="text-sm divide-y divide-stone-100">
+    <% @audit_logs.each do |log| %>
+      <li class="py-2">
+        <span class="text-stone-500"><%= l(log.created_at, format: :long) %></span>
+        · <%= log.action %> (<%= log.admin.email %>)
+        <% if log.detail.present? %> — <%= truncate(log.detail, length: 60) %><% end %>
+      </li>
+    <% end %>
+    <% if @audit_logs.empty? %>
+      <li class="py-4 text-center text-stone-400">이 회원을 대상으로 한 감사 로그가 없습니다.</li>
+    <% end %>
+  </ul>
+</div>

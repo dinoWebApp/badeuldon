@@ -16,7 +16,11 @@ class MessageLog < ApplicationRecord
   # PLAN-3 — 청구 건당 시퀀스 상한 5통(대체문자 포함·수동 발송 포함 하드리밋 — REM-12와 정합)
   SEQUENCE_CAP = 5
 
-  belongs_to :invoice
+  # invoice는 optional로 완화(F-ADMIN Run C — 티켓 답변 알림 noti_ticket_reply는 invoice가
+  # 없다). invoice_id가 채워지는 기존 발송 경로(Reminders::SendService)는 변경 없음 —
+  # nil 허용만 추가됐다. invoice·ticket 동시 지정은 오기록이므로 검증으로 막는다(아래).
+  belongs_to :invoice, optional: true
+  belongs_to :ticket, optional: true # ADMIN-8 티켓 답변 알림의 대상
   belongs_to :user  # 소유 U1 — REM-6 이력의 소유자. invoice.user와 일치를 검증한다.
 
   enum :recipient_role, { debtor: 0, user: 1 }, default: :debtor
@@ -25,6 +29,7 @@ class MessageLog < ApplicationRecord
 
   validates :template_key, presence: true
   validate :user_must_own_invoice
+  validate :single_subject
 
   # variables — 발송 시 조립한 #{변수명} 치환값 기록(REM-6 문구 버전 추적의 보조 증거)
   serialize :variables, coder: JSON
@@ -40,6 +45,14 @@ class MessageLog < ApplicationRecord
   end
 
   private
+
+  # Run C — 티켓 알림(invoice nil·ticket 있음)과 청구 발송(invoice 있음)은 배타적이다.
+  # 양쪽 모두 비거나 양쪽 다 채워진 기록은 우회 경로의 오기록으로 차단한다(P4 기록의 정합성).
+  def single_subject
+    if invoice_id.present? == ticket_id.present?
+      errors.add(:ticket_id, "청구서와 티켓 중 정확히 하나만 지정해야 합니다")
+    end
+  end
 
   # 데이터 무결성 — 이력의 소유자는 청구서 소유자(U1)와 일치해야 한다. 발송 계층(SendService)이
   # invoice.user_id로만 생성하지만, 콘솔·러너 등 우회 경로의 오기록을 차단한다.

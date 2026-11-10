@@ -13,6 +13,12 @@ class SessionsController < ApplicationController
   def create
     email, password = session_params
     if user = User.authenticate_by(email:, password:)
+      # ADMIN-3(Run B) — 정지 계정은 세션 발급 전 차단한다. 자격 증명이 맞음이 확인된
+      # 계정에만 정지 문구를 내므로 계정 존재 여부는 노출되지 않는다(미존재는 기존 문구 유지).
+      if user.suspended?
+        flash.now[:alert] = "이용이 정지된 계정입니다. 고객센터로 문의해 주세요."
+        return render :new, status: :unprocessable_entity
+      end
       start_new_session_for user
       redirect_to after_authentication_url, status: :see_other, notice: "로그인되었습니다."
     else

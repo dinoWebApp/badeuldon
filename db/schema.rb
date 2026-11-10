@@ -10,7 +10,76 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_04_000003) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_10_023150) do
+  create_table "active_storage_attachments", force: :cascade do |t|
+    t.string "name", null: false
+    t.string "record_type", null: false
+    t.bigint "record_id", null: false
+    t.bigint "blob_id", null: false
+    t.datetime "created_at", null: false
+    t.index ["blob_id"], name: "index_active_storage_attachments_on_blob_id"
+    t.index ["record_type", "record_id", "name", "blob_id"], name: "index_active_storage_attachments_uniqueness", unique: true
+  end
+
+  create_table "active_storage_blobs", force: :cascade do |t|
+    t.string "key", null: false
+    t.string "filename", null: false
+    t.string "content_type"
+    t.text "metadata"
+    t.string "service_name", null: false
+    t.bigint "byte_size", null: false
+    t.string "checksum"
+    t.datetime "created_at", null: false
+    t.index ["key"], name: "index_active_storage_blobs_on_key", unique: true
+  end
+
+  create_table "active_storage_variant_records", force: :cascade do |t|
+    t.bigint "blob_id", null: false
+    t.string "variation_digest", null: false
+    t.index ["blob_id", "variation_digest"], name: "index_active_storage_variant_records_uniqueness", unique: true
+  end
+
+  create_table "admin_sessions", force: :cascade do |t|
+    t.integer "admin_id", null: false
+    t.string "token", null: false
+    t.datetime "expires_at", null: false
+    t.datetime "last_activity_at", null: false
+    t.string "ip"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["admin_id"], name: "index_admin_sessions_on_admin_id"
+    t.index ["token"], name: "index_admin_sessions_on_token", unique: true
+  end
+
+  create_table "admins", force: :cascade do |t|
+    t.string "email", null: false
+    t.string "password_digest", null: false
+    t.integer "role", default: 1, null: false
+    t.text "otp_secret"
+    t.datetime "otp_confirmed_at"
+    t.integer "otp_last_used_counter"
+    t.integer "failed_attempts", default: 0, null: false
+    t.datetime "locked_at"
+    t.datetime "last_login_at"
+    t.string "last_login_ip"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["email"], name: "index_admins_on_email", unique: true
+  end
+
+  create_table "audit_logs", force: :cascade do |t|
+    t.integer "admin_id", null: false
+    t.string "action", null: false
+    t.string "target_type"
+    t.integer "target_id"
+    t.text "detail"
+    t.string "ip", limit: 45
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["action"], name: "index_audit_logs_on_action"
+    t.index ["admin_id"], name: "index_audit_logs_on_admin_id"
+  end
+
   create_table "clients", force: :cascade do |t|
     t.integer "user_id", null: false
     t.string "name", null: false
@@ -78,7 +147,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_04_000003) do
   end
 
   create_table "message_logs", force: :cascade do |t|
-    t.integer "invoice_id", null: false
+    t.integer "invoice_id"
     t.integer "user_id", null: false
     t.integer "recipient_role", default: 0, null: false
     t.string "template_key", null: false
@@ -93,10 +162,34 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_04_000003) do
     t.datetime "sent_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.integer "ticket_id"
     t.index ["invoice_id", "template_key"], name: "idx_message_logs_debtor_pending_uniq", unique: true, where: "recipient_role = 0 AND status = 0"
     t.index ["invoice_id"], name: "index_message_logs_on_invoice_id"
     t.index ["provider_message_id"], name: "index_message_logs_on_provider_message_id"
+    t.index ["ticket_id"], name: "index_message_logs_on_ticket_id"
     t.index ["user_id"], name: "index_message_logs_on_user_id"
+  end
+
+  create_table "notice_reads", force: :cascade do |t|
+    t.integer "user_id", null: false
+    t.integer "notice_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["notice_id"], name: "index_notice_reads_on_notice_id"
+    t.index ["user_id", "notice_id"], name: "index_notice_reads_on_user_id_and_notice_id", unique: true
+    t.index ["user_id"], name: "index_notice_reads_on_user_id"
+  end
+
+  create_table "notices", force: :cascade do |t|
+    t.string "title", null: false
+    t.text "body", null: false
+    t.integer "importance", default: 0, null: false
+    t.datetime "published_at"
+    t.datetime "expires_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["importance"], name: "index_notices_on_importance"
+    t.index ["published_at"], name: "index_notices_on_published_at"
   end
 
   create_table "orders", force: :cascade do |t|
@@ -111,6 +204,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_04_000003) do
     t.json "metadata"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.datetime "refunded_at"
+    t.text "refund_reason"
     t.index ["pg_order_id"], name: "index_orders_on_pg_order_id", unique: true
     t.index ["pg_payment_id"], name: "index_orders_on_pg_payment_id"
     t.index ["user_id"], name: "index_orders_on_user_id"
@@ -174,6 +269,26 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_04_000003) do
     t.index ["user_id"], name: "index_subscriptions_on_user_id", unique: true
   end
 
+  create_table "ticket_messages", force: :cascade do |t|
+    t.integer "ticket_id", null: false
+    t.integer "sender", null: false
+    t.text "body", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["ticket_id"], name: "index_ticket_messages_on_ticket_id"
+  end
+
+  create_table "tickets", force: :cascade do |t|
+    t.integer "user_id", null: false
+    t.integer "category", default: 4, null: false
+    t.string "title", null: false
+    t.integer "status", default: 0, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["status"], name: "index_tickets_on_status"
+    t.index ["user_id"], name: "index_tickets_on_user_id"
+  end
+
   create_table "users", force: :cascade do |t|
     t.string "email", null: false
     t.string "password_digest", null: false
@@ -185,6 +300,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_04_000003) do
     t.string "account_number"
     t.string "account_holder"
     t.string "phone"
+    t.integer "status", default: 0, null: false
     t.index ["email"], name: "index_users_on_email", unique: true
   end
 
@@ -199,18 +315,27 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_04_000003) do
     t.index ["invoice_id"], name: "index_view_events_on_invoice_id"
   end
 
+  add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
+  add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
+  add_foreign_key "admin_sessions", "admins", on_delete: :cascade
+  add_foreign_key "audit_logs", "admins", on_delete: :cascade
   add_foreign_key "clients", "users"
   add_foreign_key "invoice_items", "invoices"
   add_foreign_key "invoices", "clients"
   add_foreign_key "invoices", "users"
   add_foreign_key "items", "users"
   add_foreign_key "message_logs", "invoices", on_delete: :cascade
+  add_foreign_key "message_logs", "tickets", on_delete: :cascade
   add_foreign_key "message_logs", "users", on_delete: :cascade
+  add_foreign_key "notice_reads", "notices", on_delete: :cascade
+  add_foreign_key "notice_reads", "users", on_delete: :cascade
   add_foreign_key "orders", "users", on_delete: :cascade
   add_foreign_key "payment_passes", "users", on_delete: :cascade
   add_foreign_key "payments", "invoices"
   add_foreign_key "promises", "invoices"
   add_foreign_key "sessions", "users"
   add_foreign_key "subscriptions", "users", on_delete: :cascade
+  add_foreign_key "ticket_messages", "tickets", on_delete: :cascade
+  add_foreign_key "tickets", "users", on_delete: :cascade
   add_foreign_key "view_events", "invoices"
 end

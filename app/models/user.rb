@@ -12,10 +12,19 @@ class User < ApplicationRecord
   has_one :subscription, dependent: :destroy
   has_many :orders, dependent: :destroy
   has_many :payment_passes, dependent: :destroy
+  # F-ADMIN Run C(ADMIN-7) — 공지 읽음 기록. 자식 참조가 없어 연쇄 순서 영향이 없다.
+  has_many :notice_reads, dependent: :destroy
+  # F-ADMIN Run C(ADMIN-8) — 1:1 문의 티켓. ticket_messages는 tickets의 dependent로 연쇄 삭제.
+  has_many :tickets, dependent: :destroy
 
   # AUTH-1.3 사업자 유형 — 사업자(business)·프리랜서(freelancer, 3.3% 원천징수 해당).
   # 미선택 허용: 가입 시점엔 결정하지 않고, 프로필 설정(:profile 컨텍스트)에서 필수가 된다.
   enum :business_type, { business: 0, freelancer: 1 }
+
+  # ADMIN-3(Run B 확정) — 계정 상태. suspended면 로그인 차단(SessionsController)이며
+  # 정지 전환 시 기존 세션을 전부 파기한다(Admins::MemberAdminService). 해제 가능.
+  # 탈퇴·데이터 파기(AUTH-1.5)는 Run C 재검토 대상 — 본 배치는 정지까지만.
+  enum :status, { active: 0, suspended: 1 }, default: :active
 
   # AUTH-1.4 — 이메일 필수·고유(DB 고유 인덱스 위반을 500이 아닌 422 검증 실패로 처리)
   validates :email, presence: true, uniqueness: true

@@ -78,6 +78,9 @@
         </header>
 
         <main class="mx-auto w-full max-w-6xl flex-1 px-4 pb-16 sm:px-6">
+          <%# ADMIN-7 — 중요 공지 팝업(미읽음·게시 중 — 베이스 컨트롤러 적재). /app 전 화면 대상이라
+              레이아웃 레벨에 배치한다. 확인(읽음 기록) 전까지 모든 /app 진입 시 노출된다. %>
+            <%= render "app/notices/popup", notice: @unread_important_notices.first %>
           <% if Current.user.display_name.blank? %>
             <%# 온보딩 배너(AUTH-1.3) — 프로필 미완료 동안 모든 화면 최상단에 안내.
                 잠긴 메뉴를 눌렀을 때 '반응 없음'이 아니라 '시작 단계'로 인식시킨다. %>

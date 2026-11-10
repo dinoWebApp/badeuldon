@@ -123,6 +123,9 @@ class App::InvoicesControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "무효 본 상세는 무효 일자를 안내하고 전환 액션이 없다 (INV-6·Phase 6 #1)" do
+    # Run C(ADMIN-7) 조정 — 중요 공지 팝업의 「확인」 button_to는 청구서 전환 액션과 무관하므로
+    # 미리 읽음 처리해 팝업을 배제한다(이 단언은 화면 본연의 전환 액션 부재만 검증한다).
+    NoticeReads::MarkService.call(user: users(:delta), notice: notices(:important_active))
     sign_in_as users(:delta)
     get app_invoice_path(invoices(:delta_voided))
     assert_response :success

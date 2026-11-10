@@ -1,0 +1,32 @@
+# ADMIN-6/7 — 운영 공지 fixtures(게시 기간 경계 커버).
+<% now = Time.current %>
+
+# 게시 중 일반(배너 대상)
+general_active:
+  title: "정기 점검 안내"
+  body: "11월 15일 02시~04시 서비스 점검이 진행됩니다."
+  importance: general
+  published_at: <%= now - 1.day %>
+
+# 게시 중 중요(팝업 대상)
+important_active:
+  title: "부가세 신고 기한 안내"
+  body: "제2기 중간예정신고 기한까지 발행·입금 내역을 확인하세요."
+  importance: important
+  published_at: <%= now - 1.day %>
+  expires_at: <%= now + 30.days %>
+
+# 미래 발행 — 아직 노출되지 않음(초안과 동일하게 게시 중 제외)
+future_notice:
+  title: "아직 발행 전 안내"
+  body: "미래 게시 시작."
+  importance: general
+  published_at: <%= now + 10.days %>
+
+# 만료 — 게시 중 제외
+expired_notice:
+  title: "지난 점검 안내"
+  body: "이미 종료된 점검 안내입니다."
+  importance: general
+  published_at: <%= now - 10.days %>
+  expires_at: <%= now - 1.day %>

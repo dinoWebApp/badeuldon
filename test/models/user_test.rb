@@ -110,4 +110,22 @@ class UserTest < ActiveSupport::TestCase
     assert_equal 0, Item.where(user_id: user.id).count, "품목 라이브러리가 연쇄 삭제된다"
     assert_equal 0, InvoiceItem.where(invoice_id: invoice.id).count, "청구서 품목 행이 연쇄 삭제된다"
   end
+
+  # ── ADMIN-3(Run B) — 계정 상태 enum ──
+
+  test "status enum은 active·suspended 2값이고 기본값은 active다 (ADMIN-3)" do
+    assert_equal({ "active" => 0, "suspended" => 1 }, User.statuses)
+    assert_predicate users(:alpha), :active?, "fixture 사용자는 기본 active"
+  end
+
+  test "suspended?는 정지 계정에서만 참이다 (ADMIN-3·로그인 차단 판정점)" do
+    user = users(:alpha)
+    user.update!(status: :suspended)
+
+    assert_predicate user, :suspended?
+    assert_not_predicate user, :active?
+
+    user.update!(status: :active)
+    assert_not_predicate user.reload, :suspended?, "해제 가능(ADMIN-3 정지↔활성 왕복)"
+  end
 end

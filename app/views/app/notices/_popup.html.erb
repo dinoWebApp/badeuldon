@@ -1,0 +1,20 @@
+<%# ADMIN-7 — 중요 공지 팝업(미읽음 것, /app 전 화면 — 레이아웃 레벨). 확인(읽음 POST·SEC-5 멱등)
+    전까지 모든 /app 진입 시 노출된다. 여러 건이면 최신 1건씩 — 확인 후 다음 화면에서 다음 건.
+    Turbo 내비게이션에서도 레이아웃이 재평가되어 미읽음이 사라지면 렌더되지 않는다. %>
+<% if notice %>
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="notice-popup-title">
+    <div class="w-full max-w-md rounded-2xl border border-stone-200 bg-white p-6 shadow-xl">
+      <div class="flex items-center gap-2">
+        <span class="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-bold text-red-600 ring-1 ring-inset ring-red-200">중요 공지</span>
+        <span class="text-xs tabular-nums text-stone-400"><%= l(notice.published_at.to_date, format: :long) %></span>
+      </div>
+      <h2 id="notice-popup-title" class="mt-3 text-lg font-bold tracking-tight text-stone-900"><%= notice.title %></h2>
+      <div class="mt-3 max-h-60 overflow-y-auto whitespace-pre-line text-sm leading-relaxed text-stone-700"><%= notice.body %></div>
+      <div class="mt-6 flex items-center justify-between">
+        <%= link_to "자세히 보기", app_notice_path(notice), class: "text-sm font-semibold text-emerald-700 hover:text-emerald-900" %>
+        <%= button_to "확인", mark_read_app_notice_path(notice), method: :post,
+              class: "inline-flex min-h-11 cursor-pointer items-center rounded-xl bg-emerald-700 px-5 text-sm font-semibold text-white transition hover:bg-emerald-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+      </div>
+    </div>
+  </div>
+<% end %>

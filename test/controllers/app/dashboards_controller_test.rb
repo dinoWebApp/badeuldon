@@ -25,9 +25,9 @@ class App::DashboardsControllerTest < ActionDispatch::IntegrationTest
     # 온보딩 배너 — '고장'이 아닌 '시작 단계'로 인식시킨다
     assert_select "div[role=status]", text: /받을돈 시작하기/
     assert_select "div[role=status]", text: /프로필을 완성하면/, count: 1
-    # 잠금 내비 — 설정 제외 6개 메뉴(대시보드·청구서·거래처·품목·요금제·리포트 — DASH-5/6 추가)는
-    # 자물쇠 스타일 링크(클릭 가능·가드가 안내)
-    assert_select "nav a[aria-disabled='true']", count: 6
+    # 잠금 내비 — 설정 제외 8개 메뉴(대시보드·청구서·거래처·품목·요금제·리포트·공지·문의 —
+    # DASH-5/6·ADMIN-7·ADMIN-8 추가)는 자물쇠 스타일 링크(클릭 가능·가드가 안내)
+    assert_select "nav a[aria-disabled='true']", count: 8
     assert_select "nav a[aria-disabled='true'][href=?]", app_invoices_path, text: "청구서", count: 1
     assert_select "nav a[aria-disabled='true'][href=?]", edit_app_profile_path, count: 0
   end

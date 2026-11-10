@@ -1,0 +1,47 @@
+<%# ADMIN-4(T-B3) — 주문 상세 + 환불 사유 기록 폼 %>
+<div class="admin-card">
+  <h1 class="admin-title">주문 상세</h1>
+
+  <dl class="mt-4 grid grid-cols-1 gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
+    <div><dt class="text-xs text-stone-500">주문 ID</dt><dd class="font-mono"><%= @order.pg_order_id %></dd></div>
+    <div><dt class="text-xs text-stone-500">주문일</dt><dd><%= @order.created_at.strftime("%Y-%m-%d %H:%M") %></dd></div>
+    <div><dt class="text-xs text-stone-500">사용자</dt><dd><%= @order.user.email %></dd></div>
+    <div><dt class="text-xs text-stone-500">상품</dt><dd><%= @order.product.humanize %></dd></div>
+    <div><dt class="text-xs text-stone-500">금액</dt><dd><%= number_to_currency(@order.amount, unit: "₩", precision: 0) %></dd></div>
+    <div><dt class="text-xs text-stone-500">상태</dt><dd><%= @order.status.humanize %></dd></div>
+    <div><dt class="text-xs text-stone-500">PG 결제 ID</dt><dd class="font-mono"><%= @order.pg_payment_id || "-" %></dd></div>
+    <% if @order.refunded? %>
+      <div><dt class="text-xs text-stone-500">환불 기록일</dt><dd><%= @order.refunded_at.strftime("%Y-%m-%d %H:%M") %></dd></div>
+      <div class="sm:col-span-2"><dt class="text-xs text-stone-500">환불 사유</dt><dd><%= @order.refund_reason %></dd></div>
+    <% end %>
+    <% if @order.metadata.present? %>
+      <div class="sm:col-span-2"><dt class="text-xs text-stone-500">메타데이터</dt><dd class="font-mono text-xs"><%= @order.metadata.inspect %></dd></div>
+    <% end %>
+  </dl>
+
+  <%= link_to "목록으로", admin_orders_path, class: "mt-6 inline-block text-sm text-emerald-700 hover:underline" %>
+</div>
+
+<div class="admin-card mt-6">
+  <h2 class="text-lg font-bold text-stone-800">환불 사유 기록</h2>
+  <% if @order.refunded? %>
+    <p class="mt-2 text-sm text-stone-500">이미 환불 기록이 있는 주문입니다. (기록일: <%= @order.refunded_at.strftime("%Y-%m-%d %H:%M") %>)</p>
+  <% else %>
+    <p class="mt-2 text-sm text-stone-500">
+      ※ 실제 PG 환불은 포트원(KG이니시스) 콘솔에서 수동 처리해야 합니다(PLAN-5).
+      이 폼은 그 결과를 서비스에 기록하는 절차이며, 기록 시 감사 로그가 남습니다(ADMIN-2).
+    </p>
+    <%= form_with scope: :order, url: mark_refunded_admin_order_path(@order), method: :patch, class: "mt-4 space-y-3" do |form| %>
+      <div>
+        <%= form.label :refund_reason, "환불 사유(필수)", class: "block text-xs text-stone-500" %>
+        <%= form.text_area :refund_reason, rows: 3, required: true,
+              placeholder: "예: 고객 중복 결제 요청 — 콘솔 환불 완료(2026-11-10)",
+              class: "mt-1 w-full rounded border border-stone-300 p-2 text-sm" %>
+      </div>
+      <p class="text-xs text-stone-400">기록하면 되돌릴 수 없습니다. 콘솔에서 환불이 실제 완료된 후 기록해 주세요.</p>
+      <%= form.submit "환불 사유 기록",
+            class: "rounded bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700",
+            data: { turbo_confirm: "환불 사유를 기록할까요? 실제 PG 환불은 포트원 콘솔에서 별도 완료되어야 합니다." } %>
+    <% end %>
+  <% end %>
+</div>

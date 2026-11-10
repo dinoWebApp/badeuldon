@@ -1,76 +1,62 @@
-# 07_test_report — F-DASH(DASH-5/6) 테스트 작성·실행 (2026-11-09, Tester-lite · 절약 모드)
+# 07_test_report — F-ADMIN Run C Phase 7 (테스트 정식화·실행)
 
-**최종 결과: 신규 21건 전부 통과 · 전체 회귀 668건 0실패 · RuboCop 0 offenses · 코드 버그 0건**
+작성: Tester(절약 모드) · 2026-11-10
+대상: Run C 3-a(공지 ADMIN-6/7)·3-b(티켓 ADMIN-8/9) + Phase 6 수정(C-1·W-1·W-3·W-4)
 
-## 신규 테스트 파일
+## 최종 결과
 
-| 파일 | 건수 |
-|---|---|
-| `test/queries/reports/client_delay_query_test.rb` | 6 |
-| `test/queries/reports/monthly_collection_query_test.rb` | 4 |
-| `test/queries/reports/tax_period_query_test.rb` | 7 |
-| `test/controllers/app/reports_controller_test.rb` | 4 |
+- **전체 `bin/rails test`: 876 runs · 4,946 assertions · 0 failures · 0 errors · 0 skips**
+- 기존 815건 회귀 0 + 신규 52건(34 tests + 기존 18건 파일 이동 없음 — 아래 대조표 기준 신규 파일 7개) 전부 통과
+- `bin/rubocop test/` — 104 files inspected, **no offenses**
+- 솔라피 실호출 0회 — `with_solapi_client` 방어선 경유(admin reply·notify 서비스·skipped는 호출 차단 객체로 실측)
+- 코드 버그 0건 — Phase 6 수정(C-1·W-3·W-1)이 모두 테스트로 재확인됨
 
-실행: `bin/rails test test/queries/reports/ test/controllers/app/reports_controller_test.rb` → **21 runs, 83 assertions, 0 failures, 0 errors**
-전체: `bin/rails test` → **668 runs, 3,892 assertions, 0 failures, 0 errors, 0 skips** (기존 647 + 신규 21)
-`bin/rubocop`(신규 4파일) → **4 files inspected, no offenses detected**
+## 신규 파일(7개)
 
-## 시나리오·Rule ID 커버 맵
-
-### ClientDelayQuery (DASH-5·PAY-2)
-| 시나리오 | 종별 | Rule/근거 |
+| 파일 | tests | 커버 |
 |---|---|---|
-| ① 부분입금 2회 청구 평균 지연일 = 마감 입금일 기준(조기 −7 + 마감 +5, 단일 +7 → **+6**) | 정상 | 리뷰 C-1 재현·PRD v0.28 DASH-5 |
-| 조기 단일 마감 → 음수(−3) 부호 유지 | 경계 | DASH-5 "음수는 조기" |
-| 마감 0건 거래처 → avg nil + 진행 청구수 채움 | 예외 | DASH-5 Row 계약 |
-| 연체 금액 = 부분입금 차감 잔액(110,000 − 10,000 = 100,000) | 정상 | PAY-2 |
-| 만기일=오늘 청구는 연체 배타(unsettled 1·overdue 0) | 경계 | overdue 스코프 `due_on: ...Date.current` |
-| 2사용자 교차 — 거래처 목록·평균 지연일(+6 vs +1)·연체 카운트 상호 비포함 | 예외 | 소유권 격리 |
+| `test/models/notice_read_test.rb` | 3 | 복합 유니크·조합 허용·MarkService 2회 1건(SEC-5) |
+| `test/models/ticket_test.rb` | 7 | category/status enum·title 100자·상태 전이 guard 3종(answered 멱등·closed reopen 거부·close 멱등)·종료 권한 경로·dependent 삭제 |
+| `test/models/ticket_message_test.rb` | 7 | sender enum·body 2,000자·jpg/png/webp 수용·csv/gif 거부·HTML→png 위조 거부(Marcel)·5MB 초과 거부·첨부 선택 |
+| `test/services/tickets/create_service_test.rb` | 5 | Result 성공/실패·첨부·트랜잭션 롤백(gif 실패 시 티켓 없음)·상한 |
+| `test/services/tickets/follow_up_service_test.rb` | 6 | open 유지·answered→open 복귀·closed 거부·타인 404 경로·blank/2,001자 |
+| `test/services/tickets/notify_answer_service_test.rb` | 5 | sent/failed/skipped 3분기·MessageLog(invoice nil·ticket_id·variables·phone 스냅샷)·PLAN-3 집계 밖 |
+| `test/controllers/admin/tickets_controller_test.rb` | 9 | 비인증 303·U1 admin 접근 불가(세션 비공유)·필터·reply(sent 기록)·blank 거부·close+ticket_close 감사·강제 종료·close 멱등·admin 이미지 서빙 |
+| `test/controllers/app/tickets_controller_test.rb` | 10 | 작성 303·422·FAQ 선노출(ADMIN-9)·상한 422·분류 etc 귀속·타인 404·follow_up/closed alert·비로그인 리다이렉트 |
 
-### MonthlyCollectionQuery (DASH-5)
-| 시나리오 | 종별 | Rule/근거 |
+合计 52 tests / 221 assertions(신규 파일 기준).
+
+## 리뷰 16 시나리오(05_review §3) 테스트화 대조표
+
+| 리뷰 시나리오 | 정식 테스트 | 상태 |
 |---|---|---|
-| 12행 고정·첫 행 2025.12·마지막 = 이번 달 2026.11 | 정상 | DASH-5 그래프 축 고정 |
-| 빈 달 0원 11행 + 이번 달 실측 | 정상 | DASH-5 |
-| 연간 경계(2025-12-01·12-31 포함) + 창 바깥 2025-11-30 제외(월말 1일 차 경계) | 경계 | TIME-1·02_prd_update |
-| 타 사용자 입금 미포함(u1 10,000 vs u2 777,000) | 예외 | 소유권 격리 |
+| 공지 ①~⑧(노출·닫기·확인·close·만료 경계·404·mark_read 멱등) | 기존 `app/notices_controller_test.rb`(14)·`admin/notices_controller_test.rb`(9) — 유지 | ✅ 기존 |
+| 공지 ⑨ C-1 초안 선읽음 우회 | 기존 `app/notices_controller_test.rb` C-1 회귀 4건(초안 404·미래 404·종료 허용·발행 후 정상) — 유지 | ✅ Phase 6 |
+| 티켓 ① 작성 303+open | `app/tickets_controller_test.rb` 작성 303 | ✅ |
+| 티켓 ② FAQ 선노출 | 동일 파일 FAQ 테스트 | ✅ |
+| 티켓 ③ 스레드·폼 | 상세 200 + 발화 노출 | ✅ |
+| 티켓 ④ 타인 404(show·follow_up) | app 404 + FollowUpService 타인 nil | ✅ |
+| 티켓 ⑤ admin 답변→answered+MessageLog | `admin/tickets_controller_test.rb` reply(sent·invoice nil·ticket_id) + NotifyAnswerService sent 전체 단언 | ✅ |
+| 티켓 ⑥ 상태 필터 | admin index 필터(상태·분류) | ✅ |
+| 티켓 ⑦ 추가 질문 open 복귀 | app follow_up + FollowUpService answered→open | ✅ |
+| 티켓 ⑧ 종료+감사 1건 | admin close + AuditLog sole 단언 | ✅ |
+| 티켓 ⑨ closed follow_up 거부 | app alert + FollowUpService 거부 | ✅ |
+| 티켓 ⑩ NO_PHONE skipped | NotifyAnswerService skipped(NO_PHONE·호출 차단) | ✅ |
+| 티켓 ⑪ Solapi 400→failed | NotifyAnswerService failed(E400·error_code/message) | ✅ |
+| 티켓 ⑫ 답변 blank 거부 | admin blank reply alert | ✅ |
+| 티켓 ⑬ 이미지(csv/gif/위조/5MB/정상) | `ticket_message_test.rb` 5건 + 기존 `tickets_image_serving_test.rb`(4) 유지 | ✅ |
+| 티켓 ⑭ 본문 2,001·제목 101 | 모델·서비스·컨트롤러 3계층 | ✅ |
+| 티켓 ⑮ rate_limit 429 | **미정식화** — test env NullStore·부팅 시 store 캡처로 실 스토어 주입(격리 프로세스) 필요. 05_review §4-2·03_implementation §3-b 노트 유지. 기술 부채로 기록 권장 | ⚠️ 인계 |
+| 티켓 ⑯ single_subject | 기존 `message_log_test.rb` + NotifyAnswerService PLAN-3 밖 테스트 | ✅ |
 
-### TaxPeriodQuery (DASH-6·INV-1·TIME-1)
-| 시나리오 | 종별 | Rule/근거 |
-|---|---|---|
-| 최근 4분기 2026 Q1~Q4 오름차순·기간 일치 | 정상 | DASH-6 |
-| 라벨 4종(4·7·10월 + **익년 1월 확정신고**) | 정상 | DASH-6 라벨 매핑 |
-| 분기 경계 발행 3/31 23:59→Q1 · 4/1 00:05→Q2 · 10/1 00:05→Q4(KST) | 경계 | TIME-1·리뷰 Tester 3번 |
-| 매출(issued_at Q2)과 수금(paid_on Q3) 분기 분리 귀속 | 정상 | DASH-6 기준 분리 |
-| 부가세 별도(공급가액 100,000 / 부가세 10,000) | 정상 | INV-1 |
-| voided·draft 매출·부가세 전 행 0원 | 예외 | DASH-6 제외 규칙 |
-| 타 사용자 매출·수금 미포함 | 예외 | 소유권 격리 |
+W-3(publish 실패 alert)·W-1(인증 서빙)은 기존 테스트(admin notices 1건·tickets_image_serving 4건+admin 이미지 신규)로 커버. 시스템 테스트(Turbo 팝업)는 리뷰 §4-3 제안이나 통합 테스트가 레이아웃 재평가까지 커버 완료 상태라 본 라운드 생략 — 운영 판단 인계.
 
-### ReportsController (/app/report)
-| 시나리오 | 종별 | Rule/근거 |
-|---|---|---|
-| 비인증 → 로그인 리다이렉트 | 예외 | AUTH-1 |
-| 청구 0건 → 빈 상태 CTA만·3섹션 미노출·거짓 0원 없음 | 경계 | ONB-1·DASH-5/6 |
-| 3섹션(aria-labelledby 3종) + 세무 고지문 원문 + 실데이터 행(+4일)·12개월 라벨 | 정상 | DASH-5/6·LP-12 고지 |
-| 타인 거래처명·담당자 미노출 + 거래처 테이블 자기 행 1개만 | 예외 | 소유권 격리 |
+## 원인 분류
 
-## 리뷰(05_review.md) Tester 중점 제안 처리 결과
+실패·에러 이력(자체 수정 — 테스트 오류 3건): ① `assert_predicate ... :include?(…)` 파서 오류(문법) ② NoticeRead 테스트가 fixture(gamma_read_general) 중복 생성 ③ `assert_no_difference` 블록 누락. **코드 버그 0건** — Developer 위임 불요.
 
-| 제안 | 처리 |
-|---|---|
-| 1. 부분입금 2회 이상 청구 평균 지연일 부호 검증(C-1) | **구현·통과** — C-1 수정분(MAX(paid_on) 마감 기준)이 기대 +6일을 산출. 행 단위 가중이 남아 있었다면 (−7+5+7)/3=+2로 검출되는 재현 시나리오 |
-| 2. 두 사용자 교차 데이터 리포트 | **구현·통과** — 쿼리 3종 격리 테스트 + 컨트롤러 미노출 테스트 |
-| 3. 분기 경계일(3/31 vs 4/1 KST) + 익년 1월 라벨 | **구현·통과** — 경계 발행 3건 + 라벨 4종 테스트 |
-| 4. voided/draft 제외·부분입금 잔액 일치 | **구현·통과** — TaxPeriodQuery 제외 테스트·PAY-2 잔액 테스트 |
-| 5. 신규 가입 빈 상태 | **구현·통과** — 컨트롤러 빈 상태 테스트(gamma 0건 fixture) |
-| 6. 모바일 폭 그래프 금액 가시성(W-1) | 테스트 범위 외(시각 렌더링 — 시스템 테스트·실기 QA 영역). W-1 수정분은 코드 확인: `sm:opacity-0 sm:group-hover:opacity-100`으로 모바일 상시 표시 전환 확인 |
+## 잔존(기술 부채 인계)
 
-## 코드 버그 발견
-
-**없음** — 신규 21건 전부 최초 실행에서 시맨틱 통과. 실행 중 수정한 것은 테스트 코드 자체 오류 3건뿐(부재 fixture명 `beta_client_1`→`beta_secret` 3파일, `find_by(...)!, kwargs` 파서 오류 → 지역변수화, `th[scope=row]` 셀렉터가 sr-only 표까지 매칭 → 섹션 스코프 한정).
-
-## 비고
-
-- 모든 날짜 의존 시나리오는 `travel_to(Time.zone.parse("2026-11-09 09:00"))`로 KST 고정(TIME-1) — 기존 fixture 운용 규칙(기준일 2026-10-12)과 무충돌: 신규 시나리오는 전부 테스트 내 시딩(fixture 축적 없음).
-- Payment 모델 검증(`paid_on ≤ 오늘`) 하에서 마감 +N일 시나리오는 travel 기준일을 마감일 이후로 설계해 충족.
-- 시딩 헬퍼는 각 파일에 지역 `private` 메서드로 두었다(test_helper 전역 추가 없음 — 기존 계약 불변).
+1. rate_limit 429 실측(실 캐시 스토어 주입) — 05_review §4-2 유지
+2. 시스템 테스트(Turbo 팝업 소멸·모바일 z-index·DESIGN-6) — 리뷰 §4-3·4-4
+3. NOTICE: not applicable — dev/test DB 잔존 레코드 없음(트랜잭션 롤백), 스토리지 blob은 테스트 DB 정리 대상

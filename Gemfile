@@ -25,6 +25,10 @@ gem "rails-i18n", "~> 8.0"
 # Use Active Model has_secure_password [https://guides.rubyonrails.org/active_model_basics.html#securepassword]
 gem "bcrypt", "~> 3.1.7"
 
+# F-ADMIN — 관리자 2FA(TOTP, AUTH-7.1 · EXT-2 내부 구현) + QR 프로비저닝 이미지
+gem "rotp"
+gem "rqrcode"
+
 # Windows does not include zoneinfo files, so bundle the tzinfo-data gem
 gem "tzinfo-data", platforms: %i[ windows jruby ]
 

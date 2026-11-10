@@ -1,0 +1,4 @@
+# ADMIN-7 — 공지 읽음 fixture. gamma가 general_active를 이미 읽은 상태.
+gamma_read_general:
+  user: gamma
+  notice: general_active

@@ -1,0 +1,39 @@
+<%# ADMIN-6 공지 폼 — 신규·수정 공용. published_at/expires_at은 datetime-local 입력(Rails 캐스트). %>
+<div class="admin-card">
+  <h1 class="admin-title"><%= notice.persisted? ? "공지 수정" : "새 공지" %></h1>
+
+  <%= form_with model: notice, url: (notice.persisted? ? admin_notice_path(notice) : admin_notices_path), local: true, class: "space-y-4" do %>
+    <div>
+      <label class="block text-xs text-stone-500 mb-1" for="notice_title">제목</label>
+      <%= text_field :notice, :title, required: true, class: "w-full border border-stone-300 rounded px-3 py-2 text-sm" %>
+      <% if notice.errors.key?(:title) %><p class="mt-1 text-xs text-red-600"><%= notice.errors[:title].first %></p><% end %>
+    </div>
+    <div>
+      <label class="block text-xs text-stone-500 mb-1" for="notice_body">본문</label>
+      <%= text_area :notice, :body, rows: 8, required: true, class: "w-full border border-stone-300 rounded px-3 py-2 text-sm" %>
+      <% if notice.errors.key?(:body) %><p class="mt-1 text-xs text-red-600"><%= notice.errors[:body].first %></p><% end %>
+    </div>
+    <div>
+      <label class="block text-xs text-stone-500 mb-1" for="notice_importance">중요도</label>
+      <%= select :notice, :importance,
+            options_for_select([ [ "일반(배너)", "general" ], [ "중요(팝업)", "important" ] ], notice.importance),
+            class: "border border-stone-300 rounded px-2 py-1.5 text-sm" %>
+    </div>
+    <div class="flex gap-4">
+      <div>
+        <label class="block text-xs text-stone-500 mb-1" for="notice_published_at">게시 시작(비우면 초안)</label>
+        <%= datetime_local_field :notice, :published_at, class: "border border-stone-300 rounded px-2 py-1.5 text-sm" %>
+        <% if notice.errors.key?(:published_at) %><p class="mt-1 text-xs text-red-600"><%= notice.errors[:published_at].first %></p><% end %>
+      </div>
+      <div>
+        <label class="block text-xs text-stone-500 mb-1" for="notice_expires_at">게시 종료(비우면 무기한)</label>
+        <%= datetime_local_field :notice, :expires_at, class: "border border-stone-300 rounded px-2 py-1.5 text-sm" %>
+        <% if notice.errors.key?(:expires_at) %><p class="mt-1 text-xs text-red-600"><%= notice.errors[:expires_at].first %></p><% end %>
+      </div>
+    </div>
+    <div class="flex gap-2">
+      <%= submit_tag "저장", class: "rounded bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800" %>
+      <%= link_to "취소", admin_notices_path, class: "rounded border border-stone-300 px-4 py-2 text-sm text-stone-600 hover:bg-stone-100" %>
+    </div>
+  <% end %>
+</div>

@@ -1,56 +1,147 @@
-# 03_implementation — F-DASH(DASH-5/6) 리포트 구현 (2026-11-09, Developer-lite)
+# 03_implementation — F-ADMIN Run C 3-a (공지 ADMIN-6/7 + FAQ 선노출 ADMIN-9)
 
-## 변경 파일 목록
+작성: Developer(절약 모드) · 2026-11-10 · **3-b(티켓) 인계 포함**
 
-| 파일 | 구분 | 내용 |
+## 1. 변경 파일 목록
+
+### DB
+- `db/migrate/20261110000004_create_notices.rb` — **2테이블 1마이그레이션**
+  - `notices`: title string null:false · body text null:false · importance integer null:false default 0(general:0/important:1) · published_at datetime(nil=초안) · expires_at datetime(nil=무기한) · timestamps. 인덱스: published_at·importance
+  - `notice_reads`: user_id FK(null:false, cascade) · notice_id FK(null:false, cascade) · timestamps + **복합 유니크 인덱스 [user_id, notice_id]**(SEC-5 성격 멱등)
+  - `db/schema.rb` 동기화 완료. dev DB 마이그레이션 up/down 재검증 완료
+
+### 모델/서비스
+- `app/models/notice.rb`(신규) — importance enum · `published_now` 스코프(published_at ≤ Time.current ≤ expires_at 또는 무기한 — KST TIME-1) · `ordered` 스코프 · `draft?/live?/ended?` 상태 술어(ADMIN-6 목록 배지용 — 인스턴스 술어라 뷰 호출 가능) · 검증(title·body 필수, expires_at > published_at은 둘 다 있을 때만)
+- `app/models/notice_read.rb`(신규) — belongs_to user/notice + 복합 유니크 검증
+- `app/models/user.rb` — `has_many :notice_reads, dependent: :destroy` 추가(기존 연쇄 순서 영향 없음 — 자식 참조 없음)
+- `app/services/notice_reads/mark_service.rb`(신규) — `call(user:, notice:)` find_or_create_by! 멱등(02 확정 해석 1) · Result Data 객체(created 플래그)
+
+### Admin(ADMIN-6)
+- `app/controllers/admin/notices_controller.rb`(신규) — index(최신순·중요도 필터·무효 enum 무시) · new/create · edit/update · `publish`(member PATCH — published_at=Time.current, 초안일 때만 = 멱등) · `close`(member PATCH — expires_at=현재, live일 때만) · destroy · 발행 전 초안도 목록 표시(상태 배지: 초안·게시 중·종료)
+  - ⚠️ 배지 헬퍼를 `app/helpers/admin/notices_helper.rb`로 만들었다가 **zeitwerk 충돌 실측**(최상위 `Admin` = models/admin.rb 클래스)로 삭제 → 컨트롤러 `helper_method`로 이관. **3-b도 app/helpers/admin/ 디렉터리 사용 금지**
+- 뷰: `app/views/admin/notices/{index,_form,new,edit}.html.erb` — Run B admin 톤(admin-card/admin-title · 필터 폼 · 상태 배지 · 발행/종료/삭제 button_to) · 이스케이프 기본 · @변수만
+
+### U1 노출(ADMIN-7)
+- `app/controllers/app/notices_controller.rb`(신규) — index(게시 중 전체·읽음 id 목록) · show(`published_now` 스코프 find — 미게시 404) · `mark_read`(member POST — NoticeReads::MarkService 경유 멱등 · 303 PRG)
+- `app/controllers/app/base_controller.rb` — `load_active_notices` before_action 추가: 게시 중 중요/일반 각각 미읽음 필터(@unread_important_notices/@unread_general_notices) — /app 전 화면 대상이라 베이스에서 적재(노출 쿼리는 컨트롤러, 뷰는 @변수만)
+- 뷰:
+  - 배너 `app/views/app/notices/_banner.html.erb` + `dashboards/show.html.erb` 상단 render — 게시 중 **일반**·미읽음만. 닫기=POST mark_read(303 리다이렉트 후 재노출 없음)
+  - 팝업 `app/views/app/notices/_popup.html.erb` + **`layouts/app.html.erb` 레이아웃 레벨 render**(미읽음 중요 최신 1건) — 확인(읽음 POST) 전까지 /app 전 화면 노출. Turbo 내비게이션에서도 레이아웃이 재평가되어 읽으면 사라짐(통합 테스트로 검증)
+  - 목록/상세 `app/views/app/notices/{index,show}.html.erb` — 제목·중요도 배지·게시 기간·본문·미읽음 N 배지·상세 "확인했습니다" 버튼
+- 라우트(`config/routes.rb`):
+  - app: `resources :notices, only: %i[index show], path: "notice"` + `member { post :mark_read }` → **/app/notice·/app/notice/:id**(PRD 문언 준수) — 주석에 ADMIN-7 인용
+  - admin: `resources :notices` + `member { patch :publish; patch :close }` — 주석에 ADMIN-6 인용
+- 내비: `app/helpers/app/base_helper.rb` — "공지" 메뉴 추가(/app/notice, 프로필 미완료 시 locked)
+
+### 기존 테스트 최소 수정 (내비 항목 추가의 직접 귀결만)
+- `test/controllers/app/dashboards_controller_test.rb` — 잠금 내비 개수 6→7(공지 메뉴 추가)
+
+## 2. Rule ID 매핑
+
+| Rule | 구현 |
+|---|---|
+| ADMIN-6 | notices 테이블(중요도 enum·게시 기간) + Admin CRUD·publish/close·상태 배지·중요도 필터 |
+| ADMIN-7 | notice_reads 복합 유니크·MarkService 멱등 · 일반 배너(닫기=읽음·재노출 없음) · 중요 팝업(레이아웃 레벨·확인 전 지속) · /app/notice 목록·상세(path: "notice" — PRD 문언) · noindex는 기존 /app 전체 robots(SURF-3)에 포함 |
+| ADMIN-9 | 랜딩 `_faq` 파셜 재사용 준비 — 아래 §4 |
+
+## 3. 배너/팝업 노출 규칙 구현 설명
+
+- **노출 대상 산출**: App::BaseController `load_active_notices` — `Notice.published_now`(KST Time.current)를 중요/일반으로 분리, `where.not(id: user.notice_reads)`로 미읽음만. 뷰는 @변수만 소비(뷰 쿼리 금지).
+- **일반 배너**: 대시보드 show.html.erb 상단에서 미읽음 일반 전건 렌더. "닫기" button_to → POST /app/notice/:id/mark_read → MarkService(find_or_create_by!) → 303 redirect_back → 배너 소재 로직이 미읽음에서 제외되어 재노출 없음.
+- **중요 팝업**: layouts/app.html.erb에서 미읽음 중요 최신 1건을 모달 오버레이로 렌더(여러 건이면 확인 후 다음 화면에서 순차 노출). "확인" button_to → 동일 mark_read → 303 → 다음 렌더부터 제외. Turbo로 /app 내 이동해도 레이아웃 재평가로 미읽음이 없으면 렌더되지 않음(통합 테스트 "팝업 확인 후 다시 노출되지 않는다" 검증).
+- **읽음 멱등(SEC-5)**: 복합 유니크 인덱스 + find_or_create_by! 이중 방어 — 재POST 303 유지·레코드 1건.
+
+## 4. FAQ 선노출(ADMIN-9) — 3-b 인계 사항
+
+- `app/views/landing/_faq.html.erb`는 **경로·루트 의존성 없이 자기완결**(faqs 로컬 변수 + details/summary, Tailwind 전역 클래스만 사용) — **app 레이아웃에서도 그대로 렌더 가능하며 수정 불요**로 확인했다(랜딩 index.html.erb:17은 `render "landing/faq"`로 사용 중).
+- 3-b 삽입 제안: `render "landing/faq"`를 tickets 뷰에 그대로 사용(파셜은 컨트롤러 독립). 섹션 래퍼(bg-cream · py-16/24)가 앱 컨텍스트에서는 다소 크므로 원하면 카드 래퍼만 조정 — 파셜 자체는 건드리지 않는 것을 권장(랜딩 회귀 방지).
+
+## 5. 기타 3-b 인계 사항
+
+- **마이그레이션 번호**: 이번 건 = `20261110000004_create_notices.rb`. 3-b의 tickets/ticket_messages + message_logs 컬럼 조정은 `20261110000005_` 이후를 사용.
+- **routes 현황**: app namespace에 `resources :notices, path: "notice"` 추가됨 — 3-b는 `resources :tickets`를 app namespace에 별도 추가(충돌 없음). admin namespace에 `resources :notices` 추가됨 — admin tickets도 별도 블록.
+- **app/helpers/admin/ 금지** — Admin 모델 클래스와 최상위 네임스페이스 충돌(zeitwerk 실측, §1). 배지 등 표현 로직은 컨트롤러 helper_method 패턴 준용.
+- `NoticesController` 컨트롤러명 vs `/app/notice` 경로: `path: "notice"` 해결 확인.
+
+## 6. 자기 스코프 검증 결과
+
+- **신규 테스트 32건 전부 통과**: `test/models/notice_test.rb`(11) · `test/services/notice_reads/mark_service_test.rb`(3) · `test/controllers/admin/notices_controller_test.rb`(8) · `test/controllers/app/notices_controller_test.rb`(10) — 배너/팝업 노출·닫기/확인 후 재노출 없음·mark_read 멱등 303·소유 유저 본인 기록·미게시 404·비인증/관리자 가드 포함(모두 컨트롤러 경유 HTTP 수준 재현)
+- 마이그레이션 down/up 재검증 통과(dev)
+- `bin/rubocop` 신규·수정 파일 29개 0 offense · `bin/rails zeitwerk:check` 통과
+- 회귀: dashboards 3파일 23건 통과(1건은 내비 수 6→7 최소 갱신) · surf3_indexing · admin base_guard 통과
+- dev DB 임시 레코드: 없음(테스트 레코드는 test DB) · PRD/AGENTS 문서 미수정(지시 준수)
+
+---
+
+## 3-b. 티켓(ADMIN-8) + `noti_ticket_reply` 알림톡 발송 — 구현 완료 (2026-11-10)
+
+### 변경 파일
+
+| 구분 | 파일 | 내용 |
 |---|---|---|
-| `app/queries/reports/client_delay_query.rb` | 신규 | `Reports::ClientDelayQuery.call(user_id)` — 거래처별 Row Struct 배열(거래처명·진행 청구수·연체 건수·연체 금액(잔액 기준)·평균 지급 지연일) |
-| `app/queries/reports/monthly_collection_query.rb` | 신규 | `Reports::MonthlyCollectionQuery.call(user_id)` — 최근 12개월(이번 달 포함) 월별 수금액, 빈 달 0원으로 12행 고정 |
-| `app/queries/reports/tax_period_query.rb` | 신규 | `Reports::TaxPeriodQuery.call(user_id)` — 최근 4분기 [확정신고 라벨·기간·매출(subtotal)·부가세·수금액] |
-| `app/controllers/app/reports_controller.rb` | 신규 | `App::ReportsController#show` — 3쿼리 위임 + `@this_month_collected`(DASH-3 문구 정합). 본문 7줄 |
-| `app/helpers/reports_helper.rb` | 신규 | bar 높이 %·지연일 표기(+N일/N일 조기/당일)·상태색·분기 타이틀 — 표현 로직 추출 |
-| `app/views/app/reports/show.html.erb` | 신규 | 3섹션(aria-labelledby) + 빈 상태(ONB-1 CTA 톤) + 고지문 |
-| `app/helpers/app/base_helper.rb` | 수정 | app_nav_items에 "리포트" 추가(요금제·설정 사이, start_with? 활성 판정·locked 규칙 준용) |
-| `config/routes.rb` | 수정 | `/app` namespace에 `resource :report, only: :show` — DASH-5/6 주석 |
-| `test/controllers/app/dashboards_controller_test.rb` | 수정 | 잠금 내비 개수 5→6(리포트 메뉴 추가에 따른 회귀 최소 수정) |
+| DB | `db/migrate/20261110000005_create_tickets.rb` | tickets·ticket_messages 생성 + message_logs nullability 완화·ticket_id 추가 / `20261110023150_create_active_storage_tables` (AS install 자동 생성) |
+| Model | `app/models/ticket.rb` | 분류·상태 enum·title 100자 검증·`mark_answered!`·`reopen!`·`mark_closed!` (guard 명시) |
+| Model | `app/models/ticket_message.rb` | sender enum·body 2,000자·`has_one_attached :image` (jpg/png/webp·5MB) |
+| Model | `app/models/message_log.rb` | invoice `optional: true` 완화 + `belongs_to :ticket optional` + `single_subject` 검증(청구/티켓 정확히 하나) |
+| Model | `app/models/user.rb` | `has_many :tickets, dependent: :destroy` 추가 |
+| Service | `app/services/tickets/create_service.rb` | 티켓+첫 발화 트랜잭션 생성·Result(errors) |
+| Service | `app/services/tickets/follow_up_service.rb` | 추가 질문 — closed 거부·answered → open 복귀·open 유지(PRD "종료 전까지 추가 질문 가능" 기준 — 지시문 "answered에서만"은 PRD 원문에 종료 전까지 허용이 명시돼 PRD 우선·주석 기록) |
+| Service | `app/services/tickets/notify_answer_service.rb` | 티켓 전용 발송 경로(SendService 미재사용 — invoice 가드·sequence_step 결합 회피)·SolapiStubbing 주입 지점·NO_PHONE skip·실패 1회 종료 |
+| Controller | `app/controllers/app/tickets_controller.rb` | index/new/create/show/follow_up · `rate_limit to: 5, within: 1.hour, by: -> { Current.user.id }, only: :create` · params.expect · helper_method 배지 |
+| Controller | `app/controllers/admin/tickets_controller.rb` | index(상태·분류 필터·limit 100)/show/reply(transaction: 발화+answered 전환 후 NotifyAnswerService)/close(+`ticket_close` 감사) |
+| View | `app/views/app/tickets/{index,new,show}.erb` | U1 톤 · new는 `render "landing/faq"` 선노출(ADMIN-9 — 인계 방식 준용, 파셜 무수정) |
+| View | `app/views/admin/tickets/{index,show}.erb` | Run B admin 톤 · reply 폼(`ticket_message[body]`)·종료(confirm) |
+| Route | `config/routes.rb` | app `resources :tickets` + member `post :follow_up` / admin `resources :tickets` + member `post :reply`, `patch :close` |
+| Nav | `app/views/layouts/admin.html.erb`("티켓") · `app/helpers/app/base_helper.rb`("문의") | 3-S 결선 패턴 준용 |
+| Test | `test/controllers/app/dashboards_controller_test.rb` | 잠금 내비 카운트 7→8 최소 갱신(3-a 선례 준용) |
+| Test | `test/controllers/app/invoices_controller_test.rb` | Run C 팝업 button_to와의 충돌 소거 — INV-6 테스트에서 delta의 중요 공지를 사전 읽음 처리(주석 기록) |
 
-## Rule ID 매핑
+### MessageLog optional 전환 영향 분석
 
-- **DASH-5**: 거래처별 지연 리포트(만기일 대비 실입금일 — CLIENT-4와 정의 구분, 섹션 부제로 명시) + 월간 수금 추이(CSS bar chart·외부 JS 금지·figure/figcaption + sr-only 텍스트 표 병행)
-- **DASH-6**: 신고 주기 집계표(1·4·7·10월 확정신고 = 직전 분기 매핑) + 고지문 "본 집계표는 세무 자문이 아닙니다. 신고 자료로 활용하기 전 세무대리인 확인을 권장합니다."(02_prd_update 확정 5 — LP-12·P1 톤)
-- **TIME-1**: 전 쿼리 `Date.current`(KST)
-- **INV-1**: 매출 = 공급가액(subtotal)·부가세(tax_amount) 별도 집계, issued 계열(draft·voided 제외, issued_at 기준)
-- **PAY-2**: 연체 금액 = 잔액 기준(총액 − 입금 합계)
-- **규약 §3.2**: 첫 `app/queries/reports/` — `.call` 진입점, 컨트롤러는 @변수 조립만, 뷰는 쿼리 호출 없음
+- 기존 발송 경로(Reminders::SendService·DeliverJob·스캔 잡)는 `invoice_id`를 항상 채우므로 nil 허용만으로 무영향.
+- 부분 유니크 인덱스(`recipient_role=debtor AND status=pending`)는 invoice_id가 채워진 채무자 행만 대상 — 티켓 알림은 `invoice_id NULL·recipient_role=user`로 인덱스 밖.
+- `sent_sequence`·상한 집계(PLAN-3)는 invoice_id 조건 조회 — 티켓 행(null) 자연 배제.
+- `single_subject` 검증으로 invoice·ticket 동시/동시없음 오기록 차단(P4 정합성). `user_must_own_invoice`는 invoice nil 시 return — 티켓 알림과 충돌 없음.
+- 회귀: `bin/rails test test/models/message_log_test.rb test/services/reminders/send_service_test.rb` 통과.
 
-## 쿼리 행 구조
+### 알림 발송 설계 (Tickets::NotifyAnswerService)
 
-- `ClientDelayQuery::Row`: `client_name, unsettled_count, overdue_count, overdue_amount, avg_delay_days` (avg는 nil 가능 — 마감 이력 없음, 뷰에서 "—")
-- `MonthlyCollectionQuery::Row`: `month(Date), label("YYYY.MM"), amount`
-- `TaxPeriodQuery::Row`: `label("4월 확정신고" 등), period_label, revenue, tax_amount, collected, start, finish`
+- 템플릿 `noti_ticket_reply`(ALIMTALK_TEMPLATES.md B-4) — variables `사용자명`=display_name·`문의제목`=title·`url`=`badeuldon.kr/app/tickets/{id}`(스킴 없이 host부터 — 버튼 `https://#{url}` 규격).
+- U1 향 즉시 발송(REM-3 창 제외·PERF-1 성격)·PLAN-3 상한 집계 밖(SEQUENCE_TEMPLATE_KEYS 밖·주석 명시)·재시도 불요(ApiError 시 failed 기록 후 종료)·phone blank → skipped+NO_PHONE. 성공/실패/스킵 전부 MessageLog 기록(P4).
+- Solapi 호출은 컨트롤러 경유 자기검증에서 `with_solapi_client` fake로 차단 — 실호출 0회 확인.
 
-## 설계 결정 (구현 시 확정)
+### 자기 스코프 검증 결과 (컨트롤러 경유 HTTP)
 
-1. 평균 지급 지연일 = 수금완료(paid) 청구의 Payment `paid_on − due_on` 평균(SQLite julianday 차, Ruby에서 round) — 음수는 조기
-2. 분기 매핑 라벨: `1~3월→"4월 확정신고", 4~6→"7월", 7~9→"10월", 10~12→"익년 1월 확정신고"`
-3. 매출 기간 기준 = `issued_at`(발행 시점) — 수금은 별도 `paid_on` 기준 집계(컬럼 미혼용)
+임시 통합 테스트(실행 후 삭제 — Phase 7에서 정식화)로 전 시나리오 3시드 반복 통과: ① U1 작성 303+open·FAQ 선노출 ② 작성 6회차 429(실 스토어 주입 격리 프로세스 — test env NullStore 증분 nil 실측 반영) ③ 타인 티켓 404 ④ admin 답변 → answered + MessageLog 1건(sent·invoice nil·ticket_id·variables·원본 phone) ⑤ 추가 질문 open 복귀 → admin 종료 closed + `ticket_close` 감사 1건 → closed 후 follow_up 거부 ⑥ NO_PHONE skipped ⑦ Solapi 400 실패 → failed·303 ⑧ 이미지 첨부 경계(jpg OK·csv 422·5MB+ 초과 422).
 
-## 자기 스코프 검증 결과
+- 전체 테스트 815건 통과(0 failure) · `bin/rubocop` 240파일 0 offense · zeitwerk 통과 · AS 마이그레이션 포함 dev migrate 완료
+- rate_limit 실측 노트(Phase 7 인계): `config.action_controller.cache_store`는 test env에서 NullStore이고 `rate_limit`은 부팅 시 store을 캡처 — 429 동작 검증은 실 스토어 주입이 필요(격리 프로세스 방식).
+- dev DB 임시 레코드 없음 · 문서(PRD/AGENTS) 미수정 · 솔라피 실호출 없음
 
-- `bin/rails runner` fixture 대입(user 2인 격리 시나리오): **전 어설션 통과** — 스코프 격리(타인 유저 데이터 비포함)·연체 잔액 220,000·평균 지연 +5일·12개월 0원 채움·분기 라벨 4종·매출/부가세/수금 분리
-- `bin/rails test test/controllers/app/dashboards_controller_test.rb`: 14 runs, 0 failures(잠금 내비 count 갱신 후)
-- `bin/rubocop`(자기 파일 7종): no offenses(ERB 파일은 기존 프로젝트 전반의 Ruby 파서 직접 검사 노이즈로 제외 — bin/ci 기준 아님)
-- `bin/rails zeitwerk:check`: 통과
-- 실행 중 발견·수정한 버그: ① 월 소급 `-(일수)` → `<<(개월)` ② 분기 라벨이 종료월(3·6·9·12월)을 잘못 내보내던 것 → 신고월(4·7·10·1월)로 수정
+## 8. Phase 6 — 리뷰 반영(05_review CHANGES_REQUESTED · 2026-11-10, 3-a+3-b 통합)
 
-## Phase 6 후속 수정 (2026-11-09 — 05_review.md CHANGES_REQUESTED 중 C-1·W-1만)
+### C-1 (CRITICAL — 반영) mark_read 미게시 공지 우회 차단
+- `app/controllers/app/notices_controller.rb` — `Notice.find` → **`Notice.where(published_at: ..Time.current).find`**(리뷰어 권고안 그대로). 초안(published_at nil)·미래 발행은 404 차단. **show의 `published_now`와의 차이 주석 명시**: 이미 종료된 공지는 허용(세션 도중 만료 클릭의 404 UX 유지).
+- 컨트롤러 경유 재검증(`test/controllers/app/notices_controller_test.rb` 4건 추가): 초안 mark_read 404+NoticeRead 0건 · 미래 발행 404 · 종료 건 허용 303 · **초안 차단→발행 후 mark_read 정상** 회귀. Phase 7 Tester 인계 목록의 "C-1 회귀 최우선"은 위 4건으로 충족 가능.
 
-| 항목 | 조치 | 파일 |
-|---|---|---|
-| C-1 (CRITICAL) | 평균 지급 지연일을 Payment 행 단위 → **청구 건 마감(최종) 입금일 기준**으로 수정. `MAX(paid_on)` 서브쿼리(`invoice_id, MAX(paid_on) AS paid_on` group by invoice_id)로 청구별 최종 paid_on 한정 후 청구 단위 평균 — 부분입금 행 가중·조기 입금 혼입 제거(PRD v0.28 DASH-5). 주석에 "마감 건 기준 — 부분입금 행 가중 방지(PRD v0.28 DASH-5·리뷰 C-1)" 명시 | `app/queries/reports/client_delay_query.rb` |
-| W-1 (WARNING) | 월간 수금 추이 금액 라벨: 모바일(터치) 항상 표시 → sm 이상 hover 전환(`sm:opacity-0 sm:group-hover:opacity-100`). figcaption "마우스를 올리면" → 터치 포함 표현으로 수정. 위계·tabular-nums 유지 | `app/views/app/reports/show.html.erb` |
+### W-1 (반영 — app 측) 티켓 첨부 이미지 인증 서빙
+- `app/controllers/app/tickets_controller.rb` — `image` 액션 신설: 소유 스코프 경유 404(타 U1·존재 프빙 차단) 후 **send_data 스트리밍**(inline·원본 content_type/filename).
+- 라우트 1건(`config/routes.rb`): `GET /app/tickets/:ticket_id/messages/:message_id/image`(`app_ticket_message_image_path`).
+- 뷰: `app/views/app/tickets/show.html.erb` 이미지 태그 교체 — 렌더 HTML에서 `/rails/active_storage/blobs/redirect/` 부재 단언 통과.
+- 재검증(`test/controllers/app/tickets_image_serving_test.rb` 신설·유지): 소유자 200(image/png·바이트 일치) · 타 U1 404 · 비로그인 302 로그인 리다이렉트.
+- **⚠️ admin 측 잔존(인계)**: `app/views/admin/tickets/show.html.erb`는 소유권 제한(지시: app 측만)으로 AS 리다이렉트 image_tag 유지. 완전 차단하려면 admin 전용 서빙 경로(admin 세션 가드) 또는 AS 커스텀 routes 제거(기술 부채) 필요.
 
-- **C-1 재검증**(RAILS_ENV=test runner, rollback): 리뷰어 재현 시나리오(청구 A: 조기 부분입금 −7 → 마감 +5 / 청구 B: 단일 +7) → 기대값 **+6일 일치 PASS**
-- **W-2 수용 사유**: Query Object 반환형이 규약 문언("Relation 반환")과 Struct 배열로 편차 — 집계 리포트의 행 구조(라벨·0원 채움·매핑)는 Relation으로 표현할 수 없어 의도된 설계이며 01_plan·02_prd_update 확정 해석의 범위. 구조 변경 시 리포트 3종 전면 재작성 필요해 본 Phase에서 수용
-- **C-2 인계**: DASH-5/6 전용 테스트(model/query/controller)는 Phase 7 Tester 스코프로 인계 — C-1 시나리오(부분입금 2회 이상 청구·부호 검증)를 리뷰어 권고 시나리오 목록 1번으로 테스트화할 것
-- 게이트: `bin/rubocop`(client_delay_query) 0 offenses · `bin/rails zeitwerk:check` 통과 · 전체 테스트 미실행(Phase 7)
+### W-3 (반영) publish 무음 실패
+- `app/controllers/admin/notices_controller.rb` — update 성공·이미 live일 때만 성공 플래시, 실패 시 **alert**(검증 문구 포함·303 유지). close는 검증상 실패 불가라 미변경(리뷰 판정 준용).
+- 재검증: 만료가 과거인 초안 발행 → published_at nil 유지 + alert 단언(테스트 1건 추가).
+
+### W-4 (반영 — app 측) 첨부 이미지 N+1
+- `App::TicketsController#show` — `with_attached_image.ordered` 결합. admin 측(`admin/tickets_controller.rb`)은 소유권 밖 — 인계(W-1 잔존과 동일).
+
+### W-2 (수용 — Tester 인계)
+- 티켓 도메인 정식 테스트 → Phase 7 인계(리뷰어 §3 재현 16 시나리오 전환). 본 수정으로 추가된 C-1 4건·W-1 4건·W-3 1건은 기존 스위트에 유지 — 회귀 방어막 일부 선확보.
+
+### 게이트 결과
+- `bin/rubocop` 수정 rb 파일 7개 + views dir 0 offense · `bin/rails zeitwerk:check` 통과
+- 재검증 실행: notices(app 14건·admin 9건) + tickets_image_serving 4건 + dashboards 회귀 — **42 runs 241 assertions 0 failures**
+- Phase 6 잔존 해소(3-b admin 측 W-1·W-4): `Admin::TicketsController`에 `image` 액션 추가(admin 가드 하 send_data — app 측 패턴 준용)·admin 라우트 `GET tickets/:ticket_id/messages/:message_id/image` 결선·`show`에 `with_attached_image` 결합·`admin/tickets/show.html.erb`의 `image_tag(message.image)`를 인증 서빙 경로로 교체. 관리자 로그인 세션 Integration(임시·후 삭제)으로 이미지 200·AS 리다이렉트 URL 부재·비인증 리다이렉트 재현, `test/controllers/app/tickets_image_serving_test.rb` 회귀 없음(7건 통과), rubocop 전체 0 offense·zeitwerk 통과.

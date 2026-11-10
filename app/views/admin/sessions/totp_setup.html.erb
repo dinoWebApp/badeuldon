@@ -1,0 +1,33 @@
+<%# 관리자 2단계 — 2FA(AUTH-7.1). 미등록: QR + 수동 시크릿(최초 1회 노출) → 등록 코드 제출.
+    등록 계정: 코드 입력만. 시크릿은 등록 완료 후 다시 표시하지 않는다. %>
+<div class="mx-auto w-full max-w-md py-8">
+  <% if @admin.two_factor_enabled? %>
+    <h1 class="admin-title">인증 코드 입력</h1>
+    <p class="mb-4 text-sm text-stone-500">인증 앱에 표시된 6자리 코드를 입력해 주세요.</p>
+    <%= form_with url: totp_verify_admin_session_path, class: "admin-card" do |form| %>
+      <%= form.label :code, "인증 코드", class: "admin-label" %>
+      <%= form.text_field :code, required: true, autofocus: true, inputmode: "numeric",
+            pattern: "[0-9]*", maxlength: 6, autocomplete: "one-time-code", class: "admin-input" %>
+      <%= form.submit "확인", class: "admin-btn" %>
+    <% end %>
+  <% else %>
+    <h1 class="admin-title">2단계 인증 등록</h1>
+    <p class="mb-4 text-sm text-stone-500">
+      인증 앱(Google Authenticator 등)으로 아래 QR 코드를 스캔하거나,
+      스캔이 어렵다면 시크릿을 직접 입력해 주세요.
+    </p>
+    <div class="admin-card text-center">
+      <% if @qr_data_url %>
+        <%= image_tag @qr_data_url, alt: "2FA 등록 QR 코드", width: 240, height: 240, class: "mx-auto" %>
+      <% end %>
+      <p class="mt-3 text-xs text-stone-500">수동 등용 시크릿</p>
+      <code class="mt-1 inline-block rounded bg-stone-100 px-3 py-1.5 text-sm font-mono select-all"><%= @otp_secret %></code>
+    </div>
+    <%= form_with url: totp_confirm_admin_session_path, class: "admin-card mt-4" do |form| %>
+      <%= form.label :code, "인증 앱의 6자리 코드", class: "admin-label" %>
+      <%= form.text_field :code, required: true, autofocus: true, inputmode: "numeric",
+            pattern: "[0-9]*", maxlength: 6, autocomplete: "one-time-code", class: "admin-input" %>
+      <%= form.submit "등록 완료", class: "admin-btn" %>
+    <% end %>
+  <% end %>
+</div>

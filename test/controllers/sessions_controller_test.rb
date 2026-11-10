@@ -114,6 +114,17 @@ class SessionsControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "정지된 계정의 로그인은 차단되고 세션이 발급되지 않는다 (ADMIN-3 Run B)" do
+    users(:alpha).update!(status: :suspended)
+    assert_no_difference -> { Session.count } do
+      attempt_login(email: users(:alpha).email, password: "password")
+    end
+    assert_response :unprocessable_entity
+    assert_select "p#alert", text: "이용이 정지된 계정입니다. 고객센터로 문의해 주세요."
+    # 자격 증명이 맞는 정지 계정에만 정지 문구 노출 — 미존재 계정과 다른 문구로 구분되지만
+    # 존재 자체는 자격 증명이 맞아야만 드러난다(기존 계정 열거 방지 문구와 별도 유지).
+  end
+
   test "CSRF 토큰 없는 로그인 요청은 거부된다" do
     original_protection = ActionController::Base.allow_forgery_protection
     ActionController::Base.allow_forgery_protection = true

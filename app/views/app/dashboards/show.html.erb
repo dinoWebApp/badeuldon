@@ -6,6 +6,8 @@
     퍼블리싱 리뉴얼(3b): DASH-1 미수 총액 히어로 카드 위계(DESIGN-3 tabular numerals),
     DASH-2 액션 카드형 리스트(DESIGN-5 아이콘·상태 뱃지), DESIGN-8 인터랙션 문법(3a 랜딩 동일). %>
 <div class="py-8">
+  <%# ADMIN-7 — 게시 중 일반 공지 중 미읽음 것을 배너로 노출. 닫기 = 읽음 기록(재노출 없음). %>
+  <%= render "app/notices/banner", notices: @unread_general_notices %>
   <header>
     <h1 class="text-2xl font-bold tracking-tight text-emerald-900">대시보드</h1>
     <p class="mt-2 text-sm leading-relaxed text-stone-500">

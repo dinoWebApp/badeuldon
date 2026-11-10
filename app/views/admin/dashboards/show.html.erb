@@ -1,0 +1,129 @@
+<%# 관리자 운영 대시보드(ADMIN-1·5) — Run B: 가입·수금·퍼널·메시지·매출 지표. %>
+<%# 표면 ④는 DESIGN-8 미적용 원칙 — Run A 골격의 실용 톤(스톤 계열·표 위주)을 유지한다. %>
+<div class="admin-card">
+  <h1 class="admin-title">운영 현황</h1>
+
+  <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+    <div class="rounded-lg border border-stone-200 p-4">
+      <p class="text-xs text-stone-500">전체 회원</p>
+      <p class="mt-1 text-2xl font-bold"><%= number_with_delimiter(@user_count) %></p>
+    </div>
+    <div class="rounded-lg border border-stone-200 p-4">
+      <p class="text-xs text-stone-500">미수금 청구서</p>
+      <p class="mt-1 text-2xl font-bold"><%= number_with_delimiter(@unsettled_invoice_count) %></p>
+    </div>
+    <div class="rounded-lg border border-stone-200 p-4">
+      <p class="text-xs text-stone-500">오늘 발송 메시지</p>
+      <p class="mt-1 text-2xl font-bold"><%= number_with_delimiter(@today_message_count) %></p>
+    </div>
+  </div>
+
+  <h2 class="mt-8 text-sm font-semibold text-stone-700">가입 지표</h2>
+  <div class="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-3">
+    <div class="rounded-lg border border-stone-200 p-4">
+      <p class="text-xs text-stone-500">총 가입</p>
+      <p class="mt-1 text-2xl font-bold"><%= number_with_delimiter(@signup_stats.total) %></p>
+    </div>
+    <div class="rounded-lg border border-stone-200 p-4">
+      <p class="text-xs text-stone-500">최근 7일 가입</p>
+      <p class="mt-1 text-2xl font-bold"><%= number_with_delimiter(@signup_stats.last_7d) %></p>
+    </div>
+    <div class="rounded-lg border border-stone-200 p-4">
+      <p class="text-xs text-stone-500">최근 30일 가입</p>
+      <p class="mt-1 text-2xl font-bold"><%= number_with_delimiter(@signup_stats.last_30d) %></p>
+    </div>
+  </div>
+
+  <h2 class="mt-8 text-sm font-semibold text-stone-700">청구·수금</h2>
+  <table class="mt-2 w-full text-sm" aria-label="청구·수금 통계">
+    <tbody>
+      <tr class="border-t border-stone-200">
+        <th scope="row" class="py-2 text-left font-normal text-stone-500">당월 발행</th>
+        <td class="py-2 text-right tabular-nums"><%= number_with_delimiter(@collection_stats.month_issued) %>건</td>
+        <th scope="row" class="py-2 text-left font-normal text-stone-500">누적 발행</th>
+        <td class="py-2 text-right tabular-nums"><%= number_with_delimiter(@collection_stats.total_issued) %>건</td>
+      </tr>
+      <tr class="border-t border-stone-200">
+        <th scope="row" class="py-2 text-left font-normal text-stone-500">당월 수금 마감</th>
+        <td class="py-2 text-right tabular-nums"><%= number_with_delimiter(@collection_stats.month_closed) %>건</td>
+        <th scope="row" class="py-2 text-left font-normal text-stone-500">누적 수금 마감</th>
+        <td class="py-2 text-right tabular-nums"><%= number_with_delimiter(@collection_stats.total_closed) %>건</td>
+      </tr>
+      <tr class="border-t border-stone-200">
+        <th scope="row" class="py-2 text-left font-normal text-stone-500">당월 수금 금액</th>
+        <td class="py-2 text-right tabular-nums"><%= number_to_currency(@collection_stats.month_closed_amount, unit: "₩", precision: 0) %></td>
+        <th scope="row" class="py-2 text-left font-normal text-stone-500">누적 수금 금액</th>
+        <td class="py-2 text-right tabular-nums"><%= number_to_currency(@collection_stats.total_closed_amount, unit: "₩", precision: 0) %></td>
+      </tr>
+      <tr class="border-t border-stone-200">
+        <th scope="row" class="py-2 text-left font-normal text-stone-500" title="발행 후 30일 내 수금 완료율">북극성(30일 내 수금율)</th>
+        <td class="py-2 text-right tabular-nums" colspan="3"><%= @collection_stats.north_star_rate.nil? ? "-" : "#{@collection_stats.north_star_rate}%" %></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 class="mt-8 text-sm font-semibold text-stone-700">플랜 전환 퍼널</h2>
+  <div class="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-3">
+    <div class="rounded-lg border border-stone-200 p-4">
+      <p class="text-xs text-stone-500">가입</p>
+      <p class="mt-1 text-2xl font-bold"><%= number_with_delimiter(@plan_funnel.signups) %></p>
+    </div>
+    <div class="rounded-lg border border-stone-200 p-4">
+      <p class="text-xs text-stone-500">체험 시작</p>
+      <p class="mt-1 text-2xl font-bold"><%= number_with_delimiter(@plan_funnel.trial_started) %></p>
+    </div>
+    <div class="rounded-lg border border-stone-200 p-4">
+      <p class="text-xs text-stone-500">Plus 전환</p>
+      <p class="mt-1 text-2xl font-bold"><%= number_with_delimiter(@plan_funnel.plus_converted) %></p>
+    </div>
+  </div>
+
+  <h2 class="mt-8 text-sm font-semibold text-stone-700">매출·MRR</h2>
+  <div class="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-3">
+    <div class="rounded-lg border border-stone-200 p-4">
+      <p class="text-xs text-stone-500">이번 달 매출</p>
+      <p class="mt-1 text-2xl font-bold tabular-nums"><%= number_to_currency(@revenue_stats.month_revenue, unit: "₩", precision: 0) %></p>
+    </div>
+    <div class="rounded-lg border border-stone-200 p-4">
+      <p class="text-xs text-stone-500">누적 매출</p>
+      <p class="mt-1 text-2xl font-bold tabular-nums"><%= number_to_currency(@revenue_stats.total_revenue, unit: "₩", precision: 0) %></p>
+    </div>
+    <div class="rounded-lg border border-stone-200 p-4">
+      <p class="text-xs text-stone-500">MRR(active Plus × 9,900)</p>
+      <p class="mt-1 text-2xl font-bold tabular-nums"><%= number_to_currency(@revenue_stats.mrr, unit: "₩", precision: 0) %></p>
+    </div>
+  </div>
+
+  <h2 class="mt-8 text-sm font-semibold text-stone-700">메시지 발송(최근 30일)</h2>
+  <div class="mt-2 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+    <span>발송 성공 <strong class="tabular-nums"><%= number_with_delimiter(@message_stats.sent) %></strong>건</span>
+    <span>실패 <strong class="tabular-nums text-orange-600"><%= number_with_delimiter(@message_stats.failed) %></strong>건</span>
+    <span>보류(skipped) <strong class="tabular-nums"><%= number_with_delimiter(@message_stats.skipped) %></strong>건</span>
+    <span>실패율 <strong class="tabular-nums"><%= @message_stats.failure_rate.nil? ? "-" : "#{@message_stats.failure_rate}%" %></strong></span>
+  </div>
+  <% max_reason = @message_stats.skip_reasons.values.max.to_i %>
+  <table class="mt-3 w-full text-sm" aria-label="보류 사유 분포">
+    <thead>
+      <tr class="border-b border-stone-200 text-left text-xs text-stone-500">
+        <th scope="col" class="py-1 font-normal">보류 사유(error_code)</th>
+        <th scope="col" class="py-1 font-normal">건수</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% if @message_stats.skip_reasons.empty? %>
+        <tr><td class="py-1 text-stone-400" colspan="2">0건</td></tr>
+      <% end %>
+      <% @message_stats.skip_reasons.each do |code, count| %>
+        <tr class="border-b border-stone-100">
+          <td class="py-1"><%= code.presence || "(사유 없음)" %></td>
+          <td class="py-1">
+            <span class="inline-block align-middle bg-stone-300" style="width: <%= max_reason.zero? ? 0 : (count * 100.0 / max_reason).round %>%" aria-hidden="true">&nbsp;</span>
+            <span class="ml-2 tabular-nums"><%= number_with_delimiter(count) %></span>
+          </td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+  <p class="mt-2 text-xs text-stone-400">수신자별 발송량 — 채무자 <%= number_with_delimiter(@message_stats.by_recipient_role["debtor"].to_i) %>건 · 프리랜서 <%= number_with_delimiter(@message_stats.by_recipient_role["user"].to_i) %>건</p>
+  <p class="mt-1 text-xs text-stone-400">※ 솔라피 크레딧 잔액은 로컬 집계에 미포함(라이브 실측 전 — 기술 부채).</p>
+</div>

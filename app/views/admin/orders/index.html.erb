@@ -1,0 +1,88 @@
+<%# ADMIN-4(T-B3) — 결제·매출 관리: 플랜 분포·체험 만료 예정·주문 이력 목록 %>
+<div class="admin-card">
+  <h1 class="admin-title">결제·매출 관리</h1>
+
+  <%# 플랜 분포(구독 상태별) %>
+  <div class="grid grid-cols-1 gap-4 sm:grid-cols-4">
+    <% { "trialing" => "체험 중", "active" => "이용 중", "cancelled" => "해지", "expired" => "만료" }.each do |key, label| %>
+      <div class="rounded-lg border border-stone-200 p-4">
+        <p class="text-xs text-stone-500">Plus <%= label %></p>
+        <p class="mt-1 text-2xl font-bold"><%= number_with_delimiter(@plan_counts[key.to_s].to_i) %></p>
+      </div>
+    <% end %>
+  </div>
+</div>
+
+<div class="admin-card mt-6">
+  <h2 class="text-lg font-bold text-stone-800">체험 만료 예정(7일 이내)</h2>
+  <% if @expiring_trials.any? %>
+    <table class="mt-3 w-full text-sm">
+      <thead>
+        <tr class="border-b border-stone-200 text-left text-xs text-stone-500">
+          <th class="py-2">이메일</th>
+          <th class="py-2">체험 만료일</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% @expiring_trials.each do |subscription| %>
+          <tr class="border-b border-stone-100">
+            <td class="py-2"><%= subscription.user.email %></td>
+            <td class="py-2"><%= subscription.trial_ends_at.strftime("%Y-%m-%d") %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  <% else %>
+    <p class="mt-3 text-sm text-stone-500">7일 이내 만료 예정인 체험이 없습니다.</p>
+  <% end %>
+</div>
+
+<div class="admin-card mt-6">
+  <h2 class="text-lg font-bold text-stone-800">주문 이력(최근 100건)</h2>
+
+  <%# 필터 — status / 환불 여부(GET 화이트리스트 값만 처리) %>
+  <%= form_with url: admin_orders_path, method: :get, class: "mt-3 flex flex-wrap items-end gap-3" do %>
+    <div>
+      <label class="block text-xs text-stone-500" for="status">상태</label>
+      <%= select_tag :status, options_for_select([["전체", ""], ["결제 완료", "paid"], ["결제 실패", "failed"]], params[:status]) %>
+    </div>
+    <div>
+      <label class="block text-xs text-stone-500" for="refund">환불</label>
+      <%= select_tag :refund, options_for_select([["전체", ""], ["환불 기록 있음", "refunded"], ["환불 기록 없음", "not_refunded"]], params[:refund]) %>
+    </div>
+    <div><%= submit_tag "필터 적용", class: "rounded bg-stone-800 px-3 py-1.5 text-sm text-white hover:bg-stone-700" %></div>
+  <% end %>
+
+  <% if @orders.any? %>
+    <table class="mt-4 w-full text-sm">
+      <thead>
+        <tr class="border-b border-stone-200 text-left text-xs text-stone-500">
+          <th class="py-2">주문일</th>
+          <th class="py-2">사용자</th>
+          <th class="py-2">상품</th>
+          <th class="py-2 text-right">금액</th>
+          <th class="py-2">상태</th>
+          <th class="py-2">환불</th>
+          <th class="py-2"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% @orders.each do |order| %>
+          <tr class="border-b border-stone-100">
+            <td class="py-2"><%= order.created_at.strftime("%Y-%m-%d %H:%M") %></td>
+            <td class="py-2"><%= order.user.email %></td>
+            <td class="py-2"><%= order.product.humanize %></td>
+            <td class="py-2 text-right"><%= number_to_currency(order.amount, unit: "₩", precision: 0) %></td>
+            <td class="py-2"><%= t("admin.orders.status.#{order.status}", default: order.status.humanize) %></td>
+            <td class="py-2"><%= order.refunded? ? "기록됨" : "-" %></td>
+            <td class="py-2 text-right"><%= link_to "상세", admin_order_path(order), class: "text-emerald-700 hover:underline" %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  <% else %>
+    <p class="mt-4 text-sm text-stone-500">조건에 맞는 주문이 없습니다.</p>
+  <% end %>
+
+  <p class="mt-4 text-xs text-stone-400">※ 결제 실패 재시도(dunning)는 미구현 상태입니다. 실제 환불은 포트원(KG이니시스) 콘솔에서 수동 처리 후 이 화면에서 사유를 기록합니다(PLAN-5·ADMIN-4).</p>
+</div>

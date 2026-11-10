@@ -10,8 +10,30 @@ class Order < ApplicationRecord
   enum :product, { plus_monthly: 0, collection_pass: 1 }
   enum :status, { pending: 0, paid: 1, failed: 2, cancelled: 3 }, default: :pending
 
+  # ADMIN-4 — 관리자 목록 필터용 스코프. refunded는 refunded_at 기준(환불 제외 매출 집계와 정합).
+  scope :paid, -> { where(status: :paid) }
+  scope :failed, -> { where(status: :failed) }
+  scope :refunded, -> { where.not(refunded_at: nil) }
+  scope :not_refunded, -> { where(refunded_at: nil) }
+
   validates :pg_order_id, presence: true, uniqueness: true
   validates :amount, presence: true, numericality: { only_integer: true, greater_than: 0 }
+
+  # ADMIN-4 — 환불 기록(PLAN-6 CS 예외 절차). 실제 PG 환불은 포트원 콘솔에서 수동 수행(PLAN-5)하며
+  # 이 메서드는 그 결과를 서비스 측에 기록한다(refunded_at·refund_reason — 감사·매출 집계 제외용).
+  # 감사 로그 기록은 모델이 하지 않는다(§4.2 — 컨트롤러가 AuditLogs::RecordService 경유).
+  def mark_refunded!(reason)
+    raise ArgumentError, "환불 사유는 필수입니다" if reason.blank?
+    return false if refunded?
+
+    update!(refunded_at: Time.current, refund_reason: reason)
+    true
+  end
+
+  # ADMIN-4 — 환불 여부 판정(refunded_at 존재 기준 — 상태 enum과 분리해 paid 이력을 보존한다).
+  def refunded?
+    refunded_at.present?
+  end
 
   # 상품별 정가 — 주문 생성은 항상 이 금액으로 한다(클라이언트 값 신뢰 금지).
   def self.amount_for(product)

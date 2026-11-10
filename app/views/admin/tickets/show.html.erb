@@ -1,0 +1,51 @@
+<%# ADMIN-8 티켓 상세 — 스레드 전체·사용자 정보·답변 폼·종료. 답변 등록 시 알림톡 발송
+    (Tickets::NotifyAnswerService — 컨트롤러 호출, sent/failed/skipped 모두 message_logs 기록). %>
+<div class="admin-card">
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <%= link_to "← 티켓 목록", admin_tickets_path, class: "text-xs text-emerald-700 hover:underline" %>
+      <h1 class="admin-title mt-1"><%= @ticket.title %></h1>
+      <p class="mt-1 text-xs text-stone-500">
+        <%= @ticket.user.display_name %> (<%= @ticket.user.email %>)
+        <% unless @ticket.user.phone.blank? %>
+          · <%= @ticket.user.phone %>
+        <% end %>
+      </p>
+    </div>
+    <% status_label, status_class = admin_ticket_status_badge(@ticket) %>
+    <span class="rounded-full px-2 py-0.5 text-xs font-semibold <%= status_class %>"><%= status_label %></span>
+  </div>
+
+  <div class="mt-5 space-y-3">
+    <% @messages.each do |message| %>
+      <div class="rounded-lg border <%= message.admin? ? "border-emerald-200 bg-emerald-50/50" : "border-stone-200 bg-white" %> px-4 py-3">
+        <p class="text-[11px] font-bold <%= message.admin? ? "text-emerald-700" : "text-stone-400" %>">
+          <%= message.admin? ? "운영자" : "사용자" %> · <%= message.created_at.strftime("%Y-%m-%d %H:%M") %>
+        </p>
+        <p class="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-stone-800"><%= message.body %></p>
+        <% if message.image.attached? %>
+          <%# W-1(05_review) — AS 공개 리다이렉트 대신 admin 가드 하 인증 서빙 경로로 표시한다. %>
+          <%= image_tag admin_ticket_message_image_path(@ticket, message),
+                class: "mt-2 max-h-48 rounded border border-stone-200", alt: "첨부 이미지" %>
+        <% end %>
+      </div>
+    <% end %>
+  </div>
+
+  <% unless @ticket.closed? %>
+    <div class="mt-6 border-t border-stone-200 pt-4">
+      <h2 class="text-sm font-bold text-stone-700">답변 등록</h2>
+      <%= form_with url: reply_admin_ticket_path(@ticket), method: :post, local: true, class: "mt-2" do %>
+        <%= text_area_tag "ticket_message[body]", nil, rows: 4, required: true,
+              placeholder: "답변 내용을 입력하면 알림톡으로 사용자에게 전달됩니다.",
+              class: "block w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700/30" %>
+        <%= submit_tag "답변 등록", class: "mt-2 rounded bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800" %>
+      <% end %>
+    </div>
+    <%= button_to "문의 종료", close_admin_ticket_path(@ticket), method: :patch,
+          form: { class: "mt-4", data: { turbo_confirm: "이 문의를 종료하시겠습니까? 종료 후 사용자는 추가 질문을 할 수 없습니다." } },
+          class: "rounded border border-orange-400 px-4 py-2 text-sm font-semibold text-orange-600 hover:bg-orange-50" %>
+  <% else %>
+    <p class="mt-6 border-t border-stone-200 pt-4 text-sm text-stone-400">종료된 문의입니다. (감사 로그에 종료 기록이 남습니다)</p>
+  <% end %>
+</div>

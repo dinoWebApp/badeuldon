@@ -1,0 +1,52 @@
+<%# 표면 ④ 관리자 콘솔 레이아웃(ADMIN-1) — DESIGN-8 미적용 원칙(PRD DESIGN-8): 랜딩·
+    대시보드의 브랜드 톤과 분리한 실용 톤. Pretendard·공통 head는 표면 공통 파셜 재사용. %>
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <%= render "layouts/head" %>
+    <style>
+      .admin-shell { max-width: 56rem; margin: 0 auto; padding: 1.5rem; }
+      .admin-card { background: #fff; border: 1px solid #e2e2df; border-radius: 10px; padding: 1.25rem; }
+      .admin-label { font-size: .75rem; color: #6b6b66; margin-bottom: .25rem; display: block; }
+      .admin-input { width: 100%; border: 1px solid #d4d4cf; border-radius: 8px; padding: .55rem .75rem; font-size: .95rem; }
+      .admin-input:focus { outline: 2px solid #1e4d3b; outline-offset: 1px; }
+      .admin-btn { display: inline-block; width: 100%; background: #1e4d3b; color: #fff; border: 0;
+                   border-radius: 8px; padding: .65rem 1rem; font-weight: 600; cursor: pointer; margin-top: .75rem; }
+      .admin-btn:hover { background: #173d2f; }
+      .admin-title { font-size: 1.15rem; font-weight: 700; margin-bottom: 1rem; }
+      .admin-nav a { color: #6b6b66; padding: .35rem .6rem; border-radius: 6px; }
+      .admin-nav a:hover { color: #1e4d3b; background: #ecece8; }
+      .admin-nav a.active { color: #1e4d3b; font-weight: 600; background: #ecece8; }
+    </style>
+  </head>
+  <body class="bg-[#f6f6f3] text-[#1c1c1a]">
+    <main class="admin-shell">
+      <header class="flex items-center justify-between py-3">
+        <div class="font-bold text-[#1e4d3b]">받을돈 관리자</div>
+        <% if current_admin %>
+          <div class="flex items-center gap-3 text-sm">
+            <span class="text-[#6b6b66]"><%= current_admin.email %></span>
+            <%= button_to "로그아웃", admin_session_path, method: :delete,
+                          class: "text-[#1e4d3b] hover:underline" %>
+          </div>
+        <% end %>
+      </header>
+      <% if current_admin %>
+        <nav class="admin-nav flex items-center gap-1 border-b border-[#e2e2df] pb-3 mb-4 text-sm">
+          <%= link_to "대시보드", admin_root_path,
+                      class: request.path == admin_root_path ? "active" : nil %>
+          <%= link_to "회원", admin_members_path,
+                      class: request.path.start_with?(admin_members_path) ? "active" : nil %>
+          <%= link_to "결제", admin_orders_path,
+                      class: request.path.start_with?(admin_orders_path) ? "active" : nil %>
+          <%= link_to "감사 로그", admin_audit_logs_path,
+                      class: request.path.start_with?(admin_audit_logs_path) ? "active" : nil %>
+          <%= link_to "티켓", admin_tickets_path,
+                      class: request.path.start_with?(admin_tickets_path) ? "active" : nil %>
+        </nav>
+      <% end %>
+      <%= render "layouts/flash" %>
+      <%= yield %>
+    </main>
+  </body>
+</html>

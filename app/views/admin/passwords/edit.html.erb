@@ -1,0 +1,18 @@
+<%# 관리자 비밀번호 재설정 실행(AUTH-7.6) — 1회성 토큰, 성공 시 관리자 세션 전부 파기. %>
+<div class="mx-auto w-full max-w-md py-8">
+  <h1 class="admin-title">새 비밀번호 설정</h1>
+
+  <%= form_with url: admin_password_path(params[:token]), method: :patch, class: "admin-card" do |form| %>
+    <%= form.label :password, "새 비밀번호", class: "admin-label" %>
+    <%= form.password_field :password, required: true, autofocus: true, autocomplete: "new-password",
+          maxlength: 72, class: "admin-input" %>
+
+    <%= form.label :password_confirmation, "비밀번호 확인", class: "admin-label mt-4" %>
+    <%= form.password_field :password_confirmation, required: true, autocomplete: "new-password",
+          maxlength: 72, class: "admin-input" %>
+
+    <p class="mt-2 text-xs text-stone-500">8자 이상, 영문·숫자·특수문자를 조합해 설정해 주세요.</p>
+
+    <%= form.submit "비밀번호 변경", class: "admin-btn" %>
+  <% end %>
+</div>

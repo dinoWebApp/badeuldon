@@ -51,4 +51,62 @@ class OrderTest < ActiveSupport::TestCase
     assert_equal "order-rename-rt-1", reloaded.pg_payment_id
     assert_equal "bk_rename_rt_1", reloaded.pg_billing_key
   end
+
+  # ── ADMIN-4(Run B) — 환불 기록·목록 필터 스코프 ──
+
+  test "mark_refunded!는 refunded_at과 사유를 기록하고 true를 반환한다 (ADMIN-4)" do
+    travel_to(Time.zone.parse("2026-11-10 09:00")) do
+      order = orders(:delta_pass_order)
+
+      assert order.mark_refunded!("이중 결제 정정")
+      order.reload
+      assert order.refunded?
+      assert_not_nil order.refunded_at
+      assert_equal "이중 결제 정정", order.refund_reason
+      # 상태 enum은 paid 이력을 보존한다 — refunded는 refunded_at 판정(모델 주석 계약)
+      assert_predicate order, :paid?
+    end
+  end
+
+  test "mark_refunded!는 blank 사유를 ArgumentError로 거부한다 (ADMIN-4·W-1 경계)" do
+    order = orders(:delta_pass_order)
+
+    error = assert_raises(ArgumentError) { order.mark_refunded!("") }
+    assert_equal "환불 사유는 필수입니다", error.message
+    assert_raises(ArgumentError) { order.mark_refunded!(nil) }
+    order.reload
+    assert_not order.refunded?, "거부 시 데이터가 오염되지 않는다"
+  end
+
+  test "mark_refunded!는 이미 환불 기록된 건에 false를 반환한다 (이중 기록 차단)" do
+    travel_to(Time.zone.parse("2026-11-10 09:00")) do
+      order = orders(:delta_pass_order)
+      order.mark_refunded!("첫 기록")
+      first_refunded_at = order.reload.refunded_at
+
+      assert_not order.mark_refunded!("두 번째 시도"), "재요청은 false — 컨트롤러 422 경로"
+      assert_equal first_refunded_at, order.reload.refunded_at, "최초 기록 시각이 유지된다"
+      assert_equal "첫 기록", order.refund_reason, "사유가 덮어써지지 않는다"
+    end
+  end
+
+  test "환불 스코프는 refunded_at 기준으로 paid/failed 이력을 모두 포괄한다 (ADMIN-4 필터)" do
+    travel_to(Time.zone.parse("2026-11-10 09:00")) do
+      order = orders(:delta_pass_order)
+      order.mark_refunded!("첫 기록")
+      refunded_failed = users(:delta).orders.create!(product: :collection_pass, amount: 4_000,
+                                                     pg_order_id: "order-scope-failed",
+                                                     status: :failed)
+      refunded_failed.mark_refunded!("결제 실패 후 환불 완료")
+
+      assert_includes Order.refunded, order.reload
+      assert_includes Order.refunded, refunded_failed
+      assert_not_includes Order.not_refunded, order
+      assert_includes Order.not_refunded, users(:delta).orders.create!(
+        product: :collection_pass, amount: 4_000, pg_order_id: "order-scope-paid", status: :paid
+      )
+      assert_includes Order.paid, order
+      assert_includes Order.failed, refunded_failed
+    end
+  end
 end

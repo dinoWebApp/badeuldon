@@ -35,6 +35,22 @@ Rails.application.routes.draw do
       member { patch :answer }
     end
 
+    # ── F-ADMIN Run C — 운영 공지 U1 노출(ADMIN-7). PRD 문언의 경로 `/app/notice`를
+    # path: "notice"로 준수한다(컨트롤러명은 Notices). 읽음 기록은 자원의 상태 생성 성격이라
+    # member POST로 정당화 — NoticeReads::MarkService로 멱등(SEC-5).
+    resources :notices, only: %i[ index show ], path: "notice" do
+      member { post :mark_read }
+    end
+
+    # ── F-ADMIN Run C — 1:1 문의 티켓(ADMIN-8). 추가 질문은 스레드 상의 발화 추가·재문의
+    # 상태 전이라 member POST로 정당화. 작성 rate_limit은 컨트롤러(5회/시간).
+    resources :tickets, only: %i[ index new create show ] do
+      member { post :follow_up }
+      # W-1(05_review) — 첨부 이미지 인증 서빙(AS 공개 리다이렉트 대체 — 소유 U1 세션 전제).
+      # GET /app/tickets/:ticket_id/messages/:message_id/image
+      get "messages/:message_id/image" => "tickets#image", as: :message_image
+    end
+
     # ── F-DASH 리포트(DASH-5·DASH-6) — 거래처별 지연·월간 수금 추이·신고 주기 집계(/app/report) ──
     resource :report, only: :show
 
@@ -54,6 +70,59 @@ Rails.application.routes.draw do
 
   # ── 포트원 웹훅(PLAN-5) — 포트원 서버 → 우리 서버(비인증 서버 간 호출) ──
   post "/webhooks/portone", to: "webhooks/portone#create"
+
+  # ── 표면 ④ 관리자 콘솔(/admin) — AUTH-7 전용 계정·2FA(TOTP) 필수, ADMIN-1 ──
+  # U1 세션과 완전 분리(admin_sessions · session[:admin_session_token]). 전 경로 noindex(SURF-3).
+  # 2FA 단계(totp_setup/totp_confirm/totp_verify)는 session 자원의 상태 전이 성격이라
+  # collection으로 정당화한다 — URL 동사 없이 플로우 단계를 표현.
+  namespace :admin do
+    root to: "dashboards#show"                                    # ADMIN-1 운영 대시보드(Run A 골격)
+    resource :session, only: %i[ new create destroy ] do
+      collection do
+        get  :totp_setup    # 2단계 화면(미등록: QR+시크릿 / 등록: 코드 입력)
+        post :totp_confirm  # 최초 2FA 등록 완료(otp_confirmed_at 기록 — AUTH-7.1)
+        post :totp_verify   # 등록 계정 코드 검증
+      end
+    end
+    resources :passwords, param: :token, only: %i[ new create edit update ]  # AUTH-7.6 재설정
+
+    # Run B 결선(3-S) — ADMIN-2 감사 로그 / ADMIN-3 회원 관리 / ADMIN-4 결제·매출 관리.
+    # 계약: _workspace/02_prd_update.md 확정 해석 1 그대로. 상태 전이(정지 전환·플랜 변경·
+    # 환불 기록)는 예외적 동사라 member PATCH로 정당화.
+    resources :audit_logs, only: :index                                             # ADMIN-2
+    resources :members, only: %i[ index show ] do                                   # ADMIN-3
+      member do
+        patch :toggle_suspension
+        patch :change_plan
+      end
+    end
+    resources :orders, only: %i[ index show ] do                                    # ADMIN-4
+      member do
+        patch :mark_refunded
+      end
+    end
+
+    # Run C 결선 — ADMIN-6 운영 공지 관리(CRUD + 발행/종료). 발행(publish)·종료(close)는
+    # 상태 전이라 member PATCH로 정당화.
+    resources :notices do
+      member do
+        patch :publish
+        patch :close
+      end
+    end
+
+    # Run C 결선(3-b) — ADMIN-8 티켓 관리. 답변 등록(reply)·종료(close)는 상태 전이·발화
+    # 추가라 member 액션으로 정당화(답변 POST — 답변 등록은 발화 추가 성격).
+    resources :tickets, only: %i[ index show ] do
+      member do
+        post :reply
+        patch :close
+      end
+      # W-1(05_review) admin 측 — 첨부 이미지 인증 서빙(AS 공개 리다이렉트 대체 — admin 가드
+      # 전제). GET /admin/tickets/:ticket_id/messages/:message_id/image
+      get "messages/:message_id/image" => "tickets#image", as: :message_image
+    end
+  end
 
   # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html
 
