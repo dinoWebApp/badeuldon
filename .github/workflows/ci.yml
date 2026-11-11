@@ -86,6 +86,9 @@ jobs:
         with:
           bundler-cache: true
 
+      - name: Install poppler-utils (PDF 텍스트 추출 검증 — template_pdf_service_test)
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
       - name: Run tests
         env:
           RAILS_ENV: test
