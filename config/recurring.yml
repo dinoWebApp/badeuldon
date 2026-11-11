@@ -38,6 +38,11 @@ production:
   recurring_invoices_issue:
     class: RecurringInvoices::IssueJob
     schedule: "30 6 * * * Asia/Seoul"
+  # ADMIN-10·BLOG-5·Q20 — 예약 발행 스캔. [W-3(05_review) 정정] scheduled 게시글은 이 매분
+  # 스캔이 published로 전환한 뒤 노출된다(최대 1분 지연 — 도과 시 published 전환·멱등).
+  blog_posts_publish_scheduled:
+    class: BlogPosts::PublishScheduledJob
+    schedule: "* * * * * Asia/Seoul"
 
 development:
   subscription_trial_expiry:
@@ -60,3 +65,7 @@ development:
   recurring_invoices_issue:
     class: RecurringInvoices::IssueJob
     schedule: "30 6 * * * Asia/Seoul"
+  # ADMIN-10·BLOG-5·Q20 — 예약 발행 스캔(매분 — production 블록 주석 참조).
+  blog_posts_publish_scheduled:
+    class: BlogPosts::PublishScheduledJob
+    schedule: "* * * * * Asia/Seoul"

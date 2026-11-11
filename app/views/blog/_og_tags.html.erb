@@ -1,0 +1,9 @@
+<%# BLOG-2 — 상세 메타: OG 태그·canonical(JSON-LD는 아래 별도 스크립트). head의 yield :head로 출력. %>
+<link rel="canonical" href="<%= blog_post_url(slug: @post.slug) %>">
+<meta property="og:type" content="article">
+<meta property="og:title" content="<%= @post.meta_title.presence || @post.title %>">
+<meta property="og:description" content="<%= @post.meta_description.presence || @post.display_summary %>">
+<meta property="og:url" content="<%= blog_post_url(slug: @post.slug) %>">
+<% if @post.og_image.attached? %>
+  <meta property="og:image" content="<%= url_for(@post.og_image) %>">
+<% end %>

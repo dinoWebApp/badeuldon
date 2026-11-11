@@ -1,47 +1,36 @@
-# 07_test_report — CLIENT-3/4·PROMISE-5 런 Phase 7 (검증·보강·전체 게이트)
+# 07_test_report — INV-7 반복 청구 + PAY-6 PDF 병렬 배치 (2026-11-11, Tester 절약 모드)
 
-작성: Tester(절약 모드) · 2026-11-10
-대상: F-CLIENT 지급 성적표(CLIENT-3/4·PROMISE-5·Q14) + Phase 6 수정(C-1 모집단 일치·W-1 배지 색). 기존 13건(쿼리 9 + 컨트롤러 5… 실측 9+5=개별 파일 기준 아래 표) 검증 + 리뷰 Tester 중점 6건 보강.
+## 게이트 결과 (Phase 7)
 
-## 최종 결과
+| 스위트 | 결과 |
+|---|---|
+| `bin/rails test` (기본 — test/system 제외 러너 구조 실측) | **1008 runs, 5650 assertions, 0 failures, 0 errors, 0 skips** |
+| `bin/rails test:system` (기본 러너가 시스템 테스트를 로드하지 않음을 실측 — 별도 실행 필수) | **11 runs, 84 assertions, 0 failures, 0 errors, 0 skips** — 신규 PDF 시스템 테스트 포함 |
+| `bin/rubocop` (전체 283파일) | **0 offenses** |
+| 합계 | **1019 runs · 0 실패 · 코드 버그 0건** |
 
-- **전체 `bin/rails test`: 967 runs · 5,466 assertions · 0 failures · 0 errors · 0 skips** (기준 954건 회귀 0 + 보강 +13)
-- `bin/rubocop` 신규·수정 테스트 파일 5개 — **no offenses**
-- 외부 API(솔라피·포트원) 실호출 0건 — 보강 테스트는 전부 내부 조회 경로만 사용
-- **코드 버그 0건** — Phase 6 수정(C-1·W-1)이 테스트로 재확인됨
+- 실호출 0건: PDF은 send_data 응답 수령, 솔라피 경로는 DeliverJob enqueue만 검증(기존 stub 체계 유지).
+- test DB 잔존 없음(트랜잭션 롤백·fixtures). 임시 파일 /tmp 정리 완료.
 
-## 리뷰 6건 처리 대조표 (05_review Tester 중점)
+## 리뷰어 중점 제안 5건 처리
 
-| # | 중점 영역 | 처리 | 결과 |
-|---|---|---|---|
-| 1 | C-1 재발 방지(voided·draft 모집단 일치) | 기존 쿼리 테스트 존재 확인 + 신규 "voided·draft 약속 건은 이행률·평균 지연 집계에서도 제외된다"(scorecard 쿼리 — 이행률 nil·avg nil·목록 empty 동시 단언, promised 상태에서 void! 시나리오) | 통과 |
-| 2 | 배지 반올림 경계 + 이행률 80% 색 | 신규 helper 단위 테스트 5건(`test/helpers/app/clients_helper_test.rb`) — diff 정확 1일 노출(느림=주황·빠름=emerald, W-1 색 판정)·diff 0(반올림 상쇄) 미노출·지표 결손·거래처 1개 미노출 + 쿼리 레벨 반올림 상쇄 테스트(두 평균 모두 0.5→1) | 통과 |
-| 3 | 연말 6개월 창 | 신규 쿼리 테스트 — travel_to 2027-01-15, 라벨 2026-08~2027-01(연 롤오버)·2026-12 +3·창 밖(2026-07) 버림·빈 달 nil | 통과 |
-| 4 | this_week 약속 시간 경과 | 신규 쿼리 테스트 — 접수 당일(약속일==오늘 경계) pending → 자정 경과 +1일 broken 전이(travel 2회·kind: this_week) | 통과 |
-| 5 | 발행 폼 JS 시스템 테스트 | 신규 `test/system/app_invoice_form_scorecard_test.rb` — 실제 브라우저: 초기 hidden → select change → fetch 응답 조각 삽입("평균 지급 지연일 1일·이행률 100%") → 프롬프트 복귀 시 조각 제거·hidden 복원 | 통과 |
-| 6 | 조기 입금(음수 지연) | 신규 3건 — 쿼리(−3·−1 → avg −2·이행률 100%), helper("2일 전"/"0일"/nil="-"·경향 막대 abs 정규화 50%/100%/최소 12), 통합 뷰(show가 "2일 전" 렌더·"-" 오노출 없음·거래처 1개 배지 미노출) | 통과 |
-
-## 보강 테스트 파일 (신규 2 + 수정 3, +13 tests)
-
-| 파일 | tests | 내용 |
+| # | 제안 | 처리 |
 |---|---|---|
-| `test/helpers/app/clients_helper_test.rb` (신규) | 5 | 비교 배지 경계·방향 색(W-1)·delay/rate 텍스트·경향 막대 음수 정규화 |
-| `test/system/app_invoice_form_scorecard_test.rb` (신규) | 1 | 발행 폼 Stimulus client-scorecard fetch E2E |
-| `test/queries/clients/payment_scorecard_query_test.rb` (+4) | — | 연말 창·음수 평균·반올림 상쇄·voided 집계 제외(C-1) |
-| `test/queries/clients/promise_compliance_query_test.rb` (+1) | — | this_week 약속일 경계→도과 전이(seed에 kind 인자 추가) |
-| `test/controllers/app/clients_scorecard_test.rb` (+2) | — | 조기 입금 뷰 "N일 전"·느린 배지 주황 렌더(W-1) |
+| ① | PDF 시스템 테스트(U1 실로그인 → paid 상세 → 다운로드 → %PDF·파일명) | **신규 작성** — `test/system/app_invoice_pdf_test.rb`. headless Chrome의 파일 다운로드 경로 통제 대신 동일 인증 쿠키의 same-origin fetch로 응답 본체를 브라우저에서 직접 수신: `%PDF-` 시그니처·>10KB(폰트 임베드 — B-2 회귀)·Content-Disposition attachment 단정. 다운로드 버튼 노출(Q17 마감 조건)은 `assert_link "수금완료 증빙 PDF"`로 검증 |
+| ② | recurring CRUD 정식 컨트롤러 테스트 | **부재 확인 → 신규 작성** — `test/controllers/app/recurring_invoices_controller_test.rb` 7건: index/new 200·create 303(next 초기화·품목 저장)·**day 29 → 422**·**타인 스케줄 → 404**(show_exceptions=:rescuable이라 404 렌더 단정)·cancel 303+이력 보존(P4)·상세 hold 배너 렌더(⑤)·사유 없으면 배너 미렌더. 전이 가드(W-1)는 기존 recurring_transitions_test가 담당 — 중복 없음 |
+| ③ | IssueJob 멱등(같은 날 2회 perform) | **정식화** — issue_service_test에 추가: 2회 perform 후 Invoice 수·인큐 수 불변·커서 이중 이동 없음(SEC-5 준용 주석) |
+| ④ | W-2 skipped(NO_TEMPLATE) 정식 회귀 | **기존 커버 확인·스킵** — `test/services/reminders/no_template_skip_test.rb`가 이미 FakeSolapiClient MISSING_TEMPLATE → `:skipped` + MessageLog `skipped/NO_TEMPLATE` + sent_at nil + 실호출 시도 1회까지 assert함. 신규 중복 작성 불요 |
+| ⑤ | recurring 상세 hold 사유 배너 렌더 | **②에 포함** — 컨트롤러 테스트 수준에서 사유 있음/없음 양방향 단정 |
 
-## 기존 스위트와의 충돌 확인 (게이트 7-S)
+## 비고 정리 (코스메틱)
 
-- DASH-5(`Reports::ClientDelayQuery` — 만기 대비)와 신규 CLIENT-4(약속일 대비) 쿼리가 서로 다른 파일·모집단으로 분리 — 전체 스위트 동시 통과로 회귀 없음 확인
-- 기존 954건(679건 기존 + Phase 5~6 13건 포함) 전부 통과 — 클라이언트 show 확장(invoices_controller clients 변수)이 기존 clients/invoices 컨트롤러 테스트에 영향 없음
+- `test/services/recurring_invoices/issue_service_test.rb:153` 테스트명 "due_today" → "due_or_overdue"
+- `test/models/recurring_invoice_test.rb` 헤더 주석 "due_today 스코프" → "due_or_overdue 스코프"
 
-## 테스트 오류 자체 수정 이력 (코드 버그 아님 — 3건)
+## 코드 버그
 
-1. 시스템 테스트: hidden 요소 `find` 실패 → `visible: :all` 지정
-2. 시스템 테스트: 시드 지연 +2로 기대 "1일" 불일치(시드 산수 실수) → paid_on 수정
-3. 통합 테스트: 배지 diff가 (3+2)/2=1.5→2로 상쇄되어 미노출(동작이 오히려 경계 규격 준수) → 시드를 +3/+1로 조정해 diff 1 확보
+없음. 실패 1건은 테스트 오류(타인 스케줄 404를 raise 단정으로 작성 — test 환경 `show_exceptions = :rescuable`에서는 미들웨어가 404를 렌더하고 예외는 상승하지 않음) → 자체 수정 후 통과. 기존 스위트 충돌(recurring 마이그레이션·NO_TEMPLATE 분기·upgrade_service 쿠폰 정산) 없음 — 전체 게이트로 확인.
 
-## 코드 버그 절
+## 러너 구조 실측 (기록 — 향후 게이트 절차 참고)
 
-없음 — 0건.
+`bin/rails test`는 `test/system/**`을 로드하지 않음(`-n` 프로브로 알려진 시스템 테스트 0 runs 실측). 시스템 테스트는 `bin/rails test:system` 별도 실행 필요 — "bin/rails test 전체" 게이트는 사실상 기본+시스템 2회 실행이 전체이다.

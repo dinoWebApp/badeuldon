@@ -1,0 +1,30 @@
+<%# LP-11 허브 — 무료 도구 3종 진입 카드(P3 무가입 사용). REM-2 톤 검수 문구 기반 문구 생성기·
+    3.3% 계산기·청구서 양식. 도구 경로는 3-S 결선 전 임시 하드코딩이며 T-E2가 컨트롤러 제공·
+    라우트 계약은 아래 경로로 고정 — 결선 시 헬퍼 경로로 교체할 것. %>
+<section class="mt-4" aria-label="무료 도구">
+  <h2 class="text-lg font-bold text-stone-900">무료 도구로 바로 시작</h2>
+  <div class="mt-3 grid gap-4 sm:grid-cols-3">
+    <% [
+      { name: "독촉 문구 생성기", desc: "단계별 톤에 맞춘 독촉 문구를 즉시 만들어 보세요", path: reminder_generator_tool_path,
+        icon: "M8 10h8M8 14h5m9-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" },
+      { name: "3.3% 계산기", desc: "원천징수 3.3%를 반영한 실수령액을 계산해 보세요", path: tax_calculator_tool_path,
+        icon: "M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm1 3h10M8 11h1m3 0h1m3 0h1M8 14h1m3 0h1m3 0h1" },
+      { name: "청구서 양식", desc: "필수 항목이 갖춰진 청구서 양식을 내려받아 보세요", path: invoice_template_tool_path,
+        icon: "M9 3h6v4h4v14H5V7h4V3Zm0 8h6m-6 4h4" }
+    ].each do |tool| %>
+      <div class="flex flex-col rounded-xl border border-stone-200 bg-white p-5 shadow-sm transition hover:shadow-md">
+        <div class="flex items-center gap-3">
+          <span class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-800">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
+              <path d="<%= tool[:icon] %>"></path>
+            </svg>
+          </span>
+          <h3 class="text-sm font-bold text-stone-900"><%= tool[:name] %></h3>
+        </div>
+        <p class="mt-3 flex-1 text-sm leading-relaxed text-stone-600"><%= tool[:desc] %></p>
+        <%= link_to "바로 사용", tool[:path],
+              class: "mt-4 inline-flex min-h-11 items-center justify-center rounded-lg border border-emerald-800 px-4 text-sm font-bold text-emerald-800 transition hover:bg-emerald-800 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+      </div>
+    <% end %>
+  </div>
+</section>

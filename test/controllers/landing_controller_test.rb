@@ -40,7 +40,8 @@ class LandingControllerTest < ActionDispatch::IntegrationTest
   test "표면 ①의 a 요소는 가입 CTA와 헤더 로그인만 ②에 진입한다 (SURF-4 개정 — 법적 고지 링크 제외)" do
     get root_url
     # PG 심사 요건(2026-10-15) — 푸터 법적 고지 3종 링크는 ② 진입이 아니므로 허용된다.
-    legal_hrefs = [ terms_path, privacy_path, refund_path ]
+    # 법적 고지 3종 + 블로그(표면 ① 내부 콘텐츠 허브 — LP-11·2026-11-11)는 ② 진입이 아니므로 허용
+    legal_hrefs = [ terms_path, privacy_path, refund_path, blog_path ]
     assert_select "a" do |anchors|
       assert anchors.any?, "랜딩에 가입 CTA 링크가 존재해야 한다"
       assert anchors.all? { |anchor| anchor["href"] == new_registration_path || anchor["href"] == new_session_path || anchor["href"].in?(legal_hrefs) },

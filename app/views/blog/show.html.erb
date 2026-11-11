@@ -1,0 +1,126 @@
+<%# BLOG-4 — 블로그 상세: 목차 사이드바(h2/h3 앵커)·본문(fragment 캐시 — SURF-6)·
+    관련 글(동일 카테고리 3건)·CTA·공유 버튼(BLOG-7 — JS 최소)·Article JSON-LD(BLOG-2).
+    본문 body_html은 저장 시(RenderService allowlist)·출력 시 이중 sanitize 통과 출력(48행) — raw 미사용.
+    메타 기본값(title·description — BLOG-2)도 여기서 지정한다(뷰 content_for). %>
+<% content_for :title, @post.meta_title.presence || @post.title %>
+<% content_for :description, @post.meta_description.presence || @post.display_summary %>
+<% content_for :head do %>
+  <%= render "blog/og_tags", post: @post %>
+  <%# Article JSON-LD(BLOG-2) — to_json은 신뢰된 서버 조립값(HTML 특수문자 이스케이프 내장).
+      script 내부는 엔티티 디코딩이 없어 raw가 필요하다. %>
+  <script type="application/ld+json">
+    <%= raw({
+      "@context" => "https://schema.org",
+      "@type" => "Article",
+      "headline" => @post.title,
+      "datePublished" => @post.display_published_at&.iso8601,
+      "dateModified" => @post.updated_at.iso8601,
+      "author" => { "@type" => "Organization", "name" => "받을돈" },
+      "publisher" => { "@type" => "Organization", "name" => "받을돈" },
+      "mainEntityOfPage" => blog_post_url(slug: @post.slug),
+      "description" => @post.meta_description.presence || @post.display_summary
+    }.to_json) %>
+  </script>
+<% end %>
+
+<div class="grid gap-10 lg:grid-cols-[1fr_16rem]">
+  <article class="min-w-0">
+    <div class="flex items-center gap-2 text-xs">
+      <span class="rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700"><%= category_label(@post.category) %></span>
+      <% if @post.display_published_at %>
+        <time datetime="<%= @post.display_published_at.to_date.iso8601 %>" class="text-stone-400"><%= l(@post.display_published_at.to_date, format: :long) %></time>
+      <% end %>
+    </div>
+    <h1 class="mt-3 text-3xl font-extrabold leading-tight tracking-tight text-stone-900"><%= @post.title %></h1>
+    <% if @post.tags.present? %>
+      <p class="mt-3 flex flex-wrap gap-1.5 text-xs text-stone-500">
+        <% @post.tags.to_s.split(",").map(&:strip).reject(&:blank?).each do |tag| %>
+          <span class="rounded border border-stone-200 bg-white px-2 py-0.5">#<%= tag %></span>
+        <% end %>
+      </p>
+    <% end %>
+
+    <%# SURF-6 — 본문·목차 fragment 캐시(갱신 시 updated_at 키 변경으로 만료) %>
+    <% cache @post do %>
+      <%# 저장된 body_html은 RenderService allowlist 통과값이나, 방어 심층화로 저장 시점과
+          출력 시점 이중 sanitize(멱등 — allowlist 재적용)를 적용해 brakeman 경고도 0으로 유지한다. %>
+      <div class="mt-8 space-y-4 leading-relaxed text-stone-700">
+        <%= sanitize @post.body_html, tags: BlogPosts::RenderService::ALLOWED_TAGS, attributes: BlogPosts::RenderService::ALLOWED_ATTRIBUTES %>
+      </div>
+    <% end %>
+
+    <%# CTA — 3-Q(T-E2) 무료 도구 결선 대상 경로(인계 주석: tools 컨트롤러는 T-E2 소유 —
+        3-S 결선 — tools_path 헬퍼 사용) %>
+    <aside class="mt-10 rounded-xl border border-emerald-200 bg-emerald-50/60 p-6">
+      <p class="text-base font-bold text-emerald-900">지금 바로 무료로 써보세요</p>
+      <p class="mt-1 text-sm text-stone-600">가입 없이 독촉 문구 생성·3.3% 계산·청구서 양식 다운로드가 가능합니다.</p>
+      <a href="<%= tools_path %>" class="mt-4 inline-flex min-h-11 items-center rounded-lg bg-emerald-800 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900">
+        무료 도구 열어보기
+      </a>
+    </aside>
+
+    <%# 공유 버튼(BLOG-7) — 카카오톡·X·링크 복사(JS 최소 — blog.js importmap 모듈) %>
+    <div class="mt-8 flex items-center gap-3">
+      <span class="text-xs font-semibold text-stone-500">공유하기</span>
+      <button type="button" data-share="kakaotalk" data-title="<%= @post.title %>" data-url="<%= blog_post_url(slug: @post.slug) %>"
+              class="inline-flex min-h-9 items-center rounded-lg border border-stone-300 bg-white px-3 text-xs font-semibold text-stone-600 hover:border-emerald-700 hover:text-emerald-800">카카오톡</button>
+      <a href="https://twitter.com/intent/tweet?text=<%= u(@post.title) %>&url=<%= u(blog_post_url(slug: @post.slug)) %>" target="_blank" rel="noopener"
+         class="inline-flex min-h-9 items-center rounded-lg border border-stone-300 bg-white px-3 text-xs font-semibold text-stone-600 hover:border-emerald-700 hover:text-emerald-800">X(트위터)</a>
+      <button type="button" data-share="copy" data-url="<%= blog_post_url(slug: @post.slug) %>"
+              class="inline-flex min-h-9 items-center rounded-lg border border-stone-300 bg-white px-3 text-xs font-semibold text-stone-600 hover:border-emerald-700 hover:text-emerald-800">링크 복사</button>
+    </div>
+  </article>
+
+  <%# 목차 사이드바 — h2/h3 앵커(BlogPosts::RenderService 파생) %>
+  <% if @toc.present? %>
+    <aside class="hidden lg:block">
+      <nav class="sticky top-20 rounded-xl border border-stone-200 bg-white p-4" aria-label="목차">
+        <p class="text-xs font-bold uppercase tracking-wide text-stone-400">목차</p>
+        <ol class="mt-3 space-y-1.5 text-sm">
+          <% @toc.each do |text, anchor, level| %>
+            <li class="<%= level == 3 ? "pl-3" : "" %>">
+              <a href="#<%= anchor %>" class="block text-stone-600 transition hover:text-emerald-800"><%= text %></a>
+            </li>
+          <% end %>
+        </ol>
+      </nav>
+    </aside>
+  <% end %>
+</div>
+
+<%# BLOG-4 — 관련 글(동일 카테고리 최신 3건 — 자기 제외, 컨트롤러 산출 @related 소비) %>
+<% if @related.any? %>
+  <section class="mt-14 border-t border-stone-200 pt-8">
+    <h2 class="text-lg font-bold text-stone-900">함께 읽으면 좋은 글</h2>
+    <div class="mt-4 grid gap-4 sm:grid-cols-3">
+      <% @related.each do |post| %>
+        <div class="rounded-lg border border-stone-200 bg-white p-4">
+          <span class="text-xs font-semibold text-emerald-700"><%= category_label(post.category) %></span>
+          <h3 class="mt-1 text-sm font-bold leading-snug text-stone-900">
+            <%= link_to post.title, blog_post_path(slug: post.slug), class: "transition hover:text-emerald-800" %>
+          </h3>
+        </div>
+      <% end %>
+    </div>
+  </section>
+<% end %>
+
+<%# BLOG-7 공유 JS — 카카오톡은 SDK 키 발급이 운영 과제라 우선 공유 URL 개편 방식(
+    kakaoweb: 카카오톡 공유 스킴)·링크 복사만. Stimulus 분리는 기술 부채(AGENTS 로드맵) —
+    app/javascript 소유권이 본 태스크 밖이라 인라인 유지(3-S 결선 시 이동 검토). %>
+<script>
+  document.querySelectorAll("[data-share]").forEach(function (el) {
+    el.addEventListener("click", function () {
+      var url = el.dataset.url;
+      if (el.dataset.share === "copy") {
+        navigator.clipboard.writeText(url).then(function () {
+          var original = el.textContent;
+          el.textContent = "복사됨";
+          setTimeout(function () { el.textContent = original; }, 1500);
+        });
+      } else if (el.dataset.share === "kakaotalk") {
+        location.href = "kakaotalk://web/post?text=" + encodeURIComponent(el.dataset.title + " " + url);
+      }
+    });
+  });
+</script>

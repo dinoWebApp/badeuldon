@@ -1,50 +1,71 @@
-# 01_plan — INV-7 반복 청구 + PAY-6 수금완료 PDF 병렬 배치 (2026-11-11, §6.14 parallel · 절약 모드)
+# 01_plan — LP-11 콘텐츠 허브·블로그 + ADMIN-10 통합 (2026-11-11, §6.14 병렬 재판정 · 절약 모드)
 
-## §6.14 병렬 판정
+## §6.14 병렬 재판정 (BLOG/LP-11 전체 명세 확인 후)
 
-**유리 — 2태스크 fan-out + 3-S 결선**:
-- T-D1(INV-7) = recurring 도메인(마이그레이션·모델·잡·U1 UI) / T-D2(PAY-6) = PDF 도메인(gem·서비스·invoices member 액션) — **파일 소유권 분리 ✓**
-- 상호 의존 없음(반복 청구는 PDF 미참조·PDF는 반복 청구 미참조) **✓**
-- 공유 파일(routes·app nav)은 3-S 결선 **✓**
+**결론: 2단계 혼합 구조 — 코어는 단독 선행, 잔여는 fan-out.**
 
-## T-D1 · INV-7 반복 청구 (REM-1 서비스 명의·NOTI-3)
+전체를 한 번에 fan-out하려 했으나 의존 사슬이 확인됨: 허브·도구·ADMIN-10 모두 **블로그 코어(posts 모델·admin CRUD)를 선행 참조**. 반면 코어 완료 후에는 소유권이 분리되어 병렬 가능(§6.14 "완료된 선행 산출 참조는 허용").
 
-- **스케줄 모델**: `recurring_invoices`(user·client FK·day_of_month 1~28 — 월말 말일 이슈 회피 권고·tax_mode·withholding_enabled·hold_if_unpaid boolean·status enum active:0/paused:1/cancelled:2·last_issued_on·next_issue_on·timestamps) + `recurring_invoice_items`(recurring_invoice FK·name·quantity·unit_price — 발행 시 스냅샷 소스)
-- **자동 발행 잡** `RecurringInvoices::IssueJob`(매일 06:30 KST — recurring.yml): next_issue_on == today && active → 발행 플로우
-  - **보류 규칙(INV-7)**: hold_if_unpaid && 직전 발행 청구가 미수(unsettled) → 발행 skip·보류 기록(schedules 상태 필드 last_skip_reason + skip 카운트 — NOTI-3 통보 대상)
-  - **PLAN-1 한도 적용**(권고·게이트 확정): 월 한도 초과 시 skip+사유 기록 — 반복 청구도 Free 3건 한도 대상
-  - 발행: Invoice 신규 생성(초안→`issue!` 재사용 — 채번·토큰·한도·수금패스 전부 기존 검증 재사용)→ **issue_notice 알림톡**(REM-1 서비스 명의 — 기존 DeliverJob enqueue 재사용·자격·가드 SendService 위임)
-  - 발행 성공: last_issued_on·next_issue_on=다음 달 N일 갱신
-- **NOTI-3 알림톡(결정 필요·Q15 제안)**: 발행 완료 통보·보류 사유 통보용 템플릿 `noti_recurring_issued`·`noti_recurring_held`가 **19종에 없음 → ALIMTALK_TEMPLATES.md B-5 초안 작성(사용자 검수 후 솔라피 등록)**·등록 전까지는 DeliverJob 수준에서 MISSING_TEMPLATE 예외를 **skipped(NO_TEMPLATE) 기록으로 흡수** — 발행 자체는 정상·템플릿 등록 후 자동 활성화. 대안(U1 대시보드 알림만)보다 이 방침 권고
-- **U1 UI**: `/app/recurring` 리소스 — 목록·신규(거래처 select·품목 행 동적[CLIENT-2 items 재사용·직접 입력]·매월 N일·tax_mode·withholding·보류 설정)·상세(발행 이력)·**일시중지/재개·해지**(INV-7) — 사이드바 "반복 청구" 메뉴(3-S)
-- 발행된 청구는 기존 Invoice로 — 상태·수금·리마인더 시퀀스 전부 기존 플로우 재사용
-- 소유 파일: 마이그레이션 1건(2테이블)·`recurring_invoice.rb`·`recurring_invoice_item.rb`·`RecurringInvoices::IssueJob`·`RecurringInvoices::IssueService`(발행+보류 판정)·`app/controllers/app/recurring_invoices_controller.rb`+views·routes(3-S)·테스트
+| 단계 | 태스크 | 구성 | 판정 |
+|---|---|---|---|
+| **3-P (선행 단독)** | **T-E1 블로그 코어** | posts 모델·admin 콘텐츠 CRUD(ADMIN-10·BLOG-5)·`/blog` 목록·상세·카테고리(BLOG-1/3/4)·SEO(BLOG-2)·사이트맵 | 단독 — 코어가 전체의 선행 |
+| **3-Q (fan-out·선행 완료 후)** | **T-E2 무료 도구 3종**(LP-11) | 독촉 문구 생성기·3.3% 계산기·청구서 양식 다운로드 — 가입 없이·각각 독립 컨트롤러/뷰 | 소유권 분리 ✓ |
+| | **T-E3 LP-11 허브 통합** | /blog를 허브로(5클러스터 카테고리·CTA·내부 링크 BLOG-6·공유 BLOG-7) | 블로그 코어 참조 — 선행 완료 후 병렬 ✓ |
+| | **T-E4 ADMIN-10 완성** | 콘텐츠 메뉴 통합(공지+블로그)·예약 발행 Job | 소유권 분리 ✓ |
+| **3-S** | 결선 | routes·nav(랜딩 헤더 블로그 링크)·migrate·스모크 | |
 
-## T-D2 · PAY-6 수금완료 증빙 PDF
+fan-out 위임 제약 준수(소유권 화이트리스트·runner 자기검증·전체 테스트 금지·문서 금지).
 
-- **기술 결정(권고)**: `prawn` gem 추가(Gemfile — T-D2 단일 소유)·**한글 폰트 Pretendard OTF 번들**(npm pretendard dist/otf Regular+Bold — public/fonts 재사용 불가, PDF는 파일시스템 경로 필요 → `app/assets/pdfs/` 또는 lib/assets 다운로드 번들)
-- **범위 한정(권고)**: PAY-6(발행자 회계 보관용)만 — VIEW-4 뷰어 PDF는 이번 범위 밖(후속 표기)
-- **서비스** `Invoices::ReceiptPdfService` — paid 청구 한정(마감 상태 아님 → 생성 불가)·내용: 거래처명·청구번호·발행일·**품목 요약(행별 명·수량·단가·합계)**·공급가액·부가세·총액·**입금일(마감 입금일 = MAX paid_on)**·원천징수(옵션 건)
-- **액션**: `GET /app/invoices/:id/payment_pdf`(member·paid 청구만 — 미마감 404/안내·본인 소유권) → send_data(파일명 `수금완료증빙_{청구번호}.pdf`)·청구서 상세(수금 완료 상태)에 다운로드 버튼
-- 소유 파일: `Gemfile`·`Gemfile.lock`·폰트 파일 2·`app/services/invoices/receipt_pdf_service.rb`·`app/controllers/app/invoices_controller.rb`(member 액션 추가)·invoice show 뷰(버튼)·routes는 3-S(간단해도 결선 통일)·테스트(생성 바이트·한글 렌더·미마감 차단)
-- 판정: ✓ 3조건(Gemfile 단일 소유·T-D1과 무관)
+## 구현 범위
 
-## 3-S 결선 (단일 Developer-lite)
-- routes 결선(T-D1 recurring_invoices resources + T-D2 payment_pdf member)·app nav "반복 청구" 추가·전체 migrate·스모크(303 가드·PDF 404/200)·T-D1/T-D2 컨트롤러 테스트 실행(결선 후 최초 HTTP 검증 — Run A 교훈)
+### T-E1 블로그 코어 (선행 단독)
+- `blog_posts` 마이그레이션: title·slug(고유·indexed)·body(마크다운 원문)·rendered_html(서버 렌더 후 저장)·category enum(LP-11 5클러스터: rem Scripts→알림·수금 시나리오 / recovery→미수금·내용증명 / docs→청구서·양식 / tax→프리랜서 세금 / stories→수금 사례)·tags(string 배열)·status enum(draft:0/scheduled:1/published:2/private:3 — BLOG-5)·publish_at(예약)·meta_title·meta_description·og_image(AS 첨부)·thumbnail(AS 첨부)·views counter(캐시 컬럼·표시용)·timestamps
+- slug: 발행 시 지정(BLOG-1)·변경 시 301 리다이렉트 테이블(`blog_slug_redirects` old_slug→post_id — BLOG-1 요건)
+- Admin 콘텐츠 CRUD: `Admin::BlogPostsController`(ADMIN-10·BLOG-5 — 목록·상태 전이·예약 발행·필수 필드 검증: 제목/슬러그/본문/썸네일/카테고리/태그/메타 2종/OG 이미지)
+- AS 첨부: thumbnail 1장·og_image 1장(Run C의 AS 재사용)
+- 공개 표면: `BlogController`(공개·비로그인·**색인 허용** — SURF-3 예외: /blog는 indexable) — 목록(최신순·카테고리 필터·페이지네이션·썸네일·요약·발행일·카테고리 — BLOG-3)·상세(본문 렌더·목차·관련 글·CTA 2종·공유 버튼 — BLOG-4/7)·slug 301 리다이렉트
+- SEO: 메타 태그·OG 태그·Article JSON-LD(BLOG-2)·`sitemap.xml`(게시글 자동 반영)
+- 렌더: **kramdown**(마크다운→HTML·Gemfile 추가)+`Rails::HTML` sanitize(Reminder 금지 표현과 별개 — XSS 방어 목적)·렌더 결과는 DB 저장(요청 시 재렌더 방지·수정 시 재렌더)
+- 목차: h2/h3에서 파생(렌더 시 생성·앵커 부여)
+- 예약 발행: `BlogPosts::PublishScheduledJob`(매분 스캔·publish_at ≤ now && scheduled → published 전환)·recurring.yml 등록
+- 표기: SURF-3 예외 명시(/blog는 색인 허용 — BLOG-2 "SURF-3을 따른다"의 해석: 블로그는 공개 콘텐츠이므로 NOINDEX_PATH_PREFIXES에서 제외)
 
-## 결정 기록 제안 (게이트 확정 → Phase 2 PRD 반영)
+### T-E2 무료 도구 3종 (LP-11 — 가입 없이)
+- `ToolsController`(공개·비로그인) + 3 도구:
+  1. **독촉 문구 생성기** — 4단계 톤 선택(REM-2: 부드러움/정중/사실적/강경)·상황 입력(거래처명·금액·만기일) → 문구 3종 생성(서버 템플릿 조합·LLM 없음 — P5 안전) → 복사 버튼·주 CTA(가입 유도)
+  2. **3.3% 계산기** — 공급가액 입력 → 원천징수 3.3%·실수령액·부가세 계산(클라이언트 JS or 서버) → 복사·CTA
+  3. **청구서 양식 다운로드** — 간단 입력(거래처·품목·금액) → **PDF 양식 생성**(T-D2 Prawn+TTF 재사용 — Invoices::TemplatePdfService) → 다운로드·CTA
+- 각 도구: 개별 경로(`/tools/reminder-generator` 등)·도구 결과 화면에 주 CTA 배치(L P-11 문언)·noindex 아님(색인 허용 — LP 유입 목적)
+- 폼 제출 없이 즉시 결과(가입 없이 요건)·세션·쿠키 저장 없음(P3·프라이버시)
+- 소유: `app/controllers/tools/`·`app/views/tools/**`·`app/services/tools/`(문구 생성 로직)·테스트
 
-| # | 결정 | 권고 |
-|---|---|---|
-| Q15 | NOTI-3 알림톡 템플릿 미등록 처리 | 초안 작성(B-5)·등록 전 skipped(NO_TEMPLATE) 기록·발행 정상·등록 후 자동 활성화 |
-| Q16 | PLAN-1 한도 적용 | 반복 청구도 월 3건 한도(Free) — 초과 시 skip+사유 기록·Plus 무제한 |
-| Q17 | PDF 기술·범위 | Prawn+Pretendard OTF 번들·PAY-6(발행자용)만·VIEW-4 뷰어 PDF 후속 |
-| — | day_of_month 1~28 | 월말(29~31) 말일 이슈 회피 — 등록 UI에서 1~28 한정 |
+### T-E3 LP-11 허브 통합
+- `/blog` 목록을 허브로: 5클러스터 카테고리 네비게이션·**무료 도구 3종 진입 카드**(T-E2 링크)·CTA 배치
+- 랜딩(/) 헤더에 "블로그" 링크 추가·푸터 링크
+- 내부 링크 검증: 게시글에 도구/관련 글 링크 존재 검증은 발행 시 경고(강제 아님·BLOG-6 "의무" — admin 검증 경고)
+
+### T-E4 ADMIN-10 완성
+- admin nav "콘텐츠" 메뉴 — 공지(T-C Run C)·블로그(T-E1) 통합 진입
+- 예약 발행 Job 등록·감사 기록(발행/비공개 전환)
+
+### 3-S 결선
+- routes 결선(blog·tools·admin blog_posts)·nav·LP-11 허브 페이지 통합(도구 카드+최신 글)·migrate·스모크·**컨트롤러 최초 HTTP 검증**(블로그 목록·상세·도구 3종·admin CRUD — U1/admin 실세션)
 
 ## 대상 파일 요약
 
-T-D1: 마이그레이션·recurring 모델 2·잡 1·서비스 1·app/recurring 컨트롤러+뷰 4~5·테스트 / T-D2: Gemfile·폰트 2·PDF 서비스·invoices 컨트롤러·show 버튼·테스트 / 3-S: routes·nav
+T-E1: 마이그레이션 2(posts·slug_redirects)·모델 2~3·admin 컨트롤러+뷰·BlogController+뷰·kramdown gem·사이트맵 / T-E2: tools 컨트롤러·서비스·뷰 / T-E3: 허브 뷰·nav / 3-S: routes·nav
 
 ## 관련 Rule ID
 
-INV-7·NOTI-3·REM-1(issue_notice)·PAY-1/2(마감 입금일)·PAY-6·PLAN-1·VIEW-4(범위 밖 표기)·TIME-1·SURF-3
+BLOG-1~8·LP-11·ADMIN-10·ADMIN-6(공지와 콘텐츠 메뉴 통합)·SURF-3(블로그 색인 허용 예외)·SURF-6(성능 예산)·REM-2(문구 생성기 톤)·PAY-3 참조(양식)·P3(도구 무가입)·P5(문구 생성기 — 법적 조치 금지 문구만)·TIME-1
+
+## 리스크·모호점 (게이트 확정 대상)
+
+1. **ADMIN-10 블로그 통합**: 블로그 CRUD가 admin 도메인에 들어가므로 T-E1이 ADMIN-10을 흡수(콘텐츠 메뉴 = 블로그+공지) — 별도 태스크 제거
+2. **마크다운 렌더 gem**(kramdown — Gemfile 추가·T-E1 소유)·sanitize 정책(XSS 방어 — allowlist 명시)
+3. **예약 발행 Job** 스캔 주기(1분) — Solid Queue recurring(`* * * * *` 매분) — 잡 컨테이너 부하 미미
+4. **독촉 문구 생성기의 문구 데이터**: REM-2 4단계 톤별 템플릿 3종×4톤=12종을 서버 상수로(법적 조치·협박 금지 문구만 — P5·LP-12 준수·운영자 검수 문구 한정) — 사용자 입력 삽입은 이스케이프
+5. **청구서 양식 PDF**: T-D2 Prawn 재사용 — 양식 샘플 데이터 고정(사용자 입력 일부 반영 가능)
+6. **surf-6 성능**: 블로그 상де 렌더 2초 예산 — 캐시(fragment) 권고
+7. **OG 이미지 필수** — 업로드 없이 발행 불가 검증(BLOG-5)
+8. **사이트맵**: `/sitemap.xml` — 게시글+카테고리 자동 반영(BLOG-2)

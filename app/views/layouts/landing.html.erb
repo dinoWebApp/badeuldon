@@ -10,7 +10,12 @@
         가입 유도는 히어로 CTA 단일을 유지하고, 로그인 사용자는 대시보드 복귀 링크만 노출한다. %>
     <header class="sticky top-0 z-10 border-b border-stone-200/80 bg-cream/90 backdrop-blur">
       <div class="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
-        <span class="text-lg font-extrabold tracking-tight text-emerald-900">받을돈</span>
+        <div class="flex items-center gap-5">
+          <span class="text-lg font-extrabold tracking-tight text-emerald-900">받을돈</span>
+          <%# LP-11 콘텐츠 허브 유입 — 랜딩→블로그 텍스트 링크(히어로 CTA 단일은 유지) %>
+          <%= link_to "블로그", blog_path,
+                class: "inline-flex min-h-11 items-center text-sm font-semibold text-stone-600 transition hover:text-emerald-800" %>
+        </div>
         <% if authenticated? %>
           <%= link_to "대시보드로 가기", app_root_path,
                 class: "rounded-lg bg-emerald-800 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>

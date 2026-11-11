@@ -34,6 +34,9 @@ gem "prawn", "~> 2.5"
 # PAY-6 — PDF 표 레이아웃(Prawn 2.x부터 표는 별도 gem — prawn-table)
 gem "prawn-table"
 
+# BLOG-5(ADMIN-10) — 블로그 본문 마크다운 렌더(Q18 — kramdown + Rails HTML sanitizer allowlist)
+gem "kramdown"
+
 # Windows does not include zoneinfo files, so bundle the tzinfo-data gem
 gem "tzinfo-data", platforms: %i[ windows jruby ]
 

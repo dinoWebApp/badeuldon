@@ -1,0 +1,102 @@
+<%# ADMIN-10·BLOG-5 게시글 폼(신규·수정 공용) — 마크다운 원문 편집, 카테고리·태그·메타 2종,
+    AS 첨부 2장(썸네일·OG — 발행 전환 시 필수), 예약 시각. 슬러그는 비우면 저장 시 자동 생성.
+    B-1(05_review) — FormBuilder(|f|)로 전환해 f.file_field가 폼에 multipart/enctype을
+    자동 부여하게 한다(top-level file_field는 multipart 감지가 동작하지 않는다 — 실측). %>
+<div class="admin-card">
+  <h1 class="admin-title"><%= blog_post.persisted? ? "게시글 수정" : "새 게시글" %></h1>
+
+  <%= form_with model: blog_post, url: (blog_post.persisted? ? admin_blog_post_path(blog_post) : admin_blog_posts_path),
+        local: true, class: "space-y-4" do |f| %>
+    <div>
+      <label class="block text-xs text-stone-500 mb-1" for="blog_post_title">제목</label>
+      <%= f.text_field :title, required: true, class: "w-full border border-stone-300 rounded px-3 py-2 text-sm" %>
+      <% if blog_post.errors.key?(:title) %><p class="mt-1 text-xs text-red-600"><%= blog_post.errors[:title].first %></p><% end %>
+    </div>
+
+    <div class="flex gap-4">
+      <div class="flex-1">
+        <label class="block text-xs text-stone-500 mb-1" for="blog_post_slug">슬러그(비우면 자동 생성 · 소문자 영숫자+하이픈)</label>
+        <%= f.text_field :slug, placeholder: "예: overdue-invoice-guide",
+              class: "w-full border border-stone-300 rounded px-3 py-2 text-sm font-mono" %>
+        <% if blog_post.errors.key?(:slug) %><p class="mt-1 text-xs text-red-600"><%= blog_post.errors[:slug].first %></p><% end %>
+      </div>
+      <div>
+        <label class="block text-xs text-stone-500 mb-1" for="blog_post_category">카테고리</label>
+        <%= f.select :category,
+              BlogHelper::CATEGORY_KEYS.map { |k| [ category_label(k), k ] },
+              class: "border border-stone-300 rounded px-2 py-1.5 text-sm" %>
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-xs text-stone-500 mb-1" for="blog_post_body_md">본문(마크다운)</label>
+      <%= f.text_area :body_md, rows: 18, required: true,
+            class: "w-full border border-stone-300 rounded px-3 py-2 text-sm font-mono" %>
+      <% if blog_post.errors.key?(:body_md) %><p class="mt-1 text-xs text-red-600"><%= blog_post.errors[:body_md].first %></p><% end %>
+    </div>
+
+    <div class="flex gap-4">
+      <div class="flex-1">
+        <label class="block text-xs text-stone-500 mb-1" for="blog_post_summary">목록 요약(비우면 본문 선두 150자)</label>
+        <%= f.text_area :summary, rows: 3, class: "w-full border border-stone-300 rounded px-3 py-2 text-sm" %>
+      </div>
+      <div class="flex-1">
+        <label class="block text-xs text-stone-500 mb-1" for="blog_post_tags">태그(쉼표 구분)</label>
+        <%= f.text_field :tags, placeholder: "예: 연체, 3.3%",
+              class: "w-full border border-stone-300 rounded px-3 py-2 text-sm" %>
+      </div>
+    </div>
+
+    <div class="flex gap-4">
+      <div class="flex-1">
+        <label class="block text-xs text-stone-500 mb-1" for="blog_post_meta_title">메타 제목(발행 시 필수)</label>
+        <%= f.text_field :meta_title, class: "w-full border border-stone-300 rounded px-3 py-2 text-sm" %>
+      </div>
+      <div class="flex-1">
+        <label class="block text-xs text-stone-500 mb-1" for="blog_post_meta_description">메타 설명(발행 시 필수)</label>
+        <%= f.text_field :meta_description, class: "w-full border border-stone-300 rounded px-3 py-2 text-sm" %>
+      </div>
+    </div>
+
+    <div class="flex flex-wrap gap-6">
+      <div>
+        <label class="block text-xs text-stone-500 mb-1" for="blog_post_thumbnail">썸네일(발행 시 필수)</label>
+        <%= f.file_field :thumbnail, accept: "image/*" %>
+        <% if blog_post.thumbnail.attached? %><p class="mt-1 text-xs text-emerald-700">첨부됨: <%= blog_post.thumbnail.filename %></p><% end %>
+      </div>
+      <div>
+        <label class="block text-xs text-stone-500 mb-1" for="blog_post_og_image">OG 이미지(발행 시 필수)</label>
+        <%= f.file_field :og_image, accept: "image/*" %>
+        <% if blog_post.og_image.attached? %><p class="mt-1 text-xs text-emerald-700">첨부됨: <%= blog_post.og_image.filename %></p><% end %>
+      </div>
+      <div>
+        <label class="block text-xs text-stone-500 mb-1" for="blog_post_publish_at">발행 예정 시각(예약 발행은 아래 별도 폼 사용)</label>
+        <%= f.datetime_local_field :publish_at, class: "border border-stone-300 rounded px-2 py-1.5 text-sm" %>
+      </div>
+    </div>
+
+    <div class="flex gap-2">
+      <%= f.submit "저장", class: "rounded bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800" %>
+      <%= link_to "취소", admin_blog_posts_path, class: "rounded border border-stone-300 px-4 py-2 text-sm text-stone-600 hover:bg-stone-100" %>
+    </div>
+  <% end %>
+
+  <%# C-1(05_review) — 예약 발행 진입점. schedule member PATCH를 호출하는 유일한 UI.
+      발행 전 상태(draft·scheduled·hidden)에서만 노출하며, publish_at은 W-2 검증
+      (무효 문자열 → 422 alert)를 통과해야 scheduled로 전환된다. 중첩 폼 방지를 위해
+      본 폼 밖에 배치한다. %>
+  <% if blog_post.persisted? && !blog_post.published? %>
+    <div class="mt-6 rounded border border-stone-200 bg-stone-50 p-4">
+      <p class="text-xs font-bold text-stone-600">예약 발행 — 지정 시각 이후 매분 스캔에서 공개 전환됩니다(최대 1분 지연).</p>
+      <%= form_with model: blog_post, url: schedule_admin_blog_post_path(blog_post), method: :patch,
+            local: true, class: "mt-2 flex flex-wrap items-end gap-2" do |sf| %>
+        <div>
+          <label class="block text-xs text-stone-500 mb-1" for="blog_post_schedule_publish_at">발행 예정 시각</label>
+          <%= sf.datetime_local_field :publish_at, id: "blog_post_schedule_publish_at",
+                class: "border border-stone-300 rounded px-2 py-1.5 text-sm" %>
+        </div>
+        <%= sf.submit "예약 발행", class: "rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700" %>
+      <% end %>
+    </div>
+  <% end %>
+</div>

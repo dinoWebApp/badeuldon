@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_11_040001) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_11_100001) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.string "name", null: false
     t.string "record_type", null: false
@@ -78,6 +78,35 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_11_040001) do
     t.datetime "updated_at", null: false
     t.index ["action"], name: "index_audit_logs_on_action"
     t.index ["admin_id"], name: "index_audit_logs_on_admin_id"
+  end
+
+  create_table "blog_posts", force: :cascade do |t|
+    t.integer "admin_id", null: false
+    t.string "title", null: false
+    t.string "slug", null: false
+    t.text "body_md", null: false
+    t.text "body_html", null: false
+    t.integer "category", default: 0, null: false
+    t.string "tags"
+    t.integer "status", default: 0, null: false
+    t.datetime "publish_at"
+    t.datetime "published_at"
+    t.string "meta_title"
+    t.string "meta_description"
+    t.text "summary"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["admin_id"], name: "index_blog_posts_on_admin_id"
+    t.index ["slug"], name: "index_blog_posts_on_slug", unique: true
+    t.index ["status", "published_at"], name: "index_blog_posts_on_status_and_published_at"
+  end
+
+  create_table "blog_slug_redirects", force: :cascade do |t|
+    t.string "old_slug", null: false
+    t.integer "blog_post_id", null: false
+    t.datetime "created_at", null: false
+    t.index ["blog_post_id"], name: "index_blog_slug_redirects_on_blog_post_id"
+    t.index ["old_slug"], name: "index_blog_slug_redirects_on_old_slug", unique: true
   end
 
   create_table "clients", force: :cascade do |t|
@@ -365,6 +394,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_11_040001) do
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
   add_foreign_key "admin_sessions", "admins", on_delete: :cascade
   add_foreign_key "audit_logs", "admins", on_delete: :cascade
+  add_foreign_key "blog_posts", "admins"
+  add_foreign_key "blog_slug_redirects", "blog_posts", on_delete: :cascade
   add_foreign_key "clients", "users"
   add_foreign_key "invoice_items", "invoices"
   add_foreign_key "invoices", "clients"

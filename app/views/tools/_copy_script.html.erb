@@ -1,0 +1,25 @@
+<%# 도구 공통 — 복사 버튼 최소 JS(clipboard). Stimulus 컨트롤러 파일은 이번 소유권 밖이라
+    인라인 스크립트로 처리(3-S 결선 이후에도 유지 가능·importmap 충돌 없음). %>
+<script nonce="<%= content_security_policy_nonce %>">
+  document.querySelectorAll(".tools-copy-btn").forEach(function (button) {
+    button.addEventListener("click", function () {
+      var text = button.getAttribute("data-copy-text") || "";
+      var done = function () {
+        var original = button.textContent;
+        button.textContent = "복사됨";
+        setTimeout(function () { button.textContent = original; }, 1500);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done);
+      } else {
+        var area = document.createElement("textarea");
+        area.value = text;
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand("copy");
+        document.body.removeChild(area);
+        done();
+      }
+    });
+  });
+</script>

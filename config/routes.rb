@@ -170,6 +170,44 @@ Rails.application.routes.draw do
     get "/:token/refusal_thanks", to: "viewer#refusal_thanks", as: :viewer_refusal_thanks
   end
 
+  # ── 표면 ① 무료 도구(/tools) — LP-11 콘텐츠 허브 유입 경로. 가입·로그인 없이 동작(P3),
+  # 입력은 GET params만. 색인 허용(SURF-3 예외 — NOINDEX_PATH_PREFIXES 미포함).
+  # 양식 PDF 다운로드는 자원 표현(.pdf format)이라 별행 — ToolsController#invoice_template_pdf.
+  scope "/tools", controller: "tools" do
+    get "" => :index, as: :tools
+    get "reminder-generator" => :reminder_generator, as: :reminder_generator_tool
+    get "tax-calculator" => :tax_calculator, as: :tax_calculator_tool
+    # .pdf 라우트를 먼저 선언 — Rails가 "invoice-template.pdf(.:format)"을 정적 리터럴로
+    # 매칭해 invoice_template_pdf로 정확히 분기한다(뒤에 두면 .pdf가 format 파싱되어
+    # 아래 invoice_template 액션이 UnknownFormat으로 떨어짐 — 실측).
+    get "invoice-template.pdf" => :invoice_template_pdf, as: :invoice_template_pdf_tool
+    get "invoice-template" => :invoice_template, as: :invoice_template_tool
+  end
+
+  # ── 표면 ① 블로그(/blog) — BLOG-1~4·LP-11 허브(ADMIN-10 관리 콘텐츠의 공개 표면) ──
+  # 비로그인 공개(SURF-1)·색인 허용(SURF-3 예외 — NOINDEX_PATH_PREFIXES 미포함).
+  # 슬러그가 자원 식별자(추측 불가 토큰이 아닌 SEO 식별자 — BLOG-1). 구 슬러그는 301로
+  # blog_slug_redirects 경유 대응(BlogController#show 내부). sitemap.xml은 BLOG-2.
+  get "/blog", to: "blog#index", as: :blog
+  # BLOG-1 — 카테고리 경로형(PRD 원문 준수·C-2). /blog/:slug보다 먼저 선언해 slug 라우트
+  # 흡수를 막는다. 쿼리형(/blog?category=)은 레거시 호환으로 유지(양좁).
+  get "/blog/category/:category", to: "blog#index", as: :blog_category
+  get "/blog/:slug", to: "blog#show", as: :blog_post
+  get "/sitemap.xml", to: "sitemaps#show", as: :sitemap
+
+  # ── ADMIN-10·BLOG-5 — 블로그 콘텐츠 관리(공지와 유사 CRUD + 상태 전이 member PATCH).
+  # publish(즉시 발행)·schedule(예약)·unpublish(비공개)는 상태 전이라 member로 정당화.
+  # admin nav "콘텐츠" 메뉴는 3-S 결선 대상 — 라우트만 이 곳에서 결선한다(T-E1).
+  namespace :admin do
+    resources :blog_posts do
+      member do
+        patch :publish
+        patch :schedule
+        patch :unpublish
+      end
+    end
+  end
+
   # ── 표면 ① 공개 정적 페이지 — 법적 고지(PG 심사 요건) ──────────
   # 랜딩과 동일 공개 크롬(landing 레이아웃), 비인증(SURF-1). NOINDEX_PATH_PREFIXES 미포함 — 색인 허용(SURF-3).
   get "/terms" => "pages#terms", as: :terms
