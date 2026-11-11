@@ -133,3 +133,6 @@ BLOCKER 1·CRITICAL 4·WARNING 6 전건 수정. 상세는 `_workspace/05_review.
 
 - published_now는 status published && publish_at ≤ now — 예약글이 Job 전환 직후에도 publish_at 미경과면 미노출(경계 안전). 재현 테스트는 travel 블록 내부에서 노출을 검증했다.
 - 시스템 테스트(실브라우저 첨부 E2E)는 리뷰 권고대로 Phase 7 인계 — Integration multipart 업로드 재현은 위 1번으로 완료.
+
+## CI 인계 (2026-11-11 — 테스트 헬퍼 pdftotext→pdf-reader 전환)
+- 오케스트레이터: 커밋·푸시 후 CI 결과 확인 필요. `test/services/tools/template_pdf_service_test.rb`의 `extract_text`를 PDF::Reader(순수 Ruby) 기반으로 전환, `Gemfile` pdf-reader를 `group :test`로 이동 — poppler 환경 의존 제거, CI Linux 4건 실패 소멸 대상. 로컬 5 runs 0 failures 확인.

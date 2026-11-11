@@ -1,4 +1,5 @@
 require "test_helper"
+require "pdf-reader"
 
 module Tools
   class TemplatePdfServiceTest < ActiveSupport::TestCase
@@ -39,18 +40,12 @@ module Tools
 
     private
 
-    # Prawn PDF의 텍스트 추출은 poppler(pdftotext) 없이 검증이 어려워,
-    # TTF 서브셋의 ToUnicode 맵 대신 존재 검증은 %PDF 헤더+크기로 하고
-    # 실제 텍스트는 압축 스트림 풀기 결과에서 ASCII 안전 부분만 확인한다(거래처명 등 ASCII가
-    # 아닌 한글은 Prawn 서브셋+ToUnicode로 인코딩되어 raw 스트림에 나오지 않는다 —
-    # 따라서 텍스트 단위 검증은 pdftotext가 있을 때만 수행한다).
+    # Prawn PDF의 텍스트 추출은 순수 Ruby인 PDF::Reader로 수행한다 —
+    # 기존 시스템 pdftotext(poppler)는 CI Linux에서 poppler 설치 후에도 한글 빈 출력(플랫폼 차이 실측),
+    # PDF::Reader는 TTF 서브셋의 ToUnicode 맵을 따라 플랫폼 무관하게 한글을 추출한다.
     def extract_text(pdf)
-      return "" unless system("command -v pdftotext", out: File::NULL, err: File::NULL)
-
-      dir = Dir.mktmpdir
-      path = File.join(dir, "out.pdf")
-      File.binwrite(path, pdf)
-      `pdftotext #{path} - 2>/dev/null`
+      io = StringIO.new(pdf)
+      PDF::Reader.new(io).pages.map(&:text).join("\n")
     end
   end
 end

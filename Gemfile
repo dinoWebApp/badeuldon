@@ -80,4 +80,6 @@ group :test do
   # Use system testing [https://guides.rubyonrails.org/testing.html#system-testing]
   gem "capybara"
   gem "selenium-webdriver"
+  # PDF 텍스트 검증용 — 순수 Ruby(pdftotext/poppler 환경 의존 제거, CI Linux 빈 출력 실측)
+  gem "pdf-reader", require: false
 end
