@@ -27,9 +27,10 @@ class AdminBlogPublishTest < ApplicationSystemTestCase
     submit_form_of(totp_verify_admin_session_path)
     assert_text "관리자로 로그인되었습니다." # /admin 대시보드 도달
 
-    # ② 신규 폼 작성 — multipart 필드 2종 실첨부
-    visit admin_blog_posts_path
-    click_link "새 게시글"
+    # ② 신규 폼 작성 — multipart 필드 2종 실첨부.
+    # 목록에서 click_link는 chromedriver 합성 클릭이 간헐 드롭되어(CI 1fbbd8d 실측·
+    # ApplicationSystemTestCase §7 변주) 폼 미발견 플레이크 — 신규 경로 직접 내비게이션으로 고정
+    visit new_admin_blog_post_path
     assert_selector "form[method=post][enctype='multipart/form-data']"
 
     fill_in "blog_post_title", with: "미수금 대응 가이드"
