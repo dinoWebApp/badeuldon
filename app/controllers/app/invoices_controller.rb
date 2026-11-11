@@ -29,6 +29,10 @@ class App::InvoicesController < App::BaseController
   # F-REM(REM-8) — 수동 발송 버튼의 자격·다음 안내 표기용. 뷰의 쿼리·모델 호출 금지 규칙에 따라
   # 컨트롤러가 미리 산출해 @변수로 넘긴다.
   before_action :set_reminder_context, only: %i[ show issue void regenerate_token ]
+  # REF-1 — D+30 도달·미수 청구 상세 상단의 추심 상담 안내 배너 노출 판정.
+  before_action :set_referral_banner, only: :show
+  # LEGAL-1 — D+30 초과·미수 청구 상세 상단의 내용증명 안내 배너 노출 판정(REF 배너와 동일 조건).
+  before_action :set_legal_banner, only: :show
 
   def index
     @invoices = Current.user.invoices.includes(:client).sorted_by_due  # DASH-4 정렬과 동일
@@ -203,6 +207,20 @@ class App::InvoicesController < App::BaseController
   end
 
   private
+
+  # REF-1 — 추심 상담 안내 배너 노출 판정. 미수 계열(unsettled)이고 만기일이 30일 초과
+  # 경과(due_on + 30 < 오늘)일 때만 참. 판정은 App::ReferralsController의 목록 모집합과
+  # 동일 조건으로 유지한다. 뷰의 쿼리 금지 규칙에 따라 컨트롤러가 산출해 @변수로 넘긴다.
+  def set_referral_banner
+    @referral_banner = @invoice.unsettled? && @invoice.due_on.present? &&
+                       @invoice.due_on + 30 < Date.current
+  end
+
+  # LEGAL-1 — 내용증명 배너 노출 판정. 조건은 ContentProofPdfService.legal_target?(단일 출처)과
+  # 동일하다(뷰의 쿼리 금지 규칙에 따라 컨트롤러가 산출해 @변수로 넘긴다).
+  def set_legal_banner
+    @legal_banner = LegalDocuments::ContentProofPdfService.legal_target?(@invoice)
+  end
 
   def set_invoice
     @invoice = Current.user.invoices.find(params[:id])

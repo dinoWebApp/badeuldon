@@ -1,0 +1,81 @@
+<% content_for :title, "전문 추심 상담 안내 — 받을돈" %>
+
+<%# REF-1~4·P5 — 전문 추심 상담 소개 화면. 받을돈은 소개 화면 제공만 하며 채권 수임·중개
+    행위를 수행하지 않는다(P5). 제휴사는 미계약 상태이므로 "준비 중" 안내를 노출하고,
+    계약 후에는 제휴사 레코드를 이 화면에 반영한다(데이터 반영 구조 주석 — 하단 ⑥ 참조).
+    뷰 내 링크는 결선 헬퍼(app_referrals_path·app_invoice_path)를 사용한다. %>
+<div class="mx-auto w-full max-w-xl py-8">
+  <p class="text-sm">
+    <%= link_to "← 청구서 목록", app_invoices_path, class: "font-semibold text-stone-500 transition hover:text-stone-800" %>
+  </p>
+
+  <%# ── ① 헤더 ── %>
+  <header class="mt-4">
+    <h1 class="text-2xl font-bold tracking-tight text-emerald-900">전문 추심 상담 안내</h1>
+    <p class="mt-2 text-sm leading-relaxed text-stone-500">
+      만기일이 30일 이상 지난 미수금 청구에 대한 전문 추심 상담 연결 안내입니다.
+    </p>
+  </header>
+
+  <%# ── ② P5 고지(REF-2 원문 준용) — 법적 표현은 정확하게 ── %>
+  <section aria-labelledby="ref-p5" class="mt-6 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+    <h2 id="ref-p5" class="text-base font-bold text-stone-800">서비스 역할 고지</h2>
+    <p class="mt-3 rounded-xl bg-stone-50 p-4 text-sm leading-relaxed text-stone-700">
+      받을돈은 채권 수임·중개 행위를 수행하지 않습니다.
+      의뢰·계약은 회원님과 제휴 상담사 사이에서 성립합니다.
+    </p>
+  </section>
+
+  <%# ── ③ 전달 자료 범위 고지(REF-3) ── %>
+  <section aria-labelledby="ref-data" class="mt-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+    <h2 id="ref-data" class="text-base font-bold text-stone-800">전달 자료 범위</h2>
+    <p class="mt-3 text-sm leading-relaxed text-stone-700">
+      위탁 시 전달되는 자료는 청구 내역·발송·약속 이력 등 회원님이 동의한 항목으로 한정됩니다.
+      동의하지 않은 정보는 외부에 전달되지 않습니다.
+    </p>
+  </section>
+
+  <%# ── ④ 레퍼럴 고지(REF-4) ── %>
+  <section aria-labelledby="ref-fee" class="mt-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+    <h2 id="ref-fee" class="text-base font-bold text-stone-800">수수료·의뢰 조건</h2>
+    <p class="mt-3 text-sm leading-relaxed text-stone-700">
+      수수료·의뢰 조건은 제휴사와의 계약에 따릅니다.
+    </p>
+  </section>
+
+  <%# ── ⑤ D+30 도달 청구 목록(REF-1) ── %>
+  <section aria-labelledby="ref-list" class="mt-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+    <h2 id="ref-list" class="text-base font-bold text-stone-800">대상 청구</h2>
+    <p class="mt-1 text-xs text-stone-400">만기일로부터 30일이 지난 미수금 청구입니다.</p>
+    <% if @referral_invoices.any? %>
+      <ul class="mt-4 divide-y divide-stone-100">
+        <% @referral_invoices.each do |invoice| %>
+          <li class="py-3">
+            <%= link_to app_invoice_path(invoice), class: "block rounded-lg px-2 py-1 transition hover:bg-stone-50" do %>
+              <div class="flex flex-wrap items-baseline justify-between gap-2">
+                <span class="text-sm font-semibold text-stone-800"><%= invoice.issue_number %></span>
+                <span class="text-sm font-bold tabular-nums text-stone-900"><%= number_to_currency(invoice.total_amount, unit: "₩", precision: 0) %></span>
+              </div>
+              <div class="mt-0.5 flex flex-wrap items-baseline justify-between gap-2">
+                <span class="text-xs text-stone-500"><%= invoice.client.name %></span>
+                <%# 경과일 — TIME-1 KST 기준 날짜 판정 %>
+                <span class="text-xs text-orange-600">만기 <%= (Date.current - invoice.due_on).to_i %>일 경과</span>
+              </div>
+            <% end %>
+          </li>
+        <% end %>
+      </ul>
+    <% else %>
+      <p class="mt-4 text-sm leading-relaxed text-stone-500">해당하는 청구가 없습니다.</p>
+    <% end %>
+  </section>
+
+  <%# ── ⑥ 준비 중 안내 — 제휴사 미계약 실측 상태. 계약 후에는 제휴사 레코드(모델)를
+      이 섹션 위치에 반영해 "상담 연결" 진입(제휴사 페이지·연락처)으로 교체한다. ── %>
+  <section aria-labelledby="ref-ready" class="mt-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+    <h2 id="ref-ready" class="text-base font-bold text-stone-800">제휴 상담사 연결</h2>
+    <p class="mt-3 text-sm leading-relaxed text-stone-500">
+      제휴 상담사 연결은 준비 중입니다. 계약 완료 후 이 화면에서 연결됩니다.
+    </p>
+  </section>
+</div>

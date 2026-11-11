@@ -128,4 +128,65 @@ class Orders::PurchaseServiceTest < ActiveSupport::TestCase
     assert_predicate order.metadata["pending_recovery"], :present?
     assert_empty @user.payment_passes
   end
+
+  # B-1 회귀(F-LEGAL Phase 6) — legal_doc 주문은 metadata["invoice_id"]가 청구 역참조의
+  # 유일 경로다. 모호 실패·명확 실패 경로도 기존 metadata를 병합해 보존해야 한다.
+  test "모호 실패(회복 대기)도 legal_doc 주문의 metadata.invoice_id를 보존한다 (B-1)" do
+    legal_order = @user.orders.create!(product: :collection_pass, item_type: :legal_doc,
+                                       amount: Order::LEGAL_DOC_PRICE,
+                                       pg_order_id: "order-legal-pending-1",
+                                       metadata: { invoice_id: 123 })
+    fake = FakePortOneClient.new(
+      raise_on: { confirm_payment:
+                  PortOne::ApiError.new(status: nil, code: "TIMEOUT", message: "응답 시간 초과") },
+      get_payment: { id: "order-legal-pending-1", status: "READY" }
+    )
+
+    assert_raises(Orders::PurchaseService::PurchaseError) do
+      Orders::PurchaseService.new(order: legal_order, payment_token: "tok_widget_1",
+                                  client: fake).call
+    end
+
+    order = legal_order.reload
+    assert_predicate order, :pending?
+    assert_equal 123, order.metadata["invoice_id"]
+    assert_predicate order.metadata["pending_recovery"], :present?
+  end
+
+  test "명확한 승인 실패도 legal_doc 주문의 metadata.invoice_id를 보존한다 (B-1)" do
+    legal_order = @user.orders.create!(product: :collection_pass, item_type: :legal_doc,
+                                       amount: Order::LEGAL_DOC_PRICE,
+                                       pg_order_id: "order-legal-failed-1",
+                                       metadata: { invoice_id: 456 })
+    fake = FakePortOneClient.new(raise_on: { confirm_payment:
+                            PortOne::ApiError.new(status: 400, code: "PG_PROVIDER_ERROR",
+                                                  message: "PG사 처리 중 오류가 발생했습니다",
+                                                  pg_code: "F1001", pg_message: "카드 한도 초과") })
+
+    assert_raises(Orders::PurchaseService::PurchaseError) do
+      Orders::PurchaseService.new(order: legal_order, payment_token: "tok_widget_bad",
+                                  client: fake).call
+    end
+
+    order = legal_order.reload
+    assert_predicate order, :failed?
+    assert_equal 456, order.metadata["invoice_id"]
+    assert_equal "PG_PROVIDER_ERROR", order.metadata["code"]
+  end
+
+  test "결제 확정은 legal_doc 주문의 metadata.invoice_id를 결제 응답과 병합해 보존한다 (B-1)" do
+    legal_order = @user.orders.create!(product: :collection_pass, item_type: :legal_doc,
+                                       amount: Order::LEGAL_DOC_PRICE,
+                                       pg_order_id: "order-legal-paid-1",
+                                       metadata: { invoice_id: 789 })
+    fake = FakePortOneClient.new(confirm_payment: { id: "order-legal-paid-1", status: "PAID" })
+
+    Orders::PurchaseService.new(order: legal_order, payment_token: "tok_widget_1",
+                                client: fake).call
+
+    order = legal_order.reload
+    assert_predicate order, :paid?
+    assert_equal 789, order.metadata["invoice_id"]
+    assert_equal "PAID", order.metadata["status"]
+  end
 end

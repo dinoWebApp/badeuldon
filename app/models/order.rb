@@ -7,14 +7,25 @@ class Order < ApplicationRecord
 
   belongs_to :user
 
+  # LEGAL-2(Q5) — 내용증명 양식 건당 5,000원. 결제 체인(위젯→callback→PurchaseService·웹훅)은
+  # 수금 패스 주문과 동일한 orders 레코드로 흐르며 item_type으로만 구분한다. product 컬럼은
+  # null: false 제약이라 내용증명 주문에도 단건 결제 채널 동작상 collection_pass 값을 채운다
+  # (channel·승인 로직은 product를 읽지 않고, 상품별 확정 분기는 전부 item_type 기준 —
+  # FulfillPassService·Webhooks::PortOneController 참조).
+  LEGAL_DOC_PRICE = 5_000
+
   enum :product, { plus_monthly: 0, collection_pass: 1 }
   enum :status, { pending: 0, paid: 1, failed: 2, cancelled: 3 }, default: :pending
+  # LEGAL-2 — 주문 품목 구분(pass=기존 결제 전부 / legal_doc=내용증명 양식 1건).
+  enum :item_type, { pass: 0, legal_doc: 1 }, default: :pass
 
   # ADMIN-4 — 관리자 목록 필터용 스코프. refunded는 refunded_at 기준(환불 제외 매출 집계와 정합).
   scope :paid, -> { where(status: :paid) }
   scope :failed, -> { where(status: :failed) }
   scope :refunded, -> { where.not(refunded_at: nil) }
   scope :not_refunded, -> { where(refunded_at: nil) }
+  # LEGAL-2 — 내용증명 양식 주문 목록(App::LegalDocumentsController#index)
+  scope :legal_docs, -> { where(item_type: :legal_doc) }
 
   validates :pg_order_id, presence: true, uniqueness: true
   validates :amount, presence: true, numericality: { only_integer: true, greater_than: 0 }

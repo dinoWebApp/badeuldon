@@ -1,44 +1,7 @@
 {
-  "domain": "LP11-BLOG",
-  "currentPhase": "phase6",
-  "pipelineType": "parallel",
-  "parallelTasks": [
-    {
-      "id": "T-E1",
-      "name": "블로그 코어(선행 단독)",
-      "status": "done"
-    },
-    {
-      "id": "T-E2",
-      "name": "무료 도구 3종(3-Q)",
-      "status": "done"
-    },
-    {
-      "id": "T-E3",
-      "name": "LP-11 허브 통합(3-Q)",
-      "status": "done"
-    },
-    {
-      "id": "T-E4",
-      "name": "ADMIN-10 예약 발행 Job(3-Q)",
-      "status": "done"
-    },
-    {
-      "id": "3-S",
-      "name": "결선(routes·nav·허브 통합·SURF-4 수선)",
-      "status": "done"
-    }
-  ],
-  "phaseHistory": [
-    "phase0",
-    "phase1p",
-    "awaiting_approval",
-    "phase2",
-    "phase3p",
-    "phase3q",
-    "phase3s",
-    "phase4",
-    "phase6"
-  ],
+  "domain": null,
+  "currentPhase": null,
+  "pipelineType": null,
+  "phaseHistory": [],
   "lastUpdated": "2026-11-11T00:00:00+09:00"
 }

@@ -21,6 +21,10 @@ module App
           disabled: false, locked: },
         { label: "리포트", path: app_report_path, active: request.path.start_with?(app_report_path),
           disabled: false, locked: },  # DASH-5/6 — 리포트 페이지
+        { label: "내용증명", path: app_legal_documents_path, active: request.path.start_with?(app_legal_documents_path),
+          disabled: false, locked: },  # LEGAL-1~4 — 내용증명 양식 발급(건당 과금·포트원 단건 재사용)
+        { label: "추심 안내", path: app_referrals_path, active: request.path.start_with?(app_referrals_path),
+          disabled: false, locked: },  # REF-1~4 — 추심 상담 소개 화면(P5 고지)
         { label: "공지", path: app_notices_path, active: request.path.start_with?(app_notices_path),
           disabled: false, locked: },  # ADMIN-7 — 운영 공지 목록(/app/notice)
         { label: "문의", path: app_tickets_path, active: request.path.start_with?(app_tickets_path),

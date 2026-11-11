@@ -16,14 +16,24 @@ module Orders
 
         ActiveRecord::Base.transaction do
           @order.update!(status: :paid, paid_at: Time.current,
-                         pg_payment_id: @payment_id, metadata: @response)
-          issue_pass!
+                         pg_payment_id: @payment_id, metadata: merged_metadata)
+          # LEGAL-2 — 내용증명 양식 주문은 발급물(패스)이 없다: paid 확정만으로 충분하고
+          # PDF 생성은 다운로드 시점(App::LegalDocumentsController#download)에 순수 수행한다.
+          issue_pass! unless @order.legal_doc?
         end
       end
       @order
     end
 
     private
+
+    # B-1(LEGAL-2·F-LEGAL Phase 6) — 결제 응답으로 metadata를 통째로 덮어쓰지 않는다.
+    # legal_doc 주문은 orders.metadata["invoice_id"]가 청구 역참조의 유일 경로이므로
+    # (App::LegalDocumentsController#order_invoice → download), 기존 metadata를 보존하고
+    # 결제 응답을 병합한다. 덮어쓰면 paid 이후 다운로드가 영구 파탄난다.
+    def merged_metadata
+      (@order.metadata || {}).stringify_keys.merge(@response.stringify_keys)
+    end
 
     # PLAN-4 — 수금 패스 발급: 10건, 발급 시점으로 90일 유효.
     def issue_pass!

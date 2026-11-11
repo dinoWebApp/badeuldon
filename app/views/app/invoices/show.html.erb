@@ -26,6 +26,12 @@
     </p>
   </header>
 
+  <%# REF-1 — D+30 도달·미수 청구에 한해 추심 상담 안내 배너 노출(노출 판정은 컨트롤러 산출). %>
+  <%= render "referral_banner" if @referral_banner %>
+
+  <%# LEGAL-1 — D+30 초과·미수 청구에 한해 내용증명 안내 배너 노출(노출 판정은 컨트롤러 산출). %>
+  <%= render "legal_banner" if @legal_banner %>
+
   <%# ── 상태 전환 액션 — 파괴적 동작은 button_to + turbo_confirm(규약 §7.4) ── %>
   <div class="mt-6 flex flex-wrap items-center gap-3">
     <% if @invoice.draft? %>

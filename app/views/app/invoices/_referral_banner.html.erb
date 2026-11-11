@@ -1,0 +1,13 @@
+<%# REF-1 — 장기 미수금 안내 배너. D+30 도달·미수 청구 상세 상단에만 노출되며
+    (@referral_banner이 참일 때 — App::InvoicesController에서 산출), 추심 소개 화면으로
+    연결한다. P5에 따라 안내·소개에 한정하며 과장·홍보 문구를 쓰지 않는다. %>
+<%= link_to app_referrals_path,
+      class: "mt-6 flex items-center justify-between gap-3 rounded-2xl border border-orange-200 bg-orange-50 p-4 shadow-sm transition hover:bg-orange-100" do %>
+  <span>
+    <span class="block text-sm font-bold text-orange-800">장기 미수금 안내</span>
+    <span class="mt-0.5 block text-xs leading-relaxed text-orange-700">
+      만기일이 30일 이상 지났습니다. 전문 추심 상담 안내를 확인할 수 있습니다.
+    </span>
+  </span>
+  <span aria-hidden="true" class="shrink-0 text-orange-700">→</span>
+<% end %>

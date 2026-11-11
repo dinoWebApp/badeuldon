@@ -249,8 +249,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_11_100001) do
     t.datetime "updated_at", null: false
     t.datetime "refunded_at"
     t.text "refund_reason"
+    t.integer "item_type", default: 0, null: false
     t.index ["pg_order_id"], name: "index_orders_on_pg_order_id", unique: true
     t.index ["pg_payment_id"], name: "index_orders_on_pg_payment_id"
+    t.index ["user_id", "item_type"], name: "index_orders_on_user_id_and_item_type"
     t.index ["user_id"], name: "index_orders_on_user_id"
   end
 

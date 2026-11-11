@@ -17,18 +17,32 @@ class App::OrdersController < App::BaseController
   # 성공 응답의 paymentToken은 수동 승인 채널에서만 온다(즉시 승인 채널은 조회로 확정).
   def callback
     if payment_failed?
-      redirect_to app_billing_path, status: :see_other,
+      redirect_to post_payment_redirect_path(order: current_user_order, failed: true),
+                  status: :see_other,
                   alert: params[:message].presence || "결제가 취소되었습니다."
     else
-      Orders::PurchaseService.new(order: current_user_order, payment_token: payment_token).call
-      redirect_to app_billing_path, status: :see_other,
-                  notice: "수금 패스(#{PaymentPass::TOTAL_USES}건)가 발급되었습니다."
+      order = Orders::PurchaseService.new(order: current_user_order, payment_token: payment_token).call
+      redirect_to post_payment_redirect_path(order: order), status: :see_other,
+                  notice: order.legal_doc? ? "결제가 완료되었습니다. 내용증명 양식을 내려받을 수 있습니다." :
+                            "수금 패스(#{PaymentPass::TOTAL_USES}건)가 발급되었습니다."
     end
   rescue Orders::PurchaseService::PurchaseError => e
-    redirect_to app_billing_path, status: :see_other, alert: e.message
+    redirect_to post_payment_redirect_path(order: current_user_order, failed: true),
+                status: :see_other, alert: e.message
   end
 
   private
+
+  # LEGAL-2 — 주문 품목별 결과 착지점. 수금 패스·구독 주문은 기존대로 요금제 화면,
+  # 내용증명 주문은 해당 주문 상세(결제 상태·다운로드 버튼)로 돌려보낸다.
+  def post_payment_redirect_path(order:, failed: false)
+    if order.legal_doc?
+      path = app_legal_document_path(order)
+      failed ? "#{path}?payment_failed=1" : path
+    else
+      app_billing_path
+    end
+  end
 
   # 소유권 격리 — 본인 주문만 승인 대상이 된다(타인 paymentId 위조 콜백 차단).
   def current_user_order

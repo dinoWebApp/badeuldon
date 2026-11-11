@@ -1,0 +1,44 @@
+<%# 내용증명 양식 생성 요청(F-LEGAL — LEGAL-3 고지 필수 화면) — 대상 청구 선택 후 주문 생성.
+    결제는 주문 생성 후 상세 화면의 위젯으로 진행한다(수금 패스 결제 플로우 재사용 — LEGAL-2). %>
+<div class="mx-auto max-w-2xl">
+  <header>
+    <h1 class="text-2xl font-bold tracking-tight text-stone-900">내용증명 양식 발급</h1>
+    <p class="mt-2 text-sm leading-relaxed text-stone-500">
+      선택한 청구의 내역·발송 이력·약속·입금 기록이 자동 반영된 내용증명 양식(PDF)을 생성합니다.
+    </p>
+  </header>
+
+  <%# ── LEGAL-3 — 법률 자문 미제공 고지(필수) ── %>
+  <p class="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-relaxed text-amber-900" role="note">
+    <span class="font-bold">안내</span> — <%= LegalDocuments::ContentProofPdfService::LEGAL_NOTICE %>
+  </p>
+
+  <%# ── LEGAL-4 — 발송 대행 없음 안내 ── %>
+  <p class="mt-3 text-xs leading-relaxed text-stone-500">
+    <%= LegalDocuments::ContentProofPdfService::DIRECT_SEND_NOTICE %>
+  </p>
+
+  <% if @legal_targets.any? %>
+    <%= form_with url: app_legal_documents_path, method: :post, local: true, class: "space-y-4" do %>
+      <div class="mt-6 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+        <label for="invoice_id" class="block text-sm font-bold text-stone-800">대상 청구서 선택</label>
+        <p class="mt-1 text-xs text-stone-400">만기일이 30일 이상 지난 미수금 청구만 선택할 수 있습니다.</p>
+        <%= select_tag :invoice_id,
+              options_from_collection_for_select(@legal_targets, :id, :issue_number, params[:invoice_id]),
+              prompt: "청구서를 선택해 주세요",
+              class: "mt-2 block w-full rounded-xl border border-stone-300 bg-white px-3.5 py-2.5 text-sm text-stone-800 shadow-sm transition focus:outline-none focus:ring-2 focus:ring-emerald-700/30" %>
+        <p class="mt-3 text-sm text-stone-600">
+          발급 금액: <span class="font-extrabold tabular-nums text-stone-900"><%= won(Order::LEGAL_DOC_PRICE) %></span>
+          <span class="text-xs text-stone-400">(건당 — LEGAL-2)</span>
+        </p>
+        <%= submit_tag "주문 생성하고 결제 진행",
+              class: "mt-4 inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-xl bg-emerald-800 px-6 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900" %>
+      </div>
+    <% end %>
+  <% else %>
+    <p class="mt-6 rounded-2xl border border-stone-200 bg-white p-5 text-sm leading-relaxed text-stone-500 shadow-sm">
+      발급 가능한 청구가 없습니다. 내용증명은 만기일이 30일 이상 지난 미수금 청구에만 발급할 수 있습니다.
+    </p>
+    <%= link_to "← 청구서 목록으로", app_invoices_path, class: "mt-4 inline-flex text-sm font-semibold text-stone-500 transition hover:text-stone-800" %>
+  <% end %>
+</div>

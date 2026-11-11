@@ -16,6 +16,8 @@ export default class extends Controller {
     channelKey: String,
     paymentId: String,
     amount: Number,
+    // LEGAL-2 — 주문 품목별 결제창 상품명(미전달 시 기존 수금 패스 문구 — 기존 호출 무영향).
+    orderName: { type: String, default: "수금 패스 10건권" },
     callbackUrl: String,
     customerName: String,
     customerPhone: String,
@@ -33,7 +35,7 @@ export default class extends Controller {
       storeId: this.storeIdValue,
       channelKey: this.channelKeyValue,
       paymentId: this.paymentIdValue,
-      orderName: "수금 패스 10건권",
+      orderName: this.orderNameValue,
       totalAmount: this.amountValue,
       currency: "KRW",
       payMethod: "CARD",

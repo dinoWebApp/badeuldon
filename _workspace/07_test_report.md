@@ -1,39 +1,61 @@
-# 07_test_report — LP-11·BLOG 병렬 배치 (T-E1~E4 + 3-S, 2026-11-11, Tester 절약 모드)
+# 07_test_report — F-LEGAL/REF 런 (Phase 7 · Tester)
 
-## 게이트 결과 (Phase 7)
+날짜: 2026-11-11 · Tester(GLM-5.3-Flash) · 대상: F-LEGAL/REF 병렬 배치(T-F1 LEGAL·T-F2 REF + 3-S 결선) — 검증·보강·전체 게이트
+선결 조건: Phase 5 재리뷰 APPROVED(`05_review.md`)·Phase 6 수정 완료(`03_implementation.md` §7)
 
-| 스위트 | 결과 |
-|---|---|
-| `bin/rails test` (기본 — 시스템 테스트 미포함 러너 구조, 이전 런 실측 재확인) | **1069 runs, 6121 assertions, 0 failures, 0 errors, 0 skips** |
-| `bin/rails test:system` (별도 러너) | **12 runs, 102 assertions, 0 failures, 0 errors, 0 skips** — 연속 2회 그린 + 신규 E2E 단독 3회 반복 그린 |
-| `bin/rubocop` (306파일) | **0 offenses** |
-| 합계 | **1081 runs · 0 실패 · 코드 버그 0건** (기준 1,064건 대비 +15: 컨트롤러/쿼리 등 개발자·Phase 6 보강분 + 신규 시스템 테스트 1건) |
+## Status: 통과 — 코드 버그 0건
 
-- 솔라피·포트원 실호출 0건(기존 stub 체계 그대로 — 본 런 테스트는 외부 API 미접촉).
-- test DB 잔존 없음(트랜잭션 롤백·fixtures). **test AS 디스크 잔존 1,549 blob 정리 완료**(`tmp/storage` — test storage.yml root, git 무시·`.keep` 보존).
+전체 스위트 + 보강 테스트 통과(아래 최종 결과). 실패 이력은 Tester 자작 테스트 오류 1건(§2.3) — 수정 후 재실행 통과. 프로덕션 코드 수정 0건.
 
-## 리뷰 인계·제안 처리
+---
 
-| # | 항목 | 처리 |
+## 1. 리뷰 제안 5건 처리 결과
+
+| # | 제안 | 처리 |
 |---|---|---|
-| ② | **실브라우저 첨부 발행 E2E(인계 필수)** | **신규 작성** — `test/system/admin_blog_publish_test.rb`. 관리자 2FA 실로그인(1단계 자격증명 → TOTP) → 신규 폼에서 제목·한글 마크다운 본문·메타 2종·`fixture_file` 2종(썸네일·OG) 첨부 → 저장(enctype multipart 실전송) → edit "첨부됨: sample.png" 표시(B-1) → index에서 발행(member PATCH, 필수 충족) → published 전이·published_at 기록 → **공개 /blog/:slug 실렌더**(한글 본문·og:title=메타제목·og:image 첨부 URL) → **/blog 목록 썸네일 img 렌더**(BLOG-3 — 상세 화면엔 img가 없어 목록에서 검증). 안정화를 위해 **3회 반복 실행 전부 통과** |
-| ① | PRD BLOG-3 "커서 기반"→"오프셋" 문구 정정(C-3) | **오케스트레이터 완료 확인** — PRD.md:356 "페이지당 12건·오프셋 방식 — 2026-11-11 구현 확정 문구 정정" 실측. 코드(offset/limit)와 명세 일치 → **종결** |
-| — | blog index 허브 렌더 커버 | **기존 테스트 존재 확인·보강 불요** — `test/controllers/blog_controller_test.rb:62` "index는 LP-11 허브 레이어를 렌더한다 — 카테고리 카드 5·도구 카드 3·가입 CTA" + `:19` published만 노출. T-E3 보강분과 중복 없음 |
-| W-6 잔존 | `admin/blog_posts/index.html.erb`의 `BlogPost.statuses.map` 1건 | **해소** — `BlogHelper::STATUS_KEYS` 상수 추가(BlogHelper) + 뷰 select_tag 치환. CATEGORY_KEYS와 동일 패턴, 프로덕션 변경은 헬퍼+뷰 2파일 최소. grep으로 `BlogPost.statuses` 뷰 호출 0건 확인(컨트롤러 filter의 `params[:status].in?(BlogPost.statuses.keys)`는 컨트롤러라 규정 대상 아님) |
+| ① | PDF 시스템 테스트 1건 | **신설·통과** — `test/system/app_legal_document_pdf_test.rb`: U1 실로그인 → legal_documents show → 미결제 "워터마크 미리보기 PDF 내려받기" 링크 → same-origin fetch로 %PDF 수령·attachment 헤더 단정 → FulfillPassService(프로덕션 확정점) paid 전환 → "내용증명 PDF 내려받기" 링크 → 정식 PDF %PDF·10,000바이트 초과(Pretendard 임베드)·**미결제 바이트 ≠ paid 바이트**(C-1 브라우저 레벨 비교). 웹훅 체인은 컨트롤러 테스트(B-1 회귀)가 담당하고 시스템 테스트는 프로덕션 확정점 서비스 재사용(시스템 세션에서 Integration post 불가 — 설계 주석 기록). 외부 API 실호출 0 |
+| ② | referrals 정식 테스트 활성화 | **확인** — `referrals_controller_test` 6건 전부 실행(0 skip 실측): D+31/30/29 경계·unsettled 한정(paid·voided·draft 제외)·gamma 소유권 격리·P5·REF 고지 문구 5종 본문 검증. skip 해제 후 `assigns` 교체(본문 기반)가 실제로 통과함을 확인 |
+| ③ | LEGAL 주문 결제 체인·격리·이중 주문 | **기존 커버 + 보강** — 컨트롤러 테스트가 create(5,000원·metadata.invoice_id)→웹훅 확정→정식 PDF 체인·C-2 재주문 차단·failed 재주문 허용을 이미 커버. 격리는 show 404만 있어 **download 404 격리 1건 신설**(PDF 유출 방지 — 소유권은 set_order `Current.user.orders.legal_docs` 단일 출처) |
+| ④ | REF-3 전달 경로 부재 | **코드 grep 판정: 테스트 불요** — `app/controllers/app/referrals_controller.rb`는 index 1액션만 존재(조회·렌더뿐). referrals 도메인 전체(app/)에 Solapi·HTTP 전송·Job 호출 0건(grep 실측), 뷰 링크는 /app 내부 경로만(app_invoices_path·app_invoice_path). 외부로 나가는 경로가 코드상 없으므로 테스트로 부재를 증명할 대상이 없다 — REF-3(외부 전송 경로 0)은 구조로 담보됨 |
+| ⑤ | D+30 경계 배너+목록 | **신설·통과** — `test/controllers/app/invoices_legal_referral_banner_test.rb` 3건: D+31 배너 2종 노출(내용증명·추심 안내/장기 미수금 안내 + 결선 헬퍼 링크·LEGAL-4 우체국 문구)·D+30 당일/29일 미노출(초과 경계)·paid·draft 미노출(unsettled 한정). 목록 경계는 ② referrals 테스트가 동일 판정식(due_on+30 < today)으로 커버 |
 
-## 신규 테스트 작성 중 발견·자체 수정한 테스트 오류 (코드 버그 아님)
+## 2. 보강 신설 테스트 (총 6건 · 46 assertions)
 
-1. **`querySelector('form')` 네이티브 제출이 로그아웃을 날린다(실측)** — admin 레이아웃의 "로그아웃" button_to 폼(`layouts/admin.html.erb:29`)이 콘텐츠 폼보다 DOM 앞에 있어, 페이지 첫 form을 제출하면 DELETE /admin/session이 날아가 세션 파기·로그인 화면 복귀가 재현됐다(TOTP 검증 성공 직후 이탈로 오인됐던 간헐 실패의 정체). `submit_form_of(url)` — action 일치 폼 특정 네이티브 제출로 결정화. chromedriver 합성 클릭 드롭 실측(ApplicationSystemTestCase §7)이 dom_click에서도 간헐 재현된 것이 조사 계기.
-2. **썸네일 img는 /blog 상세에 없다** — BLOG-3 목록 항목이라 상세 렌더에 img 미포함(코드 의도). 목록 페이지 카드의 `img[alt=제목]` + src 첨부 파일명 매칭으로 검증 위치 정정.
-3. **og:title 메타 2개 렌더**(og_tags 파셜 + 별도) — `all(...).first`로 단정해 Capybara Ambiguous 회피.
-4. **AppInvoicePdfTest 간헐 1회 실패 관찰** — U1 UI 로그인 플레이크(솔로 실행·전체 시스템 재실행 2회 모두 그린). 미수정 — 본 런 변경과 무관, 관찰 기록만.
+| 파일 | 건수 | 내용 |
+|---|---|---|
+| `test/system/app_legal_document_pdf_test.rb` | 1 | ①의 시스템 테스트 — 미리보기/paid 정식 2단계 fetch 비교 |
+| `test/controllers/app/invoices_legal_referral_banner_test.rb` | 3 | ⑤의 배너 경계 — LEGAL-1·REF-1 판정식(@legal_banner·@referral_banner)을 임시 통합 테스트(삭제됨)에서 정식 테스트로 고정 |
+| `test/controllers/app/legal_documents_controller_test.rb` | +1 | ③의 download 404 격리 |
+| `test/controllers/app/referrals_controller_test.rb` | 0(수정 없음) | ② 활성화 확인만 |
 
-## 코드 버그
+### 2.3 테스트 오류 1건 (자체 수정 — 코드 버그 아님)
 
-없음. 기존 스위트 충돌 없음(블로그 마이그레이션·kramdown gem·tools 도메인·PublishScheduledJob recurring 등록 — 전체 게이트 통과로 확인).
+- 증상: 시스템 테스트에서 로그인 flash("로그인되었습니다.")는 뜨나 직후 모든 방문이 /session/new로 되돌아감(2026-10-12 기준일).
+- 원인: `Authentication::SESSION_COOKIE_MAX_AGE = 30.days` — 세션 쿠키 `expires`는 **실제 시계**로 평가된다. 2026-10-12 + 30일 = 2026-11-11(오늘)이라 Chrome이 쿠키를 만료 처리. travel_to 기준일 + 30 > 오늘이어야 브라우저 세션이 유지된다(기존 시스템 테스트가 우연히 이 조건을 만족하는 날짜 사용).
+- 수정: 기준일을 2026-11-20으로 이동(delta_overdue는 여전히 D+80 초과 unsettled — 시나리오 유효). 테스트 파일 주석에 경위 기록.
 
-## 잔존 비고
+## 3. 전체 게이트 (7-S)
 
-- "due_today" 테스트명 잔존: 이전 런에서 이미 정정 완료 — 본 런 접촉 파일 없어 스킵(지시 4항).
-- dev DB에 `AdminSession id=34 (admin=t@t.com, 2026-11-10)` 1건 선존 — 이전 런(2026-11-10) 재산으로 본 런이 생성한 것이 아니어서 삭제하지 않음. 오케스트레이터 판단 바람.
-- 리뷰 재현 스크립트 /tmp: 본 런 임시 디버그 테스트 파일은 즉시 삭제 완료.
+- `bin/rails test` 전체 1회: **1,103 runs, 6,329 assertions, 0 failures, 0 errors, 0 skips** — 1,088건 기준 회귀 0 + 보강 6건 포함
+- `bin/rubocop`(보강 4파일) — no offenses
+- 외부 API 실호출 0 — 포트원은 FakePortOneClient·with_portone_client stub, 솔라피는 본 배치 테스트에서 호출 경로 없음(reminders 기존 테스트는 FakeSolapiClient 유지)
+- test DB 잔존 없음 — 트랜잭션 롤백 표준 구조, AS 첨부 생성 없음(본 배치 테스트는 Active Storage 미사용)
+
+## 4. 코드 버그 절
+
+없음. Phase 6 수정(B-1 병합·C-1 워터마크·C-2 가드·download 미결제 가드)은 보강 테스트 6건 전부로 부정하지 못했다.
+
+## 5. Rule ID 커버 요약 (보강 기여분)
+
+| Rule | 보강 |
+|---|---|
+| LEGAL-1 | 배너 경계(D+31 노출·30/29 미노출·paid/draft 미노출) 정식화 |
+| LEGAL-2 | 브라우저 레벨 미리보기 vs 정식 PDF 바이트 비교·paid 버튼 전환 |
+| LEGAL-3·4 | 배너·PDF 시스템 테스트에서 "우체국"·LEGAL_NOTICE 렌더 확인 |
+| REF-1~4 | referrals 6건 활성 실행·고지 5종 본문 단정 |
+| REF-3 | 코드 grep 판정 — 전송 경로 구조적 부재(테스트 불요) 문서화 |
+| 소유권(SEC) | legal_doc 주문 show+download 404 쌍방 격리 |
+
+## 6. 결론
+
+리뷰 Tester 제안 5건 전부 처리(①~⑤). 전체 스위트 회귀 0. 코드 버그 0 — F-LEGAL/REF 배치는 게이트 통과.

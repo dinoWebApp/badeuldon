@@ -1,0 +1,20 @@
+<%# LEGAL-1 — D+30 초과·미수 청구 상단의 내용증명 안내 배너. 노출 판정은
+    LegalDocuments::ContentProofPdfService.legal_target?(단일 출처 — @legal_banner이 참일 때만
+    렌더, App::InvoicesController에서 산출). LEGAL-3·4에 따라 고지·직접 발송 문언을 함께
+    표기하고, 추심 안내(app_referrals_path — REF)와 병렬 링크를 제공한다. %>
+<div class="mt-6 rounded-2xl border border-orange-200 bg-orange-50 p-4 shadow-sm">
+  <p class="text-sm font-bold text-orange-800">내용증명·추심 안내</p>
+  <p class="mt-0.5 text-xs leading-relaxed text-orange-700">
+    만기일이 30일 이상 지났습니다. 청구·발송 기록을 정리한 내용증명 양식(건당 5,000원)을
+    발급받거나 전문 추심 상담 안내를 확인할 수 있습니다.
+  </p>
+  <div class="mt-3 flex flex-wrap gap-2">
+    <%= link_to "내용증명 양식 발급", new_app_legal_document_path(invoice_id: @invoice.id),
+          class: "inline-flex min-h-11 items-center rounded-xl bg-emerald-800 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900" %>
+    <%= link_to "전문 추심 상담 안내", app_referrals_path,
+          class: "inline-flex min-h-11 items-center rounded-xl border border-orange-300 bg-white px-4 py-2 text-sm font-bold text-orange-800 transition hover:bg-orange-100" %>
+  </div>
+  <p class="mt-2 text-xs leading-relaxed text-orange-700/80">
+    내용증명 발송은 우체국 등기 등으로 직접 수행해야 하며, 법률 자문은 제공되지 않습니다.
+  </p>
+</div>

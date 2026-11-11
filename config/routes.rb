@@ -81,6 +81,16 @@ Rails.application.routes.draw do
     resources :orders, only: :create do
       collection { get :callback }           # 수금 패스 결제 위젯 성공/실패 리다이렉트 수신
     end
+
+    # ── F-LEGAL(LEGAL-1~4·Q5) — 내용증명 양식(건당 5,000원·포트원 단건 플로우 재사용).
+    # PDF 다운로드는 결제 완료(paid) 주문 한정 자원 상태라 member GET으로 정당화(LEGAL-2).
+    resources :legal_documents, only: %i[ index new create show ] do
+      member { get :download }
+    end
+
+    # ── F-REF(REF-1~4·P5·Q13) — 추심 상담 소개 화면(소개 제공만 — 채권 수임·중개 비수행).
+    # 소개 화면 단일 진입이라 index만 노출한다.
+    resources :referrals, only: :index
   end
 
   # ── 포트원 웹훅(PLAN-5) — 포트원 서버 → 우리 서버(비인증 서버 간 호출) ──

@@ -95,9 +95,12 @@ module Orders
       order = @order.reload
       return unless order.pending? # 경합 — 이미 확정됨
 
+      # B-1(F-LEGAL Phase 6) — 기존 metadata(legal_doc 주문의 invoice_id 등)를 보존하고 병합한다.
       order.update!(pg_payment_id: order.pg_order_id,
-                    metadata: { code: error&.code, message: error&.message,
-                                pending_recovery: true })
+                    metadata: (order.metadata || {}).stringify_keys.merge(
+                      code: error&.code, message: error&.message,
+                      pending_recovery: true
+                    ))
     end
 
     def recovery_message
@@ -109,9 +112,12 @@ module Orders
     def record_failure!(error)
       return unless @order.reload.pending?
 
+      # B-1(F-LEGAL Phase 6) — 기존 metadata(legal_doc 주문의 invoice_id 등)를 보존하고 병합한다.
       @order.update!(status: :failed,
-                     metadata: { code: error.code, message: error.message,
-                                 pg_code: error.pg_code, pg_message: error.pg_message })
+                     metadata: (@order.metadata || {}).stringify_keys.merge(
+                       code: error.code, message: error.message,
+                       pg_code: error.pg_code, pg_message: error.pg_message
+                     ))
     end
   end
 end
