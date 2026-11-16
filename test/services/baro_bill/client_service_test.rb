@@ -46,7 +46,7 @@ class BaroBill::ClientServiceTest < ActiveSupport::TestCase
                                   tel: "010-0000-0000", email: "g@example.com")
 
     assert_equal 1, result
-    assert_match(/BAROBILL\.asmx/, wsdl.call)
+    assert_match(/TI\.asmx/, wsdl.call)
     assert_equal "test-key", savon.calls[:regist_corp].sole[:message][:CERTKEY]
     assert_equal "1234567890", savon.calls[:regist_corp].sole[:message][:CorpNum]
   end
@@ -84,7 +84,7 @@ class BaroBill::ClientServiceTest < ActiveSupport::TestCase
 
     assert client_valid.check_cert_is_valid(corp_num: "1234567890")
     assert_not client_invalid.check_cert_is_valid(corp_num: "1234567890")
-    assert_match(/BAROBILL\.asmx/, wsdl.call)
+    assert_match(/TI\.asmx/, wsdl.call)
   end
 
   test "certificate_register_url — TOGO 'CERT'·URL 반환·음수 문자열은 ApiError다" do
@@ -137,6 +137,6 @@ class BaroBill::ClientServiceTest < ActiveSupport::TestCase
                          biz_type: "s", biz_class: "f", addr1: "a", member_name: "m",
                          barobill_id: "bd1", barobill_pwd: "pw", tel: "010", email: "e@e")
 
-    assert_match(%r{\Ahttps://ws\.baroservice\.com/BAROBILL\.asmx}, wsdl.call)
+    assert_match(%r{\Ahttps://ws\.baroservice\.com/TI\.asmx}, wsdl.call)
   end
 end

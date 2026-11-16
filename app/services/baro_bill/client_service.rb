@@ -4,10 +4,11 @@
 # 호출하며, 개발·테스트에서 실수로 호출되지 않게 client Factory를 주입 가능하게 뒀다.
 #
 # 엔드포인트(공식 문서 2026-11 확인 — /tmp/barobill_common.txt·barobill_ti.txt):
-#   TESTBED  https://testws.baroservice.com/{TI,BAROBILL,CORPSTATE}.asmx?WSDL
+#   TESTBED  https://testws.baroservice.com/{TI,CORPSTATE}.asmx?WSDL
 #   RELEASE  https://ws.baroservice.com/...
-#   [INFERENCE] 공통 API WSDL의 asmx 파일명은 문서의 서비스별 엔드포인트 표에 미기재다 —
-#   바로빌 개발자센터 표준 구성(BAROBILL.asmx)으로 두고, TESTBED 실측 시 확정한다(런 리스크 #2).
+#   공통 API는 전용 asmx가 없고 각 서비스 asmx에 포함된다(2026-11-16 TESTBED 실측 —
+#   BAROBILL.asmx는 404·TI/CORPSTATE 양쪽 WSDL에서 공통 오퍼레이션 14회씩 검출).
+#   공통 호출은 TI.asmx를 사용한다.
 #
 # 응답 규격: int 반환 API는 XML 요소 {메서드명}Result에 정수(1 성공·음수 실패), URL 반환은
 # 문자열(실패는 음수 문자열), 상태 조회는 구조체(TaxInvoiceStateEX·CorpStateEX)로 온다.
@@ -77,7 +78,7 @@ module BaroBill
     def get_corp_state(corp_num:, check_corp_num:)
       response = call_corpstate_raw(:get_corp_state_ex, CERTKEY: @auth_key, CorpNum: corp_num,
                                     CheckCorpNum: check_corp_num)
-      struct = response.dig(:get_corp_state_ex_response, :get_corp_state_ex_result) || {}
+      struct = response.body.dig(:get_corp_state_ex_response, :get_corp_state_ex_result) || {}
       state = struct[:state]
       raise ApiError.new(code: state.to_s, message: "휴폐업 조회 실패(코드 #{state})") if state.to_i.negative?
 
@@ -97,7 +98,7 @@ module BaroBill
     def get_tax_invoice_state(corp_num:, mgt_num:)
       response = call_ti_raw(:get_tax_invoice_state_ex, CERTKEY: @auth_key, CorpNum: corp_num,
                              MgtKey: mgt_num)
-      struct = response.dig(:get_tax_invoice_state_ex_response, :get_tax_invoice_state_ex_result) || {}
+      struct = response.body.dig(:get_tax_invoice_state_ex_response, :get_tax_invoice_state_ex_result) || {}
       state = struct[:barobill_state]
       raise ApiError.new(code: state.to_s, message: "세금계산서 상태 조회 실패(코드 #{state})") if state.to_i.negative?
 
@@ -132,7 +133,7 @@ module BaroBill
     # int 결과 정규화 — {메서드}Result 정수. 음수는 오류코드로 ApiError(fail-fast — 상위에서
     # 특정 코드(-32000 등)만 선별 흡수한다).
     def call_common(method, message)
-      result = soap_result(wsdl("BAROBILL"), method, message)
+      result = soap_result(wsdl("TI"), method, message)
       raise_api_error!(method, result) if result.to_i.negative?
       result.to_i
     end
@@ -144,7 +145,7 @@ module BaroBill
     end
 
     def call_common_returning_url(method, message)
-      raw = soap_result(wsdl("BAROBILL"), method, message)
+      raw = soap_result(wsdl("TI"), method, message)
       value = raw.to_s
       raise_api_error!(method, value) if value.match?(/\A-\d+\z/)
       value
