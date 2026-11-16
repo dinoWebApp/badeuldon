@@ -16,8 +16,9 @@ class Order < ApplicationRecord
 
   enum :product, { plus_monthly: 0, collection_pass: 1 }
   enum :status, { pending: 0, paid: 1, failed: 2, cancelled: 3 }, default: :pending
-  # LEGAL-2 — 주문 품목 구분(pass=기존 결제 전부 / legal_doc=내용증명 양식 1건).
-  enum :item_type, { pass: 0, legal_doc: 1 }, default: :pass
+  # LEGAL-2 — 주문 품목 구분(pass=기존 결제 전부 / legal_doc=내용증명 양식 1건 /
+  # tax_invoice=전자세금계산서 발행 수수료 1건 — TAX-1·Q21, 기존 pass(0)·legal_doc(1) 불변).
+  enum :item_type, { pass: 0, legal_doc: 1, tax_invoice: 2 }, default: :pass
 
   # ADMIN-4 — 관리자 목록 필터용 스코프. refunded는 refunded_at 기준(환불 제외 매출 집계와 정합).
   scope :paid, -> { where(status: :paid) }
@@ -26,6 +27,8 @@ class Order < ApplicationRecord
   scope :not_refunded, -> { where(refunded_at: nil) }
   # LEGAL-2 — 내용증명 양식 주문 목록(App::LegalDocumentsController#index)
   scope :legal_docs, -> { where(item_type: :legal_doc) }
+  # TAX-1(Q21) — 전자세금계산서 발행 수수료 주문 목록(App::TaxInvoicesController)
+  scope :tax_invoices, -> { where(item_type: :tax_invoice) }
 
   validates :pg_order_id, presence: true, uniqueness: true
   validates :amount, presence: true, numericality: { only_integer: true, greater_than: 0 }
@@ -49,5 +52,15 @@ class Order < ApplicationRecord
   # 상품별 정가 — 주문 생성은 항상 이 금액으로 한다(클라이언트 값 신뢰 금지).
   def self.amount_for(product)
     PRODUCT_AMOUNTS.fetch(product.to_sym)
+  end
+
+  # TAX-1 — metadata.invoice_id 역참조로 세금계산서 주문을 조회한다(Phase 6 C-2 — 이중 결제
+  # 가드·청구 상세 패널의 "결제 완료·발행 기록 미생성" 분기가 공용). paid: true면 결제 완료 건만.
+  # invoice.user_id로 한정해 소유권을 격리한다(청구 소유자 이외의 주문은 대상 아님).
+  def self.tax_invoice_order_for(invoice, paid: false)
+    scope = tax_invoices.where(user_id: invoice.user_id)
+                        .where("JSON_EXTRACT(metadata, '$.invoice_id') = ?", invoice.id)
+    scope = scope.paid if paid
+    scope.order(:id).first
   end
 end

@@ -22,9 +22,7 @@ class App::OrdersController < App::BaseController
                   alert: params[:message].presence || "결제가 취소되었습니다."
     else
       order = Orders::PurchaseService.new(order: current_user_order, payment_token: payment_token).call
-      redirect_to post_payment_redirect_path(order: order), status: :see_other,
-                  notice: order.legal_doc? ? "결제가 완료되었습니다. 내용증명 양식을 내려받을 수 있습니다." :
-                            "수금 패스(#{PaymentPass::TOTAL_USES}건)가 발급되었습니다."
+      redirect_to post_payment_redirect_path(order: order), status: :see_other, notice: payment_notice(order)
     end
   rescue Orders::PurchaseService::PurchaseError => e
     redirect_to post_payment_redirect_path(order: current_user_order, failed: true),
@@ -34,13 +32,27 @@ class App::OrdersController < App::BaseController
   private
 
   # LEGAL-2 — 주문 품목별 결과 착지점. 수금 패스·구독 주문은 기존대로 요금제 화면,
-  # 내용증명 주문은 해당 주문 상세(결제 상태·다운로드 버튼)로 돌려보낸다.
+  # 내용증명 주문은 해당 주문 상세(결제 상태·다운로드 버튼), 세금계산서 주문은 발행 주문 상세
+  # (결제 상태·발행 상태 — TAX-2)로 돌려보낸다(Phase 6 C-1).
   def post_payment_redirect_path(order:, failed: false)
     if order.legal_doc?
       path = app_legal_document_path(order)
       failed ? "#{path}?payment_failed=1" : path
+    elsif order.tax_invoice?
+      app_tax_invoice_path(order)
     else
       app_billing_path
+    end
+  end
+
+  # 품목별 완료 안내 문구(Phase 6 C-1 — tax_invoice 주문이 패스 문구로 떨어지지 않게 분기).
+  def payment_notice(order)
+    if order.legal_doc?
+      "결제가 완료되었습니다. 내용증명 양식을 내려받을 수 있습니다."
+    elsif order.tax_invoice?
+      "전자세금계산서 발행 결제가 완료되었습니다. 발행 상태를 확인해 주세요."
+    else
+      "수금 패스(#{PaymentPass::TOTAL_USES}건)가 발급되었습니다."
     end
   end
 

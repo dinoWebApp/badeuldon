@@ -25,6 +25,10 @@ module App
           disabled: false, locked: },  # LEGAL-1~4 — 내용증명 양식 발급(건당 과금·포트원 단건 재사용)
         { label: "추심 안내", path: app_referrals_path, active: request.path.start_with?(app_referrals_path),
           disabled: false, locked: },  # REF-1~4 — 추심 상담 소개 화면(P5 고지)
+        { label: "전자세금계산서", path: app_tax_invoice_setting_path,
+          active: request.path.start_with?(app_tax_invoice_setting_path) ||
+                  request.path.start_with?(app_tax_invoices_path),
+          disabled: false, locked: },  # TAX-1/2 — 발행 설정·발행 내역(건당 과금·Q21)
         { label: "공지", path: app_notices_path, active: request.path.start_with?(app_notices_path),
           disabled: false, locked: },  # ADMIN-7 — 운영 공지 목록(/app/notice)
         { label: "문의", path: app_tickets_path, active: request.path.start_with?(app_tickets_path),

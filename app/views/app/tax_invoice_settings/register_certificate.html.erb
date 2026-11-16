@@ -1,0 +1,35 @@
+<%# TAX-1 — 공동인증서 등록 안내. GetBaroBillURL(CERT)로 발급받은 팝업 URL은 60초만 유효하므로
+    (바로빌 공통 API 규격) 즉시 새 탭으로 열어 등록을 진행하게 안내하고, 등록 후 돌아와
+    "등록 완료 확인"으로 상태를 갱신하게 한다(전용 등록완료 콜백 부재 — 컨트롤러 주석 참조). %>
+<div class="mx-auto w-full max-w-xl py-12">
+  <p class="text-sm">
+    <%= link_to "← 발행 설정", app_tax_invoice_setting_path, class: "font-semibold text-stone-500 transition hover:text-stone-800" %>
+  </p>
+  <header class="mt-4">
+    <h1 class="text-2xl font-bold tracking-tight text-emerald-900 sm:text-3xl">공동인증서 등록</h1>
+    <p class="mt-2 text-sm leading-relaxed text-stone-500">
+      바로빌 인증서 등록 화면을 새 탭에서 열어 등록을 완료한 뒤, 이 화면으로 돌아와
+      "등록 완료 확인"을 눌러 주세요.
+    </p>
+  </header>
+
+  <section class="mt-6 rounded-2xl border-2 border-emerald-800 bg-emerald-900/5 p-5 shadow-sm">
+    <ol class="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-stone-700">
+      <li>
+        아래 버튼으로 바로빌 인증서 등록 화면을 엽니다. 링크는 보안을 위해
+        <span class="font-bold">60초</span>만 유효합니다 — 버튼이 동작하지 않으면
+        <%= link_to "발급 화면", register_certificate_app_tax_invoice_setting_path,
+              class: "font-bold text-emerald-800 underline underline-offset-2 hover:text-emerald-900" %>에서
+        다시 발급해 주세요.
+      </li>
+      <li>사업자 공동인증서(전자서명용)를 선택해 등록합니다.</li>
+      <li>등록 후 이 화면으로 돌아와 "등록 완료 확인"을 누릅니다.</li>
+    </ol>
+    <%= link_to "바로빌 인증서 등록 화면 열기 (새 탭)", @cert_url, target: "_blank", rel: "noopener",
+          class: "mt-5 inline-flex min-h-11 items-center justify-center rounded-xl bg-emerald-800 px-6 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900" %>
+  </section>
+
+  <%= button_to "등록 완료 확인", confirm_certificate_app_tax_invoice_setting_path,
+        method: :post,
+        class: "mt-4 inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-xl border border-emerald-700 bg-white px-6 text-sm font-bold text-emerald-800 shadow-sm transition hover:bg-emerald-50" %>
+</div>

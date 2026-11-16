@@ -29,7 +29,8 @@ class App::DashboardsControllerTest < ActionDispatch::IntegrationTest
     # DASH-5/6·ADMIN-7·ADMIN-8 추가)는 자물쇠 스타일 링크(클릭 가능·가드가 안내)
     # 반복 청구 메뉴 추가(2026-11-11) — 8 → 9
     # 내용증명·추심 안내 메뉴 추가(2026-11-11) — 9 → 11
-    assert_select "nav a[aria-disabled='true']", count: 11
+    # 전자세금계산서 메뉴 추가(2026-11-16, TAX-1) — 11 → 12
+    assert_select "nav a[aria-disabled='true']", count: 12
     assert_select "nav a[aria-disabled='true'][href=?]", app_invoices_path, text: "청구서", count: 1
     assert_select "nav a[aria-disabled='true'][href=?]", edit_app_profile_path, count: 0
   end

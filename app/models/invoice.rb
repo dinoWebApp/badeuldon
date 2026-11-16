@@ -46,6 +46,8 @@ class Invoice < ApplicationRecord
   has_many :payments, dependent: :destroy  # F-PAY — 입금 이력(PAY-1/2). 연쇄 삭제는 promises와
   # 같은 이유로 초안 삭제에서만 실질 발생하며, 발행 계열의 입금 이력은 영구 보존 대상(P4)이라
   # 삭제 경로 자체가 없다.
+  # TAX-1/2 — 전자세금계산서 발행 기록(1청구 1발행 — tax_invoices.invoice_id unique).
+  has_one :tax_invoice, dependent: :destroy
 
   # 초안 작성·수정 폼 — 품목 행 동적 편집(nested attributes). 완전 공백 행은 폼에서 폐기한다.
   accepts_nested_attributes_for :items, allow_destroy: true, reject_if: :all_blank
@@ -109,6 +111,14 @@ class Invoice < ApplicationRecord
 
   def days_overdue
     overdue? ? (Date.current - due_on).to_i : 0
+  end
+
+  # TAX-2 — 수금 마감일(WriteDate 근거). 마지막 입금의 입금일(PAY-1/2 기록)이며, 입금 이력이
+  # 비정상 공백인 마감 건은 마감일 기준 오늘로 폴백한다(IssueService 전용 — draft·미수 건엔 nil).
+  def settled_paid_on
+    return nil unless paid?
+
+    payments.order(:paid_on).last&.paid_on || Date.current
   end
 
   def unsettled?

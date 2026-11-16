@@ -33,6 +33,9 @@ class App::InvoicesController < App::BaseController
   before_action :set_referral_banner, only: :show
   # LEGAL-1 — D+30 초과·미수 청구 상세 상단의 내용증명 안내 배너 노출 판정(REF 배너와 동일 조건).
   before_action :set_legal_banner, only: :show
+  # TAX-1/2 — paid 청구 상세의 전자세금계산서 발행 버튼·발행 이력 표시 판정(가드 분기는
+  # 컨트롤러가 산출해 @변수로 — 뷰의 쿼리·모델 호출 금지 규칙).
+  before_action :set_tax_invoice_context, only: :show
 
   def index
     @invoices = Current.user.invoices.includes(:client).sorted_by_due  # DASH-4 정렬과 동일
@@ -218,6 +221,29 @@ class App::InvoicesController < App::BaseController
 
   # LEGAL-1 — 내용증명 배너 노출 판정. 조건은 ContentProofPdfService.legal_target?(단일 출처)과
   # 동일하다(뷰의 쿼리 금지 규칙에 따라 컨트롤러가 산출해 @변수로 넘긴다).
+  # TAX-1/2 — paid 청구의 발행 컨텍스트. tax_invoice(기존 발행 기록)와 guard(U1이 지금 발행
+  # 가능한지의 분기)를 산출한다: settings_missing(발행 설정·인증서 미완료)·client_missing
+  # (거래처 사업자번호 없음)·ready(발행 가능)·none(paid 이외 — 버튼 비노출).
+  # Phase 6 C-2 — 발행 레코드가 없어도 paid 주문이 있으면(결제 후 SOAP 실패) :paid_pending
+  # 분기로 재결제 버튼을 노출하지 않고 기존 주문 상태 확인으로 유도한다.
+  def set_tax_invoice_context
+    @tax_invoice = @invoice.tax_invoice
+    @tax_invoice_guard = nil
+    @tax_invoice_order = nil
+    return unless @invoice.paid?
+    return if @tax_invoice
+
+    @tax_invoice_guard = if !Current.user.tax_invoice_ready?
+      :settings_missing
+    elsif @invoice.client.corp_num.blank?
+      :client_missing
+    elsif (@tax_invoice_order = Order.tax_invoice_order_for(@invoice, paid: true))
+      :paid_pending
+    else
+      :ready
+    end
+  end
+
   def set_legal_banner
     @legal_banner = LegalDocuments::ContentProofPdfService.legal_target?(@invoice)
   end

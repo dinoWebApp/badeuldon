@@ -62,8 +62,20 @@
         <%= form.text_field :business_number, inputmode: "numeric", maxlength: 12,
               placeholder: "예) 123-45-67890",
               class: form_input_classes(client, :business_number) %>
-        <p class="mt-1.5 text-xs text-stone-500">선택 입력입니다.</p>
+        <p class="mt-1.5 text-xs text-stone-500">선택 입력입니다. 등록 시 전자세금계산서 발행(TAX-1) 대상이 됩니다.</p>
       </div>
+      <div>
+        <%= form.label :ceo_name, "대표자명", class: "block text-sm font-medium text-stone-700" %>
+        <%= form.text_field :ceo_name, maxlength: 30,
+              class: form_input_classes(client, :ceo_name) %>
+        <p class="mt-1.5 text-xs text-stone-500">선택 입력입니다. 전자세금계산서 공급받는자 대표자로 기재됩니다.</p>
+      </div>
+    </div>
+    <div class="mt-6">
+      <%= form.label :corp_addr, "사업장 주소", class: "block text-sm font-medium text-stone-700" %>
+      <%= form.text_field :corp_addr, maxlength: 200,
+            class: form_input_classes(client, :corp_addr) %>
+      <p class="mt-1.5 text-xs text-stone-500">선택 입력입니다. 전자세금계산서 공급받는자 주소로 기재됩니다.</p>
     </div>
 
     <div class="mt-6">

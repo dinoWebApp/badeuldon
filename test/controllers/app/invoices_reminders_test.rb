@@ -147,7 +147,9 @@ class App::InvoicesRemindersTest < ActionDispatch::IntegrationTest
     # 약속 당일 + 만기 도과 경계 — 같은 nil 창이다(C-2)
     due_day = create_reminder_invoice(user: users(:gamma), client: clients(:gamma_main),
                                       due_on: Date.new(2026, 11, 9))
-    promise = create_promise(due_day, kind: :date_selected, promised_on: Date.new(2026, 11, 11))
+    # 약속은 검증(오늘 이후) 통과를 위해 미래일로 생성하고 — 소급 도과 약속 시나리오는
+    # update_column(검증 우회)으로 당일(11-10)로 되돌린다(시나리오 의도 불변).
+    promise = create_promise(due_day, kind: :date_selected, promised_on: Date.new(2026, 12, 11))
     promise.update_column(:promised_on, Date.new(2026, 11, 10))
 
     travel_to(Time.zone.parse("2026-11-10 10:00")) do

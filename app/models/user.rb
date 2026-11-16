@@ -22,10 +22,17 @@ class User < ApplicationRecord
   has_many :notice_reads, dependent: :destroy
   # F-ADMIN Run C(ADMIN-8) — 1:1 문의 티켓. ticket_messages는 tickets의 dependent로 연쇄 삭제.
   has_many :tickets, dependent: :destroy
+  # TAX-1 — 전자세금계산서 발행 기록(invoices보다 뒤 파괴돼도 FK 제약 없음 — tax_invoices가
+  # invoices를 참조하므로 Rails dependent: :destroy는 부모 기준 역순 파괴로 안전하다).
+  has_many :tax_invoices, dependent: :destroy
 
   # AUTH-1.3 사업자 유형 — 사업자(business)·프리랜서(freelancer, 3.3% 원천징수 해당).
   # 미선택 허용: 가입 시점엔 결정하지 않고, 프로필 설정(:profile 컨텍스트)에서 필수가 된다.
   enum :business_type, { business: 0, freelancer: 1 }
+
+  # TAX-1 — 과세유형(세금계산서 TaxType 매핑: 일반과세→과세(1)·간이과세→영세(2)·면세→면세(3)).
+  # 기본값 일반과세(general) — 발행 설정 저장 시 U1이 명시 선택한다.
+  enum :tax_type, { general: 0, simplified: 1, exempt: 2 }, default: :general
 
   # ADMIN-3(Run B 확정) — 계정 상태. suspended면 로그인 차단(SessionsController)이며
   # 정지 전환 시 기존 세션을 전부 파기한다(Admins::MemberAdminService). 해제 가능.
@@ -46,6 +53,10 @@ class User < ApplicationRecord
   normalizes :email, with: ->(e) { e.strip.downcase }
   # AUTH-1.3 — 표시명 앞뒤 공백 제거
   normalizes :display_name, with: ->(d) { d.strip }
+  # TAX-1 — 사업자번호는 하이픈 제외 숫자만 저장(바로빌 CorpNum 규격 — 정규화는
+  # TaxInvoices::RegisterCorpService가 수행하고 여기선 저장 정합 검증만).
+  validates :corp_num, allow_blank: true, format: { with: /\A\d{10}\z/,
+                                                    message: "은(는) 하이픈 없는 10자리 숫자여야 합니다" }
 
   # F-PLAN(PLAN-1) — 가입 시 Free 구독 행을 보장한다. RegistrationsController뿐 아니라
   # 모든 생성 경로(콘솔·러너)에서 1인 1구독 불변식을 유지하기 위해 모델 콜백으로 둔다.
@@ -78,6 +89,15 @@ class User < ApplicationRecord
     return true if subscription&.plus?
 
     payment_passes.usable.exists?
+  end
+
+  # TAX-1 — 전자세금계산서 발행 설정 완료 판정(단일 출처 — 발행 버튼 가드·설정 화면 공유).
+  # 사업자 정보(회원사 가입에 필요한 최소 세트) + 공동인증서 등록 마킹이 모두 있어야 완료다.
+  # 사용자 확정 전제 — 인증서 미등록 시 발행 버튼 비활성·안내 분기.
+  def tax_invoice_ready?
+    corp_num.present? && corp_name.present? && ceo_name.present? &&
+      corp_addr.present? && contact_name.present? && barobill_id.present? &&
+      barobill_cert_registered?
   end
 
   private

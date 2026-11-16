@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_11_100001) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_15_224720) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.string "name", null: false
     t.string "record_type", null: false
@@ -121,6 +121,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_11_100001) do
     t.datetime "updated_at", null: false
     t.datetime "reminders_suspended_at"
     t.datetime "refused_at"
+    t.string "ceo_name"
+    t.string "corp_addr"
     t.index ["user_id"], name: "index_clients_on_user_id"
   end
 
@@ -346,6 +348,28 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_11_100001) do
     t.index ["user_id"], name: "index_subscriptions_on_user_id", unique: true
   end
 
+  create_table "tax_invoices", force: :cascade do |t|
+    t.integer "invoice_id", null: false
+    t.integer "user_id", null: false
+    t.string "mgt_num", null: false
+    t.integer "status", default: 0, null: false
+    t.integer "barobill_state"
+    t.integer "nts_send_state"
+    t.string "nts_send_key"
+    t.date "write_date"
+    t.integer "supply_total", null: false
+    t.integer "tax_total", null: false
+    t.integer "grand_total", null: false
+    t.integer "order_id"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["invoice_id"], name: "index_tax_invoices_on_invoice_id", unique: true
+    t.index ["mgt_num"], name: "index_tax_invoices_on_mgt_num", unique: true
+    t.index ["order_id"], name: "index_tax_invoices_on_order_id"
+    t.index ["status"], name: "index_tax_invoices_on_status"
+    t.index ["user_id"], name: "index_tax_invoices_on_user_id"
+  end
+
   create_table "ticket_messages", force: :cascade do |t|
     t.integer "ticket_id", null: false
     t.integer "sender", null: false
@@ -378,6 +402,15 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_11_100001) do
     t.string "account_holder"
     t.string "phone"
     t.integer "status", default: 0, null: false
+    t.string "corp_num"
+    t.string "corp_name"
+    t.string "ceo_name"
+    t.string "corp_addr"
+    t.string "contact_name"
+    t.integer "tax_type", default: 0, null: false
+    t.string "barobill_id"
+    t.boolean "barobill_cert_registered", default: false, null: false
+    t.index ["barobill_id"], name: "index_users_on_barobill_id", unique: true
     t.index ["email"], name: "index_users_on_email", unique: true
   end
 
@@ -419,6 +452,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_11_100001) do
   add_foreign_key "sessions", "users"
   add_foreign_key "subscriptions", "coupons"
   add_foreign_key "subscriptions", "users", on_delete: :cascade
+  add_foreign_key "tax_invoices", "invoices"
+  add_foreign_key "tax_invoices", "orders"
+  add_foreign_key "tax_invoices", "users"
   add_foreign_key "ticket_messages", "tickets", on_delete: :cascade
   add_foreign_key "tickets", "users", on_delete: :cascade
   add_foreign_key "view_events", "invoices"

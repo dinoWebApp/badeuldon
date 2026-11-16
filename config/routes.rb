@@ -91,6 +91,22 @@ Rails.application.routes.draw do
     # ── F-REF(REF-1~4·P5·Q13) — 추심 상담 소개 화면(소개 제공만 — 채권 수임·중개 비수행).
     # 소개 화면 단일 진입이라 index만 노출한다.
     resources :referrals, only: :index
+
+    # ── TAX-1 — 전자세금계산서 발행 설정(단일 리소스 — 1인 1설정). 인증서 등록 팝업 URL 발급
+    # (register_certificate)·등록 완료 자체 갱신(confirm_certificate)은 설정 플로우의 단계
+    # 상태 전이라 collection POST로 정당화한다.
+    resource :tax_invoice_setting, only: %i[ show update ] do
+      collection do
+        post :register_certificate
+        post :confirm_certificate
+      end
+    end
+
+    # ── TAX-1/2(Q21) — 전자세금계산서 발행(건당 300원·포트원 단건 재사용). 미리보기(new)→
+    # 주문(create)→체크아웃(show) 플로우이며 취소는 발급 상태 전이라 member PATCH로 정당화.
+    resources :tax_invoices, only: %i[ new create show ] do
+      member { patch :cancel }
+    end
   end
 
   # ── 포트원 웹훅(PLAN-5) — 포트원 서버 → 우리 서버(비인증 서버 간 호출) ──

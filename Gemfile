@@ -37,6 +37,10 @@ gem "prawn-table"
 # BLOG-5(ADMIN-10) — 블로그 본문 마크다운 렌더(Q18 — kramdown + Rails HTML sanitizer allowlist)
 gem "kramdown"
 
+# TAX-1(§6.19 EXT) — 바로빌 전자세금계산서 SOAP API 클라이언트. Ruby SDK 부재로 SOAP 직접
+# 래퍼(BaroBill::ClientService)가 사용한다. nokogiri·httpi 등 의존은 bundler가 따라온다.
+gem "savon"
+
 # Windows does not include zoneinfo files, so bundle the tzinfo-data gem
 gem "tzinfo-data", platforms: %i[ windows jruby ]
 

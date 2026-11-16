@@ -75,6 +75,6 @@ class App::ClientsController < App::BaseController
   end
 
   def client_params
-    params.expect(client: [ :name, :contact_name, :phone, :email, :business_number, :memo ])
+    params.expect(client: [ :name, :contact_name, :phone, :email, :business_number, :ceo_name, :corp_addr, :memo ]) # TAX-1 — ceo_name·corp_addr(전자세금계산서 공급받는자 정보)
   end
 end

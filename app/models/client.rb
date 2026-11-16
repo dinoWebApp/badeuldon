@@ -19,8 +19,15 @@ class Client < ApplicationRecord
   validate :free_plan_client_limit, on: :create
 
   # business_number는 F-TAX(팝빌 사업자번호 매칭) 정확도를 위해 strip한다. memo는 다중행
-  # 텍스트라 제외한다.
-  normalizes :name, :contact_name, :phone, :business_number, with: ->(value) { value.strip }
+  # 텍스트라 제외한다. ceo_name·corp_addr는 TAX-1 공급받는자 정보(2026-11-16 추가 — strip만).
+  normalizes :name, :contact_name, :phone, :business_number, :ceo_name, :corp_addr,
+             with: ->(value) { value.strip }
+
+  # TAX-1 — 공급받는자 사업자번호(하이픈 제외 정규화). business_number 컬럼을 재사용한다
+  # (마이그레이션 불요). 사업자번호 없는(개인) 거래처는 전자세금계산서 발행 비대상이다.
+  def corp_num
+    business_number.to_s.gsub(/\D/, "").presence
+  end
   normalizes :email, with: ->(email) { email.strip.downcase }
 
   # REM — 거래처 단위 발송 스캔 필터: 수신거부·보류가 없는 거래처. Invoice.reminders_dispatchable의

@@ -1,0 +1,126 @@
+<%# TAX-1 발행 설정(/app/tax_invoice_setting) — 2단계 온보딩: ① 사업자 정보 저장(바로빌 회원사
+    가입) ② 공동인증서 등록(팝업) — 완료 전까지 발행 버튼이 비활성화된다(사용자 확정 전제).
+    세무 자문 아님 고지(P5·DASH-6 선례)와 바로빌 회원사 가입·인증서 위탁 동의 고지를 함께
+    표기한다(DESIGN-2 — 딥 그린 액센트·카드 위계·min-h-11 터치 타깃). %>
+<div class="mx-auto w-full max-w-xl py-12">
+  <p class="text-sm">
+    <%= link_to "← 설정", edit_app_profile_path, class: "font-semibold text-stone-500 transition hover:text-stone-800" %>
+  </p>
+  <header class="mt-4">
+    <h1 class="text-2xl font-bold tracking-tight text-emerald-900 sm:text-3xl">전자세금계산서 발행 설정</h1>
+    <p class="mt-2 text-sm leading-relaxed text-stone-500">
+      수금이 마감된 청구서를 전자세금계산서로 정발행합니다(건당 <%= won(TaxInvoice::ISSUE_FEE) %>,
+      제휴사 바로빌 연동). 발행에는 공동인증서 등록이 필요합니다.
+    </p>
+  </header>
+
+  <% if Current.user.errors.any? %>
+    <div class="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600" role="alert">
+      <ul class="list-disc space-y-1 pl-5">
+        <% Current.user.errors.full_messages.each do |message| %>
+          <li><%= message %></li>
+        <% end %>
+      </ul>
+    </div>
+  <% end %>
+
+  <%# ── 1단계 — 사업자 정보(RegistCorp) ── %>
+  <section class="mt-8 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+    <div class="flex items-center justify-between gap-2">
+      <h2 class="text-base font-bold text-stone-800">1. 사업자 정보</h2>
+      <span class="inline-flex rounded-full px-2.5 py-0.5 text-xs font-bold <%= Current.user.corp_num.present? ? "bg-emerald-50 text-emerald-700" : "bg-stone-100 text-stone-500" %>">
+        <%= Current.user.corp_num.present? ? "저장됨" : "미설정" %>
+      </span>
+    </div>
+    <p class="mt-1.5 text-xs leading-relaxed text-stone-500">
+      저장 시 제휴사 바로빌에 회원사로 가입되며, 연동 아이디는 받을돈이 자동 발급합니다.
+    </p>
+
+    <%= form_with model: Current.user, url: app_tax_invoice_setting_path,
+          method: :patch, scope: :tax_invoice_setting, class: "mt-5 space-y-5" do |form| %>
+      <div>
+        <%= form.label :corp_num, "사업자번호", class: "block text-sm font-medium text-stone-700" %>
+        <%= form.text_field :corp_num, required: true, maxlength: 12, inputmode: "numeric",
+              placeholder: "하이픈 없이 10자리. 예) 1234567890",
+              value: Current.user.corp_num,
+              class: form_input_classes(Current.user, :corp_num) %>
+        <% if form_error_message(Current.user, :corp_num) %>
+          <p class="mt-1.5 text-xs font-medium text-red-600"><%= form_error_message(Current.user, :corp_num) %></p>
+        <% end %>
+      </div>
+      <div>
+        <%= form.label :corp_name, "상호", class: "block text-sm font-medium text-stone-700" %>
+        <%= form.text_field :corp_name, required: true, maxlength: 50,
+              placeholder: "예) (주)받을돈",
+              class: form_input_classes(Current.user, :corp_name) %>
+      </div>
+      <div>
+        <%= form.label :ceo_name, "대표자명", class: "block text-sm font-medium text-stone-700" %>
+        <%= form.text_field :ceo_name, required: true, maxlength: 20,
+              placeholder: "예) 김디자인",
+              class: form_input_classes(Current.user, :ceo_name) %>
+      </div>
+      <div>
+        <%= form.label :corp_addr, "사업장 주소", class: "block text-sm font-medium text-stone-700" %>
+        <%= form.text_field :corp_addr, required: true, maxlength: 200,
+              placeholder: "세금계산서에 기재되는 주소입니다.",
+              class: form_input_classes(Current.user, :corp_addr) %>
+      </div>
+      <div>
+        <%= form.label :contact_name, "담당자명", class: "block text-sm font-medium text-stone-700" %>
+        <%= form.text_field :contact_name, required: true, maxlength: 20,
+              class: form_input_classes(Current.user, :contact_name) %>
+      </div>
+      <div>
+        <%# W-4 — RegistCorp TEL 필수: 더미 연락처 대신 실제 보유 번호(사용자 전화)를 수집한다. %>
+        <%= form.label :phone, "연락처", class: "block text-sm font-medium text-stone-700" %>
+        <%= form.text_field :phone, required: true, maxlength: 15, inputmode: "tel",
+              placeholder: "바로빌 회원사 연락처로 사용됩니다. 예) 02-1234-5678",
+              class: form_input_classes(Current.user, :phone) %>
+        <% if form_error_message(Current.user, :phone) %>
+          <p class="mt-1.5 text-xs font-medium text-red-600"><%= form_error_message(Current.user, :phone) %></p>
+        <% end %>
+      </div>
+      <div>
+        <%= form.label :tax_type, "과세 유형", class: "block text-sm font-medium text-stone-700" %>
+        <%= form.select :tax_type,
+              [["일반과세", "general"], ["간이과세", "simplified"], ["면세사업자", "exempt"]],
+              class: form_input_classes(Current.user, :tax_type) %>
+        <p class="mt-1.5 text-xs text-stone-500">세금계산서의 과세형태 표기에 사용됩니다.</p>
+      </div>
+      <%= form.submit "사업자 정보 저장",
+            class: "inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-xl bg-emerald-800 px-6 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+    <% end %>
+  </section>
+
+  <%# ── 2단계 — 공동인증서 등록 ── %>
+  <section class="mt-6 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+    <div class="flex items-center justify-between gap-2">
+      <h2 class="text-base font-bold text-stone-800">2. 공동인증서 등록</h2>
+      <span class="inline-flex rounded-full px-2.5 py-0.5 text-xs font-bold <%= Current.user.barobill_cert_registered? ? "bg-emerald-50 text-emerald-700" : "bg-orange-50 text-orange-600" %>">
+        <%= Current.user.barobill_cert_registered? ? "등록 완료" : "미등록" %>
+      </span>
+    </div>
+    <p class="mt-1.5 text-xs leading-relaxed text-stone-500">
+      전자세금계산서 발행에는 사업자 공동인증서가 필요합니다. 팝업에서 인증서를 등록한 뒤
+      "등록 완료 확인"을 눌러 주세요. 인증서가 등록되기 전까지 발행 버튼은 비활성화됩니다.
+    </p>
+    <div class="mt-4 flex flex-wrap gap-2">
+      <%= button_to "인증서 등록 팝업 열기", register_certificate_app_tax_invoice_setting_path,
+            method: :post, target: "_blank",
+            class: "inline-flex min-h-11 items-center justify-center rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-bold text-stone-700 transition hover:bg-stone-50",
+            form: { target: "_blank" } %>
+      <%= button_to "등록 완료 확인", confirm_certificate_app_tax_invoice_setting_path,
+            method: :post,
+            class: "inline-flex min-h-11 items-center justify-center rounded-xl bg-emerald-800 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900" %>
+    </div>
+  </section>
+
+  <%# ── 고지(P5 — 세무 자문 아님 + 위탁 동의) ── %>
+  <p class="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs leading-relaxed text-amber-900" role="note">
+    <span class="font-bold">안내</span> — 받을돈은 전자세금계산서 발행을 제휴사 바로빌((주)케이넷)에
+    위탁하여 처리합니다. 발행 건당 <%= won(TaxInvoice::ISSUE_FEE) %>의 수수료가 부과되며, 발급 취소에도
+    바로빌 과금 정책상 비용이 발생할 수 있습니다. 받을돈은 세무·법률 자문을 제공하지 않으며,
+    세금계산서 기재 내용의 정확성은 발행인(사업자) 본인의 책임입니다.
+  </p>
+</div>

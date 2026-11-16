@@ -1,7 +1,63 @@
 {
-  "domain": null,
+  "domain": "TAX",
   "currentPhase": null,
-  "pipelineType": null,
-  "phaseHistory": [],
-  "lastUpdated": "2026-11-11T00:00:00+09:00"
+  "pipelineType": "full",
+  "phaseHistory": [
+    {
+      "phase": 0,
+      "status": "done",
+      "note": "컨텍스트 확인 — workspace 보존·미커밋 8파일 확인"
+    },
+    {
+      "phase": 1,
+      "status": "done",
+      "note": "01_plan.md — Full·Sequential·Q21-A 권장(건당 300원)"
+    },
+    {
+      "phase": 2,
+      "status": "done",
+      "note": "PRD v0.39 — TAX-1/2 구현 확정·§6.19 바로빌 지정(EXT-1)·Q21 신설·02_prd_update.md"
+    },
+    {
+      "phase": 3,
+      "status": "done",
+      "note": "Developer-lite — 래퍼·마이그레이션 3건·서비스 4종·Job·화면·라우트·재개 복구 완료·03_implementation.md"
+    },
+    {
+      "phase": 4,
+      "status": "done",
+      "note": "rubocop 328파일 0 offense·zeitwerk 통과·마이그레이션 적용·스키마 반영 실측(clients는 business_number 재사용 설계)"
+    },
+    {
+      "phase": 5,
+      "status": "done",
+      "note": "CHANGES_REQUESTED — B0·C4(콜백 착지·이중 결제 가드·부가세 포함 행 금액·폴링 failed 전이)·W7"
+    },
+    {
+      "phase": 6,
+      "status": "done",
+      "note": "리뷰 C1~C4·W1~W6 반영 — create_order_service 신설·정수 연산 전환·폴링 failed 전이 등"
+    },
+    {
+      "phase": 7,
+      "status": "done",
+      "note": "테스트 80건 신규 전부 통과·코드 버그 B-1 1건 발견(파셜 경로)→Phase 6 분기"
+    },
+    {
+      "phase": "6b",
+      "status": "done",
+      "note": "B-1 파셜 절대 경로 수정 — 전체 1,183 runs 0 failures"
+    },
+    {
+      "phase": 8,
+      "status": "done",
+      "note": "부트 스모크(스테일 pid 정리 후)·가드 302·WARN 0·라우트 9종 확인 — 08_run_report"
+    },
+    {
+      "phase": 9,
+      "status": "done",
+      "note": "AGENTS 완료 항목·예정(운영 전환) 갱신·progress 리셋"
+    }
+  ],
+  "lastUpdated": "2026-11-13T00:00:00+09:00"
 }

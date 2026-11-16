@@ -76,10 +76,11 @@ class Webhooks::PortOneController < ActionController::Base
   end
 
   def settle_paid(order, payment)
-    # LEGAL-2 — item_type 기준으로 먼저 분기한다(내용증명 주문은 단건 결제 채널 동작상
-    # product=collection_pass 값을 갖는다 — Order 주석 참조). 확정 자체는 FulfillPassService가
-    # item_type에 따라 발급물 유무를 판단한다(LEGAL-2 — legal_doc는 paid 전환만).
-    if order.collection_pass? || order.legal_doc?
+    # LEGAL-2/TAX-1 — item_type 기준으로 먼저 분기한다(내용증명·세금계산서 주문은 단건 결제
+    # 채널 동작상 product=collection_pass 값을 갖는다 — Order 주석 참조). 확정 자체는
+    # FulfillPassService가 item_type에 따라 발급물 유무·발행 수행을 판단한다(세금계산서는
+    # FulfillTaxInvoiceService로 위임 — metadata 병합 B-1 선례).
+    if order.collection_pass? || order.legal_doc? || order.tax_invoice?
       Orders::FulfillPassService.new(order: order, payment_id: order.pg_order_id,
                                      response: payment).call
     else

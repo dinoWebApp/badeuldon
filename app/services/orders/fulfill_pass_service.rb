@@ -11,17 +11,23 @@ module Orders
     end
 
     def call
+      newly_paid = false
       @order.with_lock do
         next unless @order.reload.pending? # 이미 확정된 주문 — 무변경(멱등)
 
+        newly_paid = true
         ActiveRecord::Base.transaction do
           @order.update!(status: :paid, paid_at: Time.current,
                          pg_payment_id: @payment_id, metadata: merged_metadata)
           # LEGAL-2 — 내용증명 양식 주문은 발급물(패스)이 없다: paid 확정만으로 충분하고
           # PDF 생성은 다운로드 시점(App::LegalDocumentsController#download)에 순수 수행한다.
-          issue_pass! unless @order.legal_doc?
+          # TAX-1(Q21) — 세금계산서 수수료 주문도 발급물(패스)이 없다 — 외부 API 발행은
+          # 트랜잭션 밖(fulfill_tax_invoice)에서 수행한다.
+          issue_pass! unless @order.legal_doc? || @order.tax_invoice?
         end
       end
+      # TAX-1 — 발행(바로빌 SOAP)은 결제 확정 트랜잭션 밖에서 수행한다(웹훅 경로와 동일).
+      fulfill_tax_invoice if newly_paid && @order.tax_invoice?
       @order
     end
 
@@ -33,6 +39,13 @@ module Orders
     # 결제 응답을 병합한다. 덮어쓰면 paid 이후 다운로드가 영구 파탄난다.
     def merged_metadata
       (@order.metadata || {}).stringify_keys.merge(@response.stringify_keys)
+    end
+
+    # TAX-1(Q21) — 세금계산서 수수료 주문의 발행(FulfillTaxInvoiceService 단일 진입점 재사용 —
+    # 콜백·웹훅 양 경로가 같은 확정점을 공유한다).
+    def fulfill_tax_invoice
+      Orders::FulfillTaxInvoiceService.new(order: @order.reload, payment_id: @payment_id,
+                                           response: @response).call
     end
 
     # PLAN-4 — 수금 패스 발급: 10건, 발급 시점으로 90일 유효.
