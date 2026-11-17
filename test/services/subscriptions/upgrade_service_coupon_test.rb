@@ -61,17 +61,19 @@ class Subscriptions::UpgradeServiceCouponTest < ActiveSupport::TestCase
     assert_match(/자동 결제에 실패했습니다/, error.message)
     assert_equal 0, coupons(:amount_coupon).reload.used_count # 성공 기준 소비 — 미증가
     assert_equal coupons(:amount_coupon).id, @subscription.reload.coupon_id
-    # 재등록(activate!) 후 재시도 — 쿠폰 예약은 유지되고 pending 주문 재사용으로 같은 할인가 시도
+    # 재등록(activate!) 후 재시도 — PLAN-5(2026-11-16): 실패 구독은 dunning 스케줄로 진입해
+    # 일간 갱신 스윕이 우회하지 못하고, 재차감은 retry_charge(D+1) 경로가 단일 소유다.
+    # 쿠폰 예약은 유지되고 pending 주문 재사용으로 같은 할인가 시도된다.
     @subscription.activate!(billing_key: "tok_billing_retry")
-    @subscription.update!(current_period_end: Time.zone.parse("2026-11-01 08:00")) # 재갱신 도래
     retry_fake = FakePortOneClient.new
-    travel_to(Time.zone.parse("2026-11-01 09:00")) do
-      Subscriptions::UpgradeService.new(user: @user, action: :renew,
+    travel_to(Time.zone.parse("2026-11-02 06:05")) do         # next_retry_at(D+1) 도래
+      Subscriptions::UpgradeService.new(user: @user, action: :retry_charge,
                                         channel_key: @billing_channel_key, client: retry_fake).call
     end
     assert_equal 7_900, retry_fake.calls[:charge_billing_key].sole[:amount]
     assert_equal 7_900, @user.orders.order(:created_at).last.reload.amount
     assert_equal 1, coupons(:amount_coupon).reload.used_count # 성공 시점에만 증가
+    assert_equal 0, @subscription.reload.dunning_stage        # 재차감 성공 — dunning 리셋
   end
 
   test "재과금(두 번째 갱신)은 정상가로 차감된다 (불변식 3 — Q12 재과금 할인 없음)" do

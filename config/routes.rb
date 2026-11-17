@@ -8,6 +8,7 @@ Rails.application.routes.draw do
   namespace :app do
     root to: "dashboards#show"                  # DASH-1/2/4 — /app 진입 셸
     resource :profile, only: %i[ edit update ]  # AUTH-1.3 최초 프로필 설정(/app/profile)
+    resource :notification_settings, only: :update  # NOTI-2 주간 다이제스트 토글 (PATCH /app/notification_settings)
     resources :clients do                       # CLIENT-1 — 거래처 CRUD
       member do
         patch :suspend_reminders  # REM-7 — 거래처 단위 발송 보류(전 청구 일시정지)

@@ -1,4 +1,5 @@
 import { Controller } from "@hotwired/stimulus"
+import { portoneSdkAvailable, buildPortoneCustomer } from "./portone_shared"
 
 // 포트원 카드(자동결제) 빌링키 발급 위젯 호출(F-PLAN — PLAN-5 빌링키).
 // UI 접점만 담당한다: 카드 인증 완료 시 위젯이 빌링키 발급 토큰(billingIssueToken)을 돌려주면
@@ -24,14 +25,17 @@ export default class extends Controller {
 
   async register(event) {
     event.preventDefault() // 위젯 호출로 흐름을 대체한다 — 폼·링크 전송은 없다.
-    if (typeof PortOne === "undefined") return // SDK 미로드(테스트 환경) — 서버 동작 무영향
+    if (!portoneSdkAvailable()) return // SDK 미로드(테스트 환경) — 서버 동작 무영향
 
     const customer = {
       customerId: this.customerIdValue,
-      fullName: this.customerNameValue, // KG이니시스 — 항상 필수
-      email: this.customerEmailValue // KG이니시스 빌링키 발급 — 필수(REQUIRED)
+      ...buildPortoneCustomer({
+        fullName: this.customerNameValue,
+        phone: this.customerPhoneValue,
+        email: this.customerEmailValue, // KG이니시스 빌링키 발급 — 필수(REQUIRED)
+        requireEmail: true
+      })
     }
-    if (this.customerPhoneValue) customer.phoneNumber = this.customerPhoneValue // PC 필수
 
     const response = await PortOne.requestIssueBillingKey({
       storeId: this.storeIdValue,

@@ -5,7 +5,8 @@ class Admin::OrdersController < Admin::BaseController
   before_action :set_order, only: %i[show mark_refunded]
 
   def index
-    @orders = filtered_orders.includes(:user).order(created_at: :desc).limit(100) # W-3 N+1 방지
+    # W-3 N+1 방지 — 행별 order.user.subscription(dunning 표기)까지 미리 로딩한다.
+    @orders = filtered_orders.includes(user: :subscription).order(created_at: :desc).limit(100)
     @plan_counts = Subscription.group(:status).count
     @expiring_trials = Subscription.trialing.includes(:user) # W-3 N+1 방지
                                            .where(trial_ends_at: Time.current..7.days.from_now)

@@ -31,6 +31,12 @@ class MessageLog < ApplicationRecord
   validate :user_must_own_invoice
   validate :single_subject
 
+  # NOTI-2 주간 다이제스트(사용자 향 요약) — invoice·ticket 어느 대상도 아닌 발송임을 표기한다.
+  # attribute 선언(스키마 선언 병행 — message_logs.digest boolean default false, 3-S 통합
+  # 마이그레이션)이라 컬럼 생성 전에도 모델이 로드된다. digest=true일 때만 single_subject의
+  # "둘 중 정확히 하나" 제약을 면제받는다(기존 청구·티켓 경로 불변).
+  attribute :digest, :boolean, default: false
+
   # variables — 발송 시 조립한 #{변수명} 치환값 기록(REM-6 문구 버전 추적의 보조 증거)
   serialize :variables, coder: JSON
 
@@ -48,7 +54,10 @@ class MessageLog < ApplicationRecord
 
   # Run C — 티켓 알림(invoice nil·ticket 있음)과 청구 발송(invoice 있음)은 배타적이다.
   # 양쪽 모두 비거나 양쪽 다 채워진 기록은 우회 경로의 오기록으로 차단한다(P4 기록의 정합성).
+  # 예외 — NOTI-2 주간 다이제스트(digest=true)만 양쪽 null을 허용한다(사용자 향 요약 발송).
   def single_subject
+    return if digest?
+
     if invoice_id.present? == ticket_id.present?
       errors.add(:ticket_id, "청구서와 티켓 중 정확히 하나만 지정해야 합니다")
     end

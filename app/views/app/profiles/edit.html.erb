@@ -111,10 +111,59 @@
       </div>
     </section>
 
+    <%# ── 알림 발송 시간(REM-3 — 고정 경계 내 축소 설정) ── %>
+    <section class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
+      <h2 class="text-base font-bold text-stone-800">알림 발송 시간</h2>
+      <p class="mt-1 text-xs text-stone-500">
+        만기 독촉 알림톡을 보낼 요일과 시간대를 선택합니다. 기본은 평일 09시~18시이며,
+        이 범위 안에서만 좁힐 수 있습니다.
+      </p>
+
+      <fieldset class="mt-5">
+        <legend class="block text-sm font-medium text-stone-700">발송 요일</legend>
+        <div class="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2">
+          <%= hidden_field_tag "user[remind_allowed_wdays][]", "" %>
+          <% remind_wday_options.each do |label, wday| %>
+            <label class="flex cursor-pointer items-center gap-2 text-sm text-stone-700">
+              <%= check_box_tag "user[remind_allowed_wdays][]", wday,
+                    @user.remind_allowed_wday_list.include?(wday), id: "user_remind_wday_#{wday}",
+                    class: remind_wday_checkbox_classes %>
+              <%= label %>
+            </label>
+          <% end %>
+        </div>
+        <p class="mt-1.5 text-xs font-medium text-red-600"><%= profile_error_message(@user, :remind_allowed_wdays) %></p>
+      </fieldset>
+
+      <div class="mt-5 grid gap-5 sm:grid-cols-2">
+        <div>
+          <%= form.label :remind_start_hour, "시작 시각", class: "block text-sm font-medium text-stone-700" %>
+          <%= form.select :remind_start_hour, remind_start_hour_options,
+                class: profile_input_classes(@user, :remind_start_hour) %>
+          <% if profile_error_message(@user, :remind_start_hour) %>
+            <p class="mt-1.5 text-xs font-medium text-red-600"><%= profile_error_message(@user, :remind_start_hour) %></p>
+          <% end %>
+        </div>
+        <div>
+          <%= form.label :remind_end_hour, "종료 시각", class: "block text-sm font-medium text-stone-700" %>
+          <%= form.select :remind_end_hour, remind_end_hour_options,
+                class: profile_input_classes(@user, :remind_end_hour) %>
+          <% if profile_error_message(@user, :remind_end_hour) %>
+            <p class="mt-1.5 text-xs font-medium text-red-600"><%= profile_error_message(@user, :remind_end_hour) %></p>
+          <% end %>
+        </div>
+      </div>
+      <p class="mt-4 rounded-lg bg-stone-50 px-3 py-2.5 text-xs leading-relaxed text-stone-500">
+        야간·주일(주말) 발송은 정책상 불가합니다 — 허용 범위 내에서만 조정할 수 있습니다.
+      </p>
+    </section>
+
     <div class="border-t border-stone-200 pt-6">
       <%= form.submit "프로필 저장",
             class: "w-full cursor-pointer rounded-xl bg-emerald-800 px-6 py-3 text-base font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
       <p class="mt-3 text-center text-xs text-stone-500">저장 후에도 언제든 수정할 수 있습니다.</p>
     </div>
   <% end %>
+
+  <%= render "app/shared/noti_digest_setting", user: @user %>
 </div>

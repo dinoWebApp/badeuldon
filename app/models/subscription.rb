@@ -10,6 +10,12 @@ class Subscription < ApplicationRecord
   # 자동 갱신 주기 — 1개월
   PERIOD_MONTHS = 1
 
+  # PLAN-5 dunning(결제 실패 재시도, 2026-11-16 확정) — 자동 갱신 차감 실패 시 D+1·D+3·D+7에
+  # 동일 빌링키로 재차감한다. 3회(=DUNNING_RETRY_DELAYS.size) 모두 실패 시 구독 cancelled
+  # (기간 말 만료 — 해지 정책과 동일). dunning_stage는 완료된 재시도 실패 횟수(0=정상).
+  DUNNING_RETRY_DELAYS = [ 1, 3, 7 ].freeze
+  DUNNING_MAX_STAGE = DUNNING_RETRY_DELAYS.size
+
   belongs_to :user
   # ADMIN-4 쿠폰(Q12) — 첫 Plus 차감에 1회 소비될 쿠폰 예약. 첫 차감 성공 트랜잭션에서
   # nil로 환원되므로 "적용 1회·재과금 정상가"가 상태로 보장된다(UpgradeService 참조).
@@ -45,6 +51,23 @@ class Subscription < ApplicationRecord
     return false if user.payment_passes.usable.exists?
 
     current_count >= Invoice::FREE_MONTHLY_INVOICE_LIMIT
+  end
+
+  # ── dunning(PLAN-5) — 재시도 진행 판정·성공 시 초기화 ────────────────────────
+
+  # 재시도 대기 중인 구독인가 — 이용 중(active)이면서 차감 실패 후 재시도 스케줄이 잡혀 있는
+  # 상태. status를 판정에 포함해 해지(cancelled)·만료(expired) 구독이 D+1 재차감(DunningRetryJob)
+  # 대상이 되지 않게 하고(PLAN-5 — 해지 후 신규 과금 없음), 3회 소진 cancel! 후 stage=3 잔존이
+  # 갱신 스윕의 expire! 경로를 막는 일이 없게 한다(renew의 dunning 가드 — C-1·C-2·W-7).
+  def dunning_active?
+    active? && (dunning_stage.positive? || next_retry_at.present?)
+  end
+
+  # dunning 초기화 — 재차감 성공(주기 연장) 시 호출된다. 멱등(이미 0이면 무변경).
+  def reset_dunning!
+    return if dunning_stage.zero? && next_retry_at.nil?
+
+    update!(dunning_stage: 0, next_retry_at: nil)
   end
 
   # ── 생명주기 ──────────────────────────────────────────────────────────────

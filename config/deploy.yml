@@ -37,6 +37,10 @@ registry:
     - KAMAL_REGISTRY_PASSWORD
 
 env:
+  clear:
+    # Thruster 정적 자산 캐시 헤더(W-3) — fingerprinted /assets·셀프호스팅 폰트(/fonts) 대상.
+    # 자산은 digest 포함이라 immutable 1년 허용(단 /fonts는 비fingerprint — 내용 교체 시 파일명 유지 금지).
+    CACHE_CONTROL: "public, max-age=31536000, immutable"
   secret:
     - RAILS_MASTER_KEY
 

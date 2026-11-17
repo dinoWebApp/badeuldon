@@ -1,6 +1,7 @@
 # 자동 갱신(F-PLAN — PLAN-2/5) — 매일 실행. 과금 주기가 끝난 구독을 처리한다.
 # - 이용 중(active) + 빌링키 보유 → 포트원 빌링키 차감 → 주문(paid) 기록 + 1개월 주기 연장
-# - 차감 실패 → 실패 주문 기록 + 즉시 만료 강등(dunning 미실시 — 이번 마일스톤 확정 사항)
+# - 차감 실패 → 실패 주문 기록 + dunning 스케줄 진입(PLAN-5 — D+1·D+3·D+7 재차감,
+#   3회 소진 시 cancelled — 기간 말 만료는 본 Job의 해지 경로가 담당)
 # - 해지(cancelled) 후 주기 종료 → 만료 강등(PLAN-5 — 해지 시 기간 말까지 이용)
 # 멱등 — 주기 연장 후 current_period_end가 미래가 되어 재실행 대상에서 제외된다.
 class SubscriptionRenewalJob < ApplicationJob

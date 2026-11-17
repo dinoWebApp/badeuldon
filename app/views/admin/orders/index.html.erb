@@ -73,7 +73,15 @@
             <td class="py-2"><%= order.user.email %></td>
             <td class="py-2"><%= order.product.humanize %></td>
             <td class="py-2 text-right"><%= number_to_currency(order.amount, unit: "₩", precision: 0) %></td>
-            <td class="py-2"><%= t("admin.orders.status.#{order.status}", default: order.status.humanize) %></td>
+            <td class="py-2">
+              <%= t("admin.orders.status.#{order.status}", default: order.status.humanize) %>
+              <% subscription = order.user.subscription %>
+              <% if order.plus_monthly? && subscription&.dunning_active? %>
+                <span class="ml-1 rounded bg-orange-100 px-1.5 py-0.5 text-xs text-orange-700">
+                  재시도 <%= subscription.dunning_stage %>/<%= Subscription::DUNNING_MAX_STAGE %>
+                </span>
+              <% end %>
+            </td>
             <td class="py-2"><%= order.refunded? ? "기록됨" : "-" %></td>
             <td class="py-2 text-right"><%= link_to "상세", admin_order_path(order), class: "text-emerald-700 hover:underline" %></td>
           </tr>
@@ -84,5 +92,5 @@
     <p class="mt-4 text-sm text-stone-500">조건에 맞는 주문이 없습니다.</p>
   <% end %>
 
-  <p class="mt-4 text-xs text-stone-400">※ 결제 실패 재시도(dunning)는 미구현 상태입니다. 실제 환불은 포트원(KG이니시스) 콘솔에서 수동 처리 후 이 화면에서 사유를 기록합니다(PLAN-5·ADMIN-4).</p>
+  <p class="mt-4 text-xs text-stone-400">※ Plus 구독 차감 실패는 D+1·D+3·D+7 재시도(dunning) 후 3회 모두 실패 시 해지됩니다(PLAN-5). 실제 환불은 포트원(KG이니시스) 콘솔에서 수동 처리 후 이 화면에서 사유를 기록합니다(ADMIN-4).</p>
 </div>

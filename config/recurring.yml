@@ -43,6 +43,11 @@ production:
   blog_posts_publish_scheduled:
     class: BlogPosts::PublishScheduledJob
     schedule: "* * * * * Asia/Seoul"
+  # NOTI-2 주간 다이제스트 — 매주 월요일 09:00 KST(TIME-1). 템플릿 미등록 상태라 모든 발송은
+  # skipped(NO_TEMPLATE) 기록으로 흡수된다(NOTI-3 선례 — 등록 후 자동 활성화).
+  noti2_weekly_digest:
+    class: Noti::WeeklyDigestJob
+    schedule: "0 9 * * 1 Asia/Seoul"
 
 development:
   subscription_trial_expiry:
@@ -69,3 +74,8 @@ development:
   blog_posts_publish_scheduled:
     class: BlogPosts::PublishScheduledJob
     schedule: "* * * * * Asia/Seoul"
+  # NOTI-2 주간 다이제스트(production 블록 주석 참조).
+  noti2_weekly_digest:
+    class: Noti::WeeklyDigestJob
+    schedule: "0 9 * * 1 Asia/Seoul"
+

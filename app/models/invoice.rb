@@ -282,10 +282,12 @@ class Invoice < ApplicationRecord
     payments.sum(:amount)
   end
 
-  # PAY-2 — 잔액 = 청구 총액 − 입금 합계. 초과 등록 차단(Payments::RecordService — 결정 #3)으로
-  # 음수가 될 수 없다. DASH-1 미수 총액·연체 금액도 이 잔액 기준으로 집계한다.
+  # PAY-2 — 잔액 = 청구 총액 − 입금 합계. Q22(2026-11-16 오기록 정책 확정) — 과다입금은
+  # 실제 입력 금액을 그대로 기록하므로 합계가 총액을 넘을 수 있고, 잔액은 0 하한으로
+  # 클램프한다(잔액 0 처리 — 음수 잔액 노출·집계 왜곡 방지). DASH-1 미수 총액·연체
+  # 금액과 솔라피 partial_paid 문구의 "잔액" 변수도 이 값 기준이다.
   def remaining_amount
-    total_amount - payments_total
+    [ total_amount - payments_total, 0 ].max
   end
 
   # 금액 산식(정수 원) — 폼 실시간 요약(invoice_form_controller.js)과 동일 산식을 유지하고

@@ -44,6 +44,14 @@
     <% if subscription&.current_period_end.present? %>
       · 기간 종료 <%= l(subscription.current_period_end.to_date, format: :long) %>
     <% end %>
+    <% if subscription&.dunning_active? %>
+      · <span class="text-orange-600 font-medium">결제 재시도 <%= subscription.dunning_stage %>/<%= Subscription::DUNNING_MAX_STAGE %>회</span>
+      <% if subscription.next_retry_at.present? %>
+        · 다음 재시도 <%= l(subscription.next_retry_at, format: :short) %>
+      <% else %>
+        · <span class="text-red-700 font-medium">재시도 소진 — 해지 확정</span>
+      <% end %>
+    <% end %>
     · 활성 Plus 구독 보유 시 체험 전환은 금지됩니다.
   </p>
   <%= form_with url: change_plan_admin_member_path(@user), method: :patch, local: true,

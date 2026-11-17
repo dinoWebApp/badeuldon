@@ -21,6 +21,13 @@ module ViewEvents
         # SHARE-3 — first?는 기존 이벤트 0건 기준. 동시 열람 경합에서 이 값은 드물게 중복
         # 기록될 수 있으나 상태 전이는 조건부 UPDATE로 정확히 1회만 적용된다(Invoice#mark_viewed!).
         first = @invoice.view_events.none?
+        # T3 하드닝 — 중복 열람 스팸 억제. 기록 0건(첫 열람)이면 억제 판정 없이 반드시 기록한다
+        # (SHARE-4 최초 열람 알림 불변). 기록이 있고 DUPLICATE_WINDOW 이내 동일 청구서+IP
+        # 재열람이면 생성을 생략하고 suppressed로 반환한다(알림·상태 전이 모두 없음).
+        if !first && duplicate_recently?
+          @suppressed = true
+          return self
+        end
         @invoice.view_events.create!(
           first: first, device: device, ip: normalized_ip, viewed_at: @viewed_at
         )
@@ -32,18 +39,34 @@ module ViewEvents
       self
     end
 
-    private
-
-    # SHARE-3 — User-Agent로 모바일/PC를 대략 판별한다. device 판정은 절단 전 원본 UA 기준.
-    def device
-      ViewEvent.device_from_user_agent(@user_agent)
+    # T3 하드닝 — 재열람이 DUPLICATE_WINDOW 이내 억제됐는지(호출자 구분용).
+    def suppressed?
+      @suppressed == true
     end
 
-    # 하드닝 — IP는 컬럼 limit 45를 유지하며 공백 제거·절단 정도의 최소 정규화만 적용한다.
-    # UA는 저장 컬럼이 없어(device 판정 입력으로만 사용) 절단 대상이 아니다 — device는
-    # 절단 개념 없이 원본 UA 기준으로 판정한다.
+    private
+
+    # T3 하드닝 — 억제 판정 키: 청구서(share token 1:1 대응)+정제된 IP. 윈도우는
+    # ViewEvent::DUPLICATE_WINDOW(30분). 조회 최적화 인덱스는 03 문서 "스키마 선언" 참조.
+    def duplicate_recently?
+      @invoice.view_events
+              .where(ip: normalized_ip, viewed_at: ViewEvent::DUPLICATE_WINDOW.ago..)
+              .exists?
+    end
+
+    # SHARE-3 — User-Agent로 모바일/PC를 대략 판별한다. UA 정제(상한 절단) 후 판별한다.
+    def device
+      ViewEvent.device_from_user_agent(sanitized_user_agent)
+    end
+
+    def sanitized_user_agent
+      @sanitized_user_agent ||= ViewEvent.sanitize_user_agent(@user_agent)
+    end
+
+    # T3 하드닝 — IP 정제(공백 제거·45자 절단·IPv4/IPv6 형식 검증, 실패 시 "unknown").
+    # 정제 결과를 억제 판정 키와 저장 양쪽에 동일하게 사용해 키 일관성을 유지한다.
     def normalized_ip
-      @ip.to_s.gsub(/\s+/, "")[0, 45]
+      @normalized_ip ||= ViewEvent.sanitize_ip(@ip)
     end
   end
 end

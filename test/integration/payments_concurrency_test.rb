@@ -3,8 +3,9 @@ require "test_helper"
 # F-PAY 동시성 통합 테스트 — 실스레드 2개가 각자 독립 HTTP 세션으로 동시에 POST하는 시나리오.
 # 리뷰 러너 재현(05_review.md 검증표 S1·S2 — 서비스 계층)을 HTTP 와이어까지 포함해 통합 계층에서
 # 재검증한다. SQLite(Rails 8.1 — BEGIN IMMEDIATE)에서 with_lock 진입이 쓰기 잠금으로 직렬화되므로
-# 결과는 결정적이다: 먼저 잠금을 얻은 요청만 기록에 성공하고, 이후 진입은 잠금 하 최신 상태·잔액
-# 재검증 가드에서 422로 흡수된다(SEC 멱등 — 마감은 정확히 1회).
+# 결과는 결정적이다: 먼저 잠금을 얻은 요청만 기록에 성공하고, 이후 진입은 잠금 하 최신 상태
+# 재판정으로 흡수된다(SEC 멱등 — 마감 확정은 정확히 1회). Q22(2026-11-16)로 초과 차단이 폐기되어
+# 과다입금 경계는 "실입금액 기록 + 초과 마감"으로 수렴한다.
 #
 # 기본 트랜잭션 롤백 테스트는 메인 커넥션의 미커밋 데이터를 스레드 커넥션이 볼 수 없으므로
 # use_transactional_tests = false로 커밋 상태에서 수행하고, 생성 데이터는 teardown에서 연쇄 삭제한다.
@@ -23,7 +24,9 @@ class PaymentsConcurrencyTest < ActionDispatch::IntegrationTest
     @user&.destroy  # invoices·payments·sessions 연쇄 삭제 — 다른 테스트에 잔여 데이터를 남기지 않는다
   end
 
-  test "동시 원클릭 마감 2건 중 1건만 기록되고 나머지는 422로 흡수된다 (SEC 멱등·PAY-1)" do
+  test "동시 원클릭 마감 2건 중 1건만 기록되고 나머지는 0원 검증 422로 흡수된다 (SEC 멱등·PAY-1·Q22)" do
+    # Q22(2026-11-16): paid 본도 기록만 추가 경로가 열리지만, 금액 미전송 원클릭은 잔액 0원 →
+    # Payment 금액 검증으로 422 흡수 — 이중 기록은 여전히 0원이다.
     invoice = seed_issued_invoice(unit_price: 200_000)                # 총액 220,000원(별도 부가세)
 
     results = race_requests(2) do |session|
@@ -33,8 +36,8 @@ class PaymentsConcurrencyTest < ActionDispatch::IntegrationTest
     end
 
     assert_equal [ 303, 422 ], results.map(&:first).sort              # 1건 성공·1건 가드
-    loser_body = results.map(&:last).find { |body| body.include?("마감") }
-    assert_match(/이미 수금이 마감된 청구서입니다/, loser_body)
+    loser_body = results.find { |status, _body| status == 422 }&.last
+    assert_match(/입금 금액을 입력해 주세요/, loser_body)
 
     assert_equal 1, invoice.reload.payments.count                     # 정확히 1건(SEC-5 멱등)
     assert invoice.reload.paid?
@@ -42,7 +45,9 @@ class PaymentsConcurrencyTest < ActionDispatch::IntegrationTest
     assert_equal 0, invoice.remaining_amount
   end
 
-  test "동시 부분입금 초과 유도는 잠금 하 잔액 재검증으로 차단된다 (결정 #3 — HTTP 계층)" do
+  test "동시 부분입금 2건은 잠금 하 직렬화로 과다입금(2번째) 마감으로 수렴한다 (Q22 — HTTP 계층)" do
+    # Q22: 초과 차단 폐기 — 뒤 도달 요청은 실입금액(40,000)을 기록하고 누계가 총액을 넘어
+    # 마감(paid)된다. 초과분은 감사 비고(payment_over_recorded)로 남는다.
     invoice = seed_issued_invoice(unit_price: 50_000)                 # 총액 55,000원
 
     results = race_requests(2) do |session|
@@ -51,14 +56,14 @@ class PaymentsConcurrencyTest < ActionDispatch::IntegrationTest
       [ session.response.status, session.response.body ]
     end
 
-    assert_equal [ 303, 422 ], results.map(&:first).sort              # 2×40,000 동시 등록 불가
-    loser_body = results.map(&:last).find { |body| body.include?("잔액") }
-    assert_match(/남은 잔액\(15,000원\)보다 큽니다/, loser_body)      # 잠금 하 재계산 잔액 안내
+    assert_equal [ 303, 303 ], results.map(&:first).sort              # 둘 다 기록 성공
 
-    assert_equal 1, invoice.reload.payments.count
-    assert invoice.reload.partially_paid?
-    assert_equal 40_000, invoice.payments.sum(:amount)
-    assert_equal 15_000, invoice.remaining_amount
+    invoice.reload
+    assert invoice.paid?                                              # 누계 80,000 > 55,000 → 마감
+    assert_equal 2, invoice.payments.count
+    assert_equal 80_000, invoice.payments.sum(:amount)                # 실입금액 합계
+    assert_equal 0, invoice.remaining_amount                          # 0 하한 클램프
+    assert_not_nil AuditLog.find_by(action: "payment_over_recorded", target_id: invoice.id)
   end
 
   private

@@ -1,80 +1,42 @@
-# 01_plan — TAX-1/2 전자세금계산서 발행 (2026-11-13, Full · 절약 모드 · Sequential)
+# 01_plan — TAX TESTBED 실측·[INFERENCE] 검증 (2026-11-16, Standard · 절약 모드)
 
-## §6.14 판정
+## 배경
 
-**불리 → Sequential 단일 사슬.** 이유: 바로빌 SOAP 래퍼가 발행 설정·발행 플로우·폴링 잡 전부의 선행 의존이고, users/clients 마이그레이션 체인·`config/routes.rb`·`orders.item_type` enum 확장·PRD/AGENTS 결선이 겹침(3조건 전부 미충족).
+TAX-1/2 런(prev workspace)은 stub 수준까지만 검증 — 실 SOAP 전송 계층은 TESTBED에서 0회. release_auth_key가 실키라 운영 발행 경로가 이미 활성 → 첫 실사용자가 실패 지점을 발견하기 전 TESTBED 실측으로 [INFERENCE]를 닫는다. TESTBED는 무료 테스트 포인트라 충전 불요.
 
-## 규모 판별 — Full (Phase 0→1→✋→2→3→4→5→6?→7→8→9)
+## 검증 대상 (prev 03 문서 한계 목록 기준)
 
-새 도메인(`tax_invoices` 테이블·신규 화면 2종)·외부 API 래퍼(SOAP)·마이그레이션 2건·신규 라우트·Job — 3개+ 파일 변경 대규모.
+| # | 항목 | 실측 방법 | 판정 |
+|---|---|---|---|
+| I-1 | 공통 API WSDL 파일명(`BAROBILL.asmx` 추정) | WSDL 후보 URL GET → savon 클라이언트 생성 | 200+파싱 성공 |
+| I-2 | SOAP 응답 파싱 구조(`{m}_response.{m}_result`) | 실제 호출 1회 이상 성공 | 응답값 도출 |
+| I-3 | 공통 API 인증키·호출 규격(연동인증키 1번째 파라미터) | GetCorpState(바로빌 자체 BRN 416-81-38772 — 견적서 공개 정보·계속 영업 중) | 정상 응답 or 명확한 오류 코드 |
+| I-4 | RegistCorp 규격(-32000·파라미터·고정값 수용) | 파트너 자신의 BRN으로 호출 → -32000(이미 가입) 기대 | 코드 확인 |
+| I-5 | CheckCERTIsValid 호출 규격 | 파트너 BRN으로 호출 → 미등록 응답 기대 | 코드 확인 |
+| I-6 | GetBaroBillURL("CERT") | URL 반환 확인 | URL 형식 |
+| I-7 | CORPSTATE 서비스(GetCorpStateEx) 상태 코드 | GetCorpStateEx로 I-3 동일 BRN | State 값 기록 |
+| I-8 | TI 서비스(문서 명시 `testws.baroservice.com/TI.asmx`) | GetTaxInvoiceState(더미 mgt_num) | "없음" 오류 코드 확인 |
 
-## 사용자 확정 전제 (2026-11-13 — 설계 단일 소스)
+- 실발행(RegistAndIssueTaxInvoice)은 TESTBED 회원사+공동인증서 등록이 선행 — 인증서 파일은 사용자 소유물이라 자동화 불가. **자동 실측은 I-1~I-8까지, 실발행 E2E는 사용자 협조(테스트 인증서) 후 별도**로 명시.
+- 진단용 사업자번호: 바로빌((주)케이넷) 416-81-38772 — 견적서·문서에 공개된 정보로 읽기 전용 조회만 사용. RegistCorp 프로브는 -32000 기대라 레코드 생성 없음.
 
-1. **공동인증서 등록 필수** — 발행 설정 2단계(RegistCorp 사업자 정보 → GetBaroBillURL(CERT) 팝업) 완료 전까지 발행 버튼 비활성
-2. **취소도 100원/건 과금 전제** — 오발행 방지 3종(발행 전 미리보기·중복 발행 차단·발행 전 휴폐업 조회)을 필수 스코프로
+## 실행 방식 (Phase 3)
 
-## 게이트 확정 대상 — Q21 전가 가격 (권장안 제시)
+- **오케스트레이터가 직접 실행**(기계적 검증 성격 — `bin/rails runner`로 로컬 부트 + TESTBED 키 사용). 코드 수정이 필요해지면 그 시점에 Developer-lite 위임(Phase 3 분기).
+- 엔드포인트 후보 탐색: 문서 재조사 + URL probe(`BAROBILL.asmx` 실패 시 대안 후보 순차 시도 — 결과를 모두 기록).
 
-| 안 | 내용 | 근거 |
-|---|---|---|
-| **A 권장** | **건당 300원** — 포트원 단건 결제 재사용(orders.item_type :tax_invoice 추가·LEGAL 건당 5,000원 선례의 인프라), 결제 완료 후에만 발행 요청 | 원가 100원+취소율+마진·홈택스 무료 대안이 있어 저가 유지·구현 검증된 플로우 |
-| B | Plus 구독 혜택(월 N건 포함)+초과 건당 | 구독 가치 강화 — 월 한도 추적 로직 추가로 스코프 확대 |
+## 산출물
 
-권장 A로 진행하고 B는 PRD 후속 후보로 기록.
+- `_workspace/03_verification.md` — [INFERENCE]별 실측 결과(요청·응답·판정)·수정 사항
+- 코드 수정 시 `_workspace/03_implementation.md` 별도 + 테스트는 Phase 7(Tester) 영역
+- Phase 2: PRD 버전 갱신(사유: TESTBED 실측 진행) — 실측 확정 문장은 결과 반영 후 동일 버전 내 갱신
 
-## 구현 범위 (TAX-1·TAX-2·사용자 전제 반영)
+## 리스크
 
-### 1. 바로빌 래퍼 (선행 의존 — 全 스코프의 기반)
-- `Gemfile` — `savon` 추가 (SOAP/WSDL 클라이언트 — 바로빌은 ws.baroservice.com SOAP·Ruby SDK 부재)
-- `app/services/baro_bill/client_service.rb` — 솔라피 래퍼 선례(credentials.dig 기본값 + stub 주입 + fail-fast):
-  - `RegistCorp`(회원사 가입 — 프리랜서, 바로빌 아이디는 받을돈 채번 `badeuldon_` prefix + user_id)
-  - `GetBaroBillURL(toGo: "CERT")` — 인증서 등록 URL 반환
-  - `RegistAndIssueTaxInvoice`(간편발급 — 관리번호 24자리·회원사 단위 유니크)
-  - `GetTaxInvoiceState`(상태·NTSSendKey=국세청 승인번호)
-  - `GetCorpState`(휴폐업·과세유형 — 발행 전 검증, 10원/호출)
-- env 스위치: `test_auth_key`(TESTBED) / `release_auth_key`(운영 — 계약 후) · credentials 이미 등록됨
-- 테스트베드 실측은 운영 배포 후 후속(이번 런은 stub 기반 코드 완성)
+1. WSDL 후보 전부 실패 가능 — 그 경우 바로빌 기술문의(070-4040-5711)에 문의할 질문 목록을 산출물로 남기고 사용자 보고(런은 여기서 종료)
+2. TESTBED 포인트 소진 — 무료 포인트로 I-1~I-8 전부 커버 가능하나 실패 시 문의 항목에 추가
+3. 실발행 E2E 미커버 — 사용자 협조 필요 항목으로 명시(숨기지 않음)
 
-### 2. 마이그레이션 2건 + 신규 테이블
-- `users` 확장: `corp_num`·`corp_name`·`ceo_name`·`corp_addr`·`contact_name`·`tax_type`(enum: general/simplified/exempt)·`barobill_id`·`barobill_cert_registered`(boolean, default false)
-- `clients` 확장: `corp_num`·`ceo_name`·`corp_addr`·`contact_name`·(상호는 기존 name 재사용·email 기존 필드 확인)
-- `tax_invoices` 신규: `invoice_id`(fk, unique — 1건 1발행)·`user_id`·`mgt_num`(24자리, unique)·`status`(enum: pending/issued/canceled/failed)·`barobill_state`·`nts_send_state`·`nts_send_key`(승인번호 TAX-2)·`write_date`·`supply_total`·`tax_total`·`grand_total`·`issued_at` — `null: false`·인덱스 명시
+## Rule ID
 
-### 3. 발행 설정 온보딩 (U1)
-- 설정(프로필)에 사업자 정보 폼 확장 + `/app/tax_invoice_setting` 단일 화면: ① 사업자 정보 저장(=RegistCorp) ② 인증서 등록(팝업 URL) ③ 등록 상태 표시
-- 인증서 등록 완료 판정: 발급 API 오류코드 기반 갱신 + "등록 완료" 자체 갱신 버튼(전용 상태조회 API 문서 미확인 — Developer가 문서 재조사 후 최선 구현, 리스크 명시)
-- 세무 자문 아님 고지(DASH-6 LEGAL-3 선례 문구) + 바로빌 회원사 가입·인증서 위탁 동의 고지
-
-### 4. 발행 플로우 (수금 마감 건당)
-- `invoices#show`(paid)에 "전자세금계산서 발행" 버튼 — 가드: ① 발행 설정 완료(인증서 포함) ② 거래처 corp_num 보유(개인 거래처는 비대상 안내) ③ 결제 완료(Q21-A) ④ 기존 tax_invoices 레코드 없음(1건 1발행)
-- 발행 전 확인 미리보기(공급자/공급받는자/품목/금액) → 발행 전 휴폐업 조회 → 결제 → RegistAndIssueTaxInvoice
-- 멱등: tax_invoices.invoice_id unique + 결제·발행 원자성(포트원 웹훅 선례 — 결제 재조회 검증)
-- 폴링: `TaxInvoices::PollStateJob`(Solid Queue — 인자 스칼라 id·retry_on·완료(NTSSendKey 캡처) 또는 최대 재시도 후 failed)
-- 취소: 발급 취소(5031 계열) — status:canceled·취소도 과금 전제(재발행은 별도 결제)
-- TAX-2: invoices show에 발행 이력·승인번호·발행일 표시
-
-### 5. 라우트·결선
-- `resource :tax_invoice_setting, only: [:show, :update]` + `post :register_certificate`(member 개념) + invoices 하위 tax_invoices or member `issue_tax_invoice`·`cancel_tax_invoice` — URL 동사 금지 원칙 준수해 Developer가 세안
-- 사이드바/설정 메뉴 링크 + dashboards_controller_test nav 카운트 갱신(반복 실측 결함 — 필수 점검)
-
-## 대상 파일 (예상)
-
-- 신규: `app/services/baro_bill/client_service.rb`·`app/models/tax_invoice.rb`·`app/controllers/app/tax_invoice_settings_controller.rb`·`app/controllers/app/tax_invoices_controller.rb`(또는 invoices member 확장)·`app/jobs/tax_invoices/poll_state_job.rb`·`app/views/app/tax_invoice_settings/`·`app/views/app/tax_invoices/`(또는 파셜)·테스트 다수
-- 수정: `Gemfile`·`app/models/user.rb`·`app/models/client.rb`·`app/models/order.rb`(item_type enum)·`app/controllers/app/invoices_controller.rb`(show)·`app/views/app/invoices/show.html.erb`·`app/views/app/clients/_form*.erb`·`config/routes.rb`·`db/schema.rb`·PRD/AGENTS
-- 주의: `orders.item_type` enum 확장 시 기존 pass/legal_doc 값 불변(0·1 → tax_invoice는 신규 값)
-
-## 관련 Rule ID
-
-TAX-1(제휴 발행·수수료 사용자 부담)·TAX-2(승인번호 기록·조회)·Q13(런 분리)·Q21(신규 — 전가 가격·건당 과금)·PLAN-5(포트원 단건 재사용)·INV-4(paid 판정)·SEC-2(거래처 정보 입력 책임 U1)·AUTH-1.3(프로필 가드)·TIME-1·P4(발행 요청·결과 전부 기록)·P5(세무 자문 아님 고지)·NOTI-3 선례(알림톡 템플릿 미등록 시 skip — **이번 런 알림톡은 제외·후속**)
-
-## 리스크·모호점
-
-1. **인증서 등록 상태 조회 API 미확인** — 문서에 전용 조회 메서드 미검출 → 오류코드 기반 갱신+사용자 자체 갱신 버튼으로 구현, 바로빌 계약 협의 시 문의 항목
-2. **SOAP/WSDL 세부 스펙** — savon 실측 필요·TESTBED 계정(파트너 등록)은 사용자가 개발자센터에서 확보한 상태(테스트 인증키 credentials 등록 완료) — 코드 완성 기준, 실발행 실측은 운영 전환 후
-3. **취소 API·오류코드 세부** — ModifyCode 6종·상태코드 11종 문서 확인은 Developer 몫
-4. **결제-발행 원자성** — 결제 완료(웹훅/콜백)와 발행 요청 사이 유실 방지: LEGAL metadata 병합 선례(B-1) 준수
-5. **거래처 사업자번호 미보유 다수** — 기존 clients 데이터엔 corp_num 없음 → 발행 시 안내로 유도(마이그레이션 백필 없음)
-
-## Git 사전 점검 (Phase 0)
-
-미커밋 8파일 — 하네스 v4.2.0 동기화 7파일 + `config/credentials.yml.enc`(암호화 본문·커밋 안전). **계획 승인 시 커밋 먼저 진행**(하네스 동기화 1커밋 + credentials 1커밋 또는 통합 1커밋) 후 런 산출물과 분리 유지.
+TAX-1·TAX-2(구현 확정의 실측 보강)·SEC-5(멱등)·P4(호출·응답 전부 기록) — 신규 Rule ID 없음

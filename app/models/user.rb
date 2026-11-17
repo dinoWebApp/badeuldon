@@ -91,6 +91,37 @@ class User < ApplicationRecord
     payment_passes.usable.exists?
   end
 
+  # ── REM-3 발송 요일·시간대 설정(2026-11-16 확정) ─────────────────────────
+  # 고정 경계(평일 09:00~18:00) **내에서만 축소** 가능 — 확장(야간·주말)은 정책상 불허.
+  # remind_allowed_wdays는 요일 정수 csv(1=월…5=금 — 0=일·6=토는 상시 불허) 저장.
+  # Reminders::SendService의 outside_window?·next_window_at이 이 판정점을 공유한다.
+  REMIND_ALLOWED_WDAYS = [ 1, 2, 3, 4, 5 ].freeze
+  REMIND_MIN_HOUR = 9   # REM-3 고정 경계 하한
+  REMIND_MAX_HOUR = 18  # REM-3 고정 경계 상한(종료 시각 — 이 시각 이후 발송 불가)
+
+  validates :remind_start_hour, presence: true,
+            numericality: { only_integer: true, greater_than_or_equal_to: REMIND_MIN_HOUR,
+                            less_than: REMIND_MAX_HOUR }
+  validates :remind_end_hour, presence: true,
+            numericality: { only_integer: true, greater_than: REMIND_MIN_HOUR,
+                            less_than_or_equal_to: REMIND_MAX_HOUR }
+  validate :remind_wdays_within_fixed_boundary
+  validate :remind_start_before_end
+
+  # csv 문자열 → 요일 정수 목록(1~5만 유효 — 나머지는 저장 시점에 무시된다). 기본값 "1,2,3,4,5".
+  def remind_allowed_wday_list
+    remind_allowed_wdays.to_s.split(",").map(&:to_i).select { |d| REMIND_ALLOWED_WDAYS.include?(d) }.uniq.sort
+  end
+
+  # 시각이 사용자 설정 허용 요일·시간대 안인가(REM-3 고정 경계는 검증으로 이미 보장).
+  def remind_window_open?(time)
+    remind_allowed_wday?(time) && time.hour >= remind_start_hour && time.hour < remind_end_hour
+  end
+
+  def remind_allowed_wday?(time)
+    remind_allowed_wday_list.include?(time.wday)
+  end
+
   # TAX-1 — 전자세금계산서 발행 설정 완료 판정(단일 출처 — 발행 버튼 가드·설정 화면 공유).
   # 사업자 정보(회원사 가입에 필요한 최소 세트) + 공동인증서 등록 마킹이 모두 있어야 완료다.
   # 사용자 확정 전제 — 인증서 미등록 시 발행 버튼 비활성·안내 분기.
@@ -100,7 +131,43 @@ class User < ApplicationRecord
       barobill_cert_registered?
   end
 
+  # 다음 발송 가능 슬롯 — 허용 창 안이면 그대로, 밖이면 다음 허용 슬롯으로 이월.
+  #   · 허용 요일 + 개방 전 → 당일 시작 시각
+  #   · 그 외(종료 경계 이후·비허용 요일) → 다음 허용 요일의 시작 시각
+  # 순수 로직(Time.current 등 글로벌 의존 없음) — 시퀀스 D+1/D+7 계산 의미는 불변, 슬롯 이월만.
+  # 설정상 허용 요일이 최소 1개 보장(검증)되므로 루프는 반드시 종료한다.
+  def next_remind_slot(from)
+    return from if remind_window_open?(from)
+
+    if remind_allowed_wday?(from) && from.hour < remind_start_hour
+      remind_slot_on(from.to_date)
+    else
+      date = from.to_date + 1.day
+      date += 1.day until remind_allowed_wday?(date)
+      remind_slot_on(date)
+    end
+  end
+
   private
+
+  # 해당 날짜의 시작 시각(KST — TIME-1)으로 창 개방 시각을 만든다.
+  def remind_slot_on(date)
+    Time.zone.local(date.year, date.month, date.day, remind_start_hour, 0, 0)
+  end
+
+  def remind_wdays_within_fixed_boundary
+    list = remind_allowed_wdays.to_s.split(",").map(&:to_i)
+    return if list.any? && list.all? { |d| REMIND_ALLOWED_WDAYS.include?(d) }
+
+    errors.add(:remind_allowed_wdays, "은(는) 월~금 중 최소 1일 이상 선택해야 합니다")
+  end
+
+  def remind_start_before_end
+    return if remind_start_hour.blank? || remind_end_hour.blank?
+    return if remind_start_hour < remind_end_hour
+
+    errors.add(:remind_end_hour, "은(는) 시작 시각보다 늦어야 합니다")
+  end
 
   def create_free_subscription
     Subscription.create!(user: self, plan: :free)

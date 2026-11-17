@@ -1,42 +1,45 @@
-# 01_plan — TAX TESTBED 실측·[INFERENCE] 검증 (2026-11-16, Standard · 절약 모드)
+# 01_plan — 기능 잔여·기술 부채 병렬 배치 (2026-11-16, §6.14 · 절약 모드)
 
-## 배경
+## 제외 항목 (병렬 배치 부적합 — 사유 명시)
 
-TAX-1/2 런(prev workspace)은 stub 수준까지만 검증 — 실 SOAP 전송 계층은 TESTBED에서 0회. release_auth_key가 실키라 운영 발행 경로가 이미 활성 → 첫 실사용자가 실패 지점을 발견하기 전 TESTBED 실측으로 [INFERENCE]를 닫는다. TESTBED는 무료 테스트 포인트라 충전 불요.
+| 항목 | 사유 |
+|---|---|
+| TAX 실서비스 개시(포인트 충전·실 BRN 스모크·계약 확인) | 운영 절차·사용자 행동 필요 — 코드 작업 아님 |
+| 웹훅 data 필드 [INFERENCE] 실측 | 운영 라이브 결제 필요 — 별도 실측 시점 |
+| 약관·개인정보 문서 / 후기 | 콘텐츠·법무 검토 필요 |
+| 인앱 실기 QA | 실기기 수동 QA |
+| 이메일 서비스 선정·연동 | 벤더 선택(사용자 결정)·SMTP 크리덴셜 필요 — 선정 후 소규모 런 권장 |
+| 환불 처리 | ADMIN-4로 이미 구현 확정(Run B — refunded_at·refund_reason·PG 콘솔 수동 병기). 잔여 없음 — 예정 목록에서 정리만 |
 
-## 검증 대상 (prev 03 문서 한계 목록 기준)
+## 병렬 태스크 (3조건 판정 — 소유권 분리·의존 없음·공유 파일은 3-S 결선)
 
-| # | 항목 | 실측 방법 | 판정 |
+| 태스크 | 내용 | 소유 파일 | 판정 |
 |---|---|---|---|
-| I-1 | 공통 API WSDL 파일명(`BAROBILL.asmx` 추정) | WSDL 후보 URL GET → savon 클라이언트 생성 | 200+파싱 성공 |
-| I-2 | SOAP 응답 파싱 구조(`{m}_response.{m}_result`) | 실제 호출 1회 이상 성공 | 응답값 도출 |
-| I-3 | 공통 API 인증키·호출 규격(연동인증키 1번째 파라미터) | GetCorpState(바로빌 자체 BRN 416-81-38772 — 견적서 공개 정보·계속 영업 중) | 정상 응답 or 명확한 오류 코드 |
-| I-4 | RegistCorp 규격(-32000·파라미터·고정값 수용) | 파트너 자신의 BRN으로 호출 → -32000(이미 가입) 기대 | 코드 확인 |
-| I-5 | CheckCERTIsValid 호출 규격 | 파트너 BRN으로 호출 → 미등록 응답 기대 | 코드 확인 |
-| I-6 | GetBaroBillURL("CERT") | URL 반환 확인 | URL 형식 |
-| I-7 | CORPSTATE 서비스(GetCorpStateEx) 상태 코드 | GetCorpStateEx로 I-3 동일 BRN | State 값 기록 |
-| I-8 | TI 서비스(문서 명시 `testws.baroservice.com/TI.asmx`) | GetTaxInvoiceState(더미 mgt_num) | "없음" 오류 코드 확인 |
+| **A 경량 정리 묶음** | ① 폰트 장기 캐시 헤더(W-3 — Thruster CACHE_CONTROL·deploy.yml) ② en.yml 한국어 잔존 구조 정리(ko.yml 이식 완료분 정리·키 회귀 확인) ③ Stimulus 정리(scaffold 잔존 제거·포트원 컨트롤러 중복 정리) | `config/deploy.yml`·`config/locales/{en,ko}.yml`·`app/javascript/controllers/*` | ✓ 3종 모두 비앱도메인·상호 격리 |
+| **T3 ViewEvent 하드닝** | 열람 이벤트 스팸 억제(동일 뷰어 단기 재열람 중복 이벤트 억제 — SHARE-4 60초 알림 불변 유지)·페이로드/IP 기록 검증 강화 | `app/models/view_event.rb`·viewers 컨트롤러/서비스·해당 로직 주변 | ✓ 단일 도메인 |
+| **T5 dunning(결제 실패 재시도)** | 자동 갱신 결제 실패 시 재시도 스케줄(D+1·D+3·D+7 — 포트원 빌링키 재차감)·실패 상태 마킹·ADMIN-4 재시도 현황 표시. **스키마 선언: subscriptions에 dunning 컬럼**(3-S 통합 마이그레이션) | `app/jobs/subscriptions/*`·`app/models/subscription.rb`·admin 결제 뷰 일부 | ✓ 단일 도메인(migration은 3-S) |
+| **T6 REM-3 발송 요일·시간대 세부 지정 UI** | 사용자별 허용 요일·시간대 설정(REM-3 고정 경계 평일 09:00~18:00 내에서만 축소 가능 — 해제 불원칙 유지)·시퀀스 스케줄링 반영. **스키마 선언: users에 발송 설정 컬럼**(3-S) | users 설정 폼·reminders 스케줄링 서비스 | ✓ (users migration은 3-S) |
+| **T7 NOTI-2 주간 다이제스트** | 매주 월요일 아침 이번 주 만기·약속·수금 완료 요약 알림톡(Solid Queue recurring)·사용자 토글. **템플릿 미등록 → NOTI-3 선례**: skipped(NO_TEMPLATE) 기록·등록 후 자동 활성화. **스키마 선언: users 토글 컬럼**(3-S) | 신규 weekly job·집계 쿼리·solapi 템플릿 상수 | ✓ (users migration은 3-S) |
+| **T8 정책 확정(부분입금)** | Q22 부분입금 오기록 정책(권고: 과다입금=잔액 0 마감·초과분 비고 기록·환불 오프라인 안내 / paid 후 재입금=기록만·알림 없음)·Q23 partial_paid 반복 재발송(권고: 부분입금 추가마다 재발송 — 1회성·PLAN-3 상한 제외 유지(Q10)·시퀀스 잔액 기준 계속) — **Phase 2에서 PRD 결정 기록으로 확정 후 코드 정합 수정** | payments 관련 서비스·invoices 마감 로직 | ✓ 단일 도메인(정책은 게이트에서 권고안 승인) |
 
-- 실발행(RegistAndIssueTaxInvoice)은 TESTBED 회원사+공동인증서 등록이 선행 — 인증서 파일은 사용자 소유물이라 자동화 불가. **자동 실측은 I-1~I-8까지, 실발행 E2E는 사용자 협조(테스트 인증서) 후 별도**로 명시.
-- 진단용 사업자번호: 바로빌((주)케이넷) 416-81-38772 — 견적서·문서에 공개된 정보로 읽기 전용 조회만 사용. RegistCorp 프로브는 -32000 기대라 레코드 생성 없음.
+## 3-S 결선 (직렬 통합)
 
-## 실행 방식 (Phase 3)
+1. **마이그레이션 단 1회 통합**: users(T6 발송 설정·T7 토글)·subscriptions(T5 dunning) 컬럼
+2. `config/routes.rb` 결선(T5·T6·T7의 UI 경로 추가분)
+3. PRD(Q22·Q23 결정 기록·REM-3·NOTI-2 구현 확정 문장)·AGENTS 예정 정리
 
-- **오케스트레이터가 직접 실행**(기계적 검증 성격 — `bin/rails runner`로 로컬 부트 + TESTBED 키 사용). 코드 수정이 필요해지면 그 시점에 Developer-lite 위임(Phase 3 분기).
-- 엔드포인트 후보 탐색: 문서 재조사 + URL probe(`BAROBILL.asmx` 실패 시 대안 후보 순차 시도 — 결과를 모두 기록).
+## 파이프라인
 
-## 산출물
-
-- `_workspace/03_verification.md` — [INFERENCE]별 실측 결과(요청·응답·판정)·수정 사항
-- 코드 수정 시 `_workspace/03_implementation.md` 별도 + 테스트는 Phase 7(Tester) 영역
-- Phase 2: PRD 버전 갱신(사유: TESTBED 실측 진행) — 실측 확정 문장은 결과 반영 후 동일 버전 내 갱신
+0✓ → 1-P✓ → **✋ multiSelect 게이트**(아래) → 2(문서 직렬) → 3-P(fan-out·동시성 상한 3 — A/T3/T5 → T6/T7/T8 웨이브) → 3-S(통합) → 4(기계 검증) → 5(리뷰) → 6(수정) → 7(전체 테스트 게이트) → 8(부트) → 9(보고)
 
 ## 리스크
 
-1. WSDL 후보 전부 실패 가능 — 그 경우 바로빌 기술문의(070-4040-5711)에 문의할 질문 목록을 산출물로 남기고 사용자 보고(런은 여기서 종료)
-2. TESTBED 포인트 소진 — 무료 포인트로 I-1~I-8 전부 커버 가능하나 실패 시 문의 항목에 추가
-3. 실발행 E2E 미커버 — 사용자 협조 필요 항목으로 명시(숨기지 않음)
+1. T5 dunning은 실빌링 재차감 로직 — 테스트는 포트원 stub 필수(기존 선례)·운영 활성화 시점 주의
+2. T6는 시퀀스 엔진 타이밍 변경 — REM-3 고정 경계 침범 금지(테스트 경계 필수)
+3. T7은 템플릿 미등록 상태라 실발송 dormant — skipped 기록까지가 완성 범위
+4. T8 정책은 게이트 권고안 승인 기반 — 사용자 수정 가능
+5. T6·T7 users 동일 테이블 — 3-S 통합 마이그레이션으로 해소(개별 마이그레이션 금지)
 
 ## Rule ID
 
-TAX-1·TAX-2(구현 확정의 실측 보강)·SEC-5(멱등)·P4(호출·응답 전부 기록) — 신규 Rule ID 없음
+REM-3(세부 지정·고정 경계 유지)·NOTI-2(주간 다이제스트)·PLAN-5·ADMIN-4(dunning 현황)·PAY-2(부분입금 — Q22·Q23)·Q10/PLAN-3(상한 산정 유지)·SEC-5(멱등)·P4(기록) — 신규 결정 기록 Q22·Q23 채번(Phase 2)

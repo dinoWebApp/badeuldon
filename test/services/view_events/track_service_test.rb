@@ -92,16 +92,24 @@ module ViewEvents
       assert_not ViewEvent.bot?("")
     end
 
-    test "일반 UA와 긴 UA(600자)는 기존 동작을 유지하며 IP는 45자로 정규화된다" do
+    test "일반 UA와 긴 UA(600자)는 기존 동작을 유지하며 IP는 정제(형식 검증)된다 (T3 하드닝)" do
       invoice = invoices(:delta_issued)
       long_ua = "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36 " + "x" * 550
-      long_ip = "2001:0db8:85a3:0000:0000:8a2e:0370:7334:extra:padding:more:segments"
 
-      TrackService.new(invoice: invoice, user_agent: long_ua, ip: long_ip).call
+      # 형식이 유효한 IP는 그대로 저장된다(절단 경계 — 45자 이내 유효 IPv6)
+      valid_ip = "2001:0db8:85a3:0000:0000:8a2e:0370:7334"
+      TrackService.new(invoice: invoice, user_agent: long_ua, ip: valid_ip).call
 
       assert invoice.reload.viewed?
       assert_equal 1, invoice.view_events.count          # 600자 UA도 봇이 아니면 정상 기록
-      assert_equal long_ip.gsub(/\s+/, "").slice(0, 45), invoice.view_events.sole.ip
+      assert_equal valid_ip, invoice.view_events.sole.ip
+
+      # 형식 검증 실패 IP(절단 후에도 무효)는 unknown으로 대체된다(T3 — 형식 검증 신설)
+      invoice.view_events.delete_all
+      invoice.update_column(:status, :issued)
+      invalid_long_ip = "2001:0db8:85a3:0000:0000:8a2e:0370:7334:extra:padding:more:segments"
+      TrackService.new(invoice: invoice, user_agent: "desktop-agent", ip: invalid_long_ip).call
+      assert_equal "unknown", invoice.view_events.sole.ip
     end
 
     test "조건부 UPDATE는 동일 전이를 정확히 1회만 적용한다 (이슈 #2 회귀)" do

@@ -180,13 +180,17 @@ class ViewerControllerTest < ActionDispatch::IntegrationTest
   # ── device 판별(SHARE-3 — UA 대략 판별) ──
 
   test "모바일 UA는 mobile·데스크톱 UA는 pc로 기록된다 (SHARE-3)" do
+    # T3 하드닝(30분 동일 청구서+IP 억제)으로 같은 IP 재열람은 기록되지 않으므로
+    # device 판별 검증에는 서로 다른 IP를 사용한다.
     invoice = invoices(:delta_issued)
 
-    get viewer_path(invoice.token), headers: { "User-Agent" => MOBILE_UA }
+    get viewer_path(invoice.token),
+        headers: { "User-Agent" => MOBILE_UA, "CF-Connecting-IP" => "198.51.100.21" }
     assert_response :success
     assert_equal "mobile", invoice.view_events.order(:id).last.device
 
-    get viewer_path(invoice.token), headers: { "User-Agent" => DESKTOP_UA }
+    get viewer_path(invoice.token),
+        headers: { "User-Agent" => DESKTOP_UA, "CF-Connecting-IP" => "198.51.100.22" }
     assert_response :success
     assert_equal "pc", invoice.view_events.order(:id).last.device
   end

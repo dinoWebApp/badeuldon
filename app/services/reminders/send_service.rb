@@ -8,7 +8,9 @@
 # 넘긴다.
 module Reminders
   class SendService
-    # REM-3 — 발송 창(평일 09~18시 KST 고정, 해제 불가). 채무자 향만 적용한다.
+    # REM-3 — 발송 창 상한 경계(평일 09~18시 KST 고정, 확장 불가). 2026-11-16부터 사용자가
+    # 이 경계 **내에서만** 요일·시간대를 축소 설정한다(User.remind_start_hour·remind_end_hour·
+    # remind_allowed_wdays — 판정은 User#remind_window_open? 단일 출처). 채무자 향만 적용한다.
     WINDOW_START_HOUR = 9
     WINDOW_END_HOUR = 18
     # 선점 슬롯의 진행 중 판정 창 — 이 안에 갱신된 pending은 다른 실행이 발송 중으로 본다.
@@ -52,9 +54,12 @@ module Reminders
     # 1회). 수동(REM-8)은 재발송이 허용되어 멱등 판정 밖이며 이력을 누적하고, U1 향 이벤트
     # 알림(scheduled_at 없음)은 이벤트마다 1통이 정상이므로 중복 판정 없이 새 이력을 만든다.
     # 사전통보류(scheduled_at 지정)는 같은 예정시각의 재실행만 흡수한다(스텝별 반복이 정상).
+    # Q23(2026-11-16 확정) — partial_paid도 이벤트성이다: 부분입금이 추가로 발생할 때마다
+    # 재발송이 정상이므로(1회성 발송 — PLAN-3 상한 집계 밖 유지, Q10) sent·스텝 중복 판정을
+    # 통과해 건마다 새 이력을 만든다. 경합 선점은 아래 부분 유니크 인덱스가 그대로 담당한다.
     # DB 부분 유니크 인덱스(debtor×pending)는 "동시 진행 슬롯 1개"(경합 선점)만 보장한다.
     def claim_log
-      return new_log! if manual? || (user_role? && @scheduled_at.nil?)
+      return new_log! if manual? || (user_role? && @scheduled_at.nil?) || per_event_debtor_notice?
 
       log = find_existing_log
       return nil if log&.sent?
@@ -138,6 +143,13 @@ module Reminders
       @origin == "auto" && sequence_step?
     end
 
+    # Q23 — 부분입금 안내(partial_paid)는 이벤트성 발송이다. 추가 부분입금마다 재발송이
+    # 정상이므로 스텝 sent 판정(step_sent?)·갱신 경로를 거치지 않고 건마다 새 이력으로
+    # 진행한다. PLAN-3 상한 집계 밖(1회성 3종 제외 — Q10)은 기존 guard 로직이 유지한다.
+    def per_event_debtor_notice?
+      debtor? && @template_key == "partial_paid"
+    end
+
     def cap_reached?
       MessageLog.sequence_sent_count(@invoice.id) >= MessageLog::SEQUENCE_CAP
     end
@@ -207,11 +219,11 @@ module Reminders
       end
     end
 
-    # ── REM-3 발송 창 ────────────────────────────────────────────────────────
+    # ── REM-3 발송 창(2026-11-16 확정 — 사용자별 허용 요일·시간대 설정) ──────
+    # 고정 경계(평일 09:00~18:00) 내에서 사용자가 축소 설정한 허용 창 판정. 경계 확장(야간·주말)
+    # 불가는 User 모델 검증으로 보장되고, 창 밖 접수분은 다음 허용 슬롯으로 이월된다.
     def outside_window?
-      now = Time.current
-      now.saturday? || now.sunday? ||
-        now.hour < WINDOW_START_HOUR || now.hour >= WINDOW_END_HOUR
+      !@invoice.user.remind_window_open?(Time.current)
     end
 
     # 창 밖 접수분 — 다음 평일 09시로 재예약한다(예약/스킵 정책 중 예약 선택 — 해석 3·4).
@@ -237,15 +249,11 @@ module Reminders
       nil  # 동일 단계 예약이 이미 존재 — 첫 예약이 유효(같은 다음 평일 09시 대상)
     end
 
-    # 다음 창 개방 시각 — 평일 09:00(평일 창 개방 전이면 당일 09시). TIME-1(KST).
+    # 다음 창 개방 시각 — 사용자 설정 허용 요일·시간대의 다음 슬롯(User#next_remind_slot).
+    # 기본 설정(월~금 9~18시)에서는 기존과 동일하게 "평일 09:00(개방 전이면 당일 09시)"로
+    # 계산된다. TIME-1(KST).
     def next_window_at
-      now = Time.current
-      today_open = now.change(hour: WINDOW_START_HOUR, min: 0)
-      return today_open if weekday?(now) && now < today_open
-
-      date = now.to_date + 1.day
-      date += 1.day while date.saturday? || date.sunday?
-      Time.zone.local(date.year, date.month, date.day, WINDOW_START_HOUR)
+      @invoice.user.next_remind_slot(Time.current)
     end
 
     # ── 변수 조립 ────────────────────────────────────────────────────────────
@@ -360,10 +368,6 @@ module Reminders
 
     def manual?
       @origin == "manual"
-    end
-
-    def weekday?(time)
-      !time.saturday? && !time.sunday?
     end
 
     WEEKDAY_NAMES = %w[일 월 화 수 목 금 토].freeze

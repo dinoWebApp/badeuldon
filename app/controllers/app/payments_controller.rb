@@ -9,10 +9,13 @@ class App::PaymentsController < App::BaseController
   before_action :set_invoice, only: %i[ create ]
 
   def create
-    @payment = Payments::RecordService.new(
+    # 서비스 인스턴스를 유지한다 — post_paid_record?·over_amount는 Payment 모델이 아니라
+    # RecordService의 공개 리더다(Q22 결과 분기 — success_notice 참조).
+    @record_service = Payments::RecordService.new(
       invoice: @invoice, amount: payment_params[:amount], paid_on: payment_params[:paid_on],
       notify_thanks: payment_params[:send_thanks] != "0"  # PAY-4 — 체크 해제 시에만 끈다(기본 켬)
-    ).call
+    )
+    @payment = @record_service.call
     redirect_to app_invoice_path(@invoice), status: :see_other, notice: success_notice
   rescue Payments::RecordService::InvalidPayment => e
     @payment = e.payment
@@ -36,12 +39,23 @@ class App::PaymentsController < App::BaseController
   end
 
   # PAY-1/PAY-2 결과 안내 — 마감이면 완료 문구, 부분입금이면 재계산된 잔액을 안내한다.
+  # Q22 — 과다입금 마감 시 초과분 비고 기록과 오프라인 환불 안내를, 마감 후 재입금 기록 시
+  # 상태 유지 사실을 덧붙인다.
   def success_notice
-    if @invoice.reload.paid?
-      "수금을 마감했습니다. 수고하셨습니다!"
+    if @record_service.post_paid_record?
+      "마감된 청구서에 입금을 추가 기록했습니다. 수금 상태는 수금완료로 유지됩니다."
+    elsif @invoice.reload.paid?
+      base = "수금을 마감했습니다. 수고하셨습니다!"
+      base += " #{over_notice}" if @record_service.over_amount.positive?
+      base
     else
       "부분입금을 기록했습니다. 남은 잔액은 #{delimited(@invoice.remaining_amount)}원입니다."
     end
+  end
+
+  # Q22 — 과다입금 초과분 안내. 환불은 자동 처리하지 않고 오프라인 조율로 안내한다.
+  def over_notice
+    "입금액이 남은 잔액을 #{delimited(@record_service.over_amount)}원 초과해 초과분은 마감 기록 비고에 남겼습니다. 환불은 거래처와 직접 조율해 주세요."
   end
 
   def delimited(amount)

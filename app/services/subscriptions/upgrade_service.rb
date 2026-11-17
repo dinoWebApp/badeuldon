@@ -6,6 +6,7 @@
 # action — start_trial: 체험 시작(14일 무료·1회) / register_card: 빌링키 발급 후 활성 /
 #          cancel: 해지(Plus 이용 중만 — 기간 종료까지 유지) / expire: 만료 강등(Free 복귀) /
 #          renew: 자동 갱신(Job — with_lock·선주문 멱등) /
+#          retry_charge: dunning 재차감(PLAN-5 — D+1·D+3·D+7, Job 전용) /
 #          settle_renewal: 웹훅 회복(모호 실패 후 실제 성공한 차감의 확정)
 module Subscriptions
   class UpgradeService
@@ -29,6 +30,7 @@ module Subscriptions
       when :cancel then cancel
       when :expire then expire
       when :renew then renew
+      when :retry_charge then retry_charge
       when :settle_renewal then settle_renewal
       else raise UpgradeError, "알 수 없는 구독 처리입니다: #{@action}"
       end
@@ -79,19 +81,45 @@ module Subscriptions
 
     # 자동 갱신(잡 전용) — with_lock 하에서 주기 종료를 다시 판정한 뒤 차감한다(이슈 #4 —
     # 병렬 실행 시 1회만 차감). 그 외(해지 후 주기 종료·카드 부재)는 만료 강등한다.
-    # 차감 실패 처리는 record_charge_failure!가 담당한다 — 명확한 실패만 즉시 만료하고,
-    # 모호 실패(타임아웃)는 pending 유지로 웹훅·재시도 회복을 연다(dunning 미실시 — 마일스톤
-    # 확정). trialing·expired는 무변경(멱등)이다.
+    # 차감 실패 처리는 record_charge_failure!가 담당한다 — 명확한 실패는 dunning 스케줄에
+    # 진입해 D+1·D+3·D+7 재차감으로 이어지고(PLAN-5 2026-11-16 확정), 모호 실패(타임아웃)는
+    # pending 유지로 웹훅·재시도 회복을 연다. dunning 진행 중인 구독은 재시도 Job 전용이므로
+    # 여기서 차감하지 않는다(갱신 Job과 재시도 Job의 경합 방지). trialing·expired는 무변경.
     def renew
       subscription = resolve_subscription
       @renewal_error = nil
       subscription.with_lock do
         subscription.reload
-        if subscription.active? && subscription.pg_billing_key.present?
+        if subscription.dunning_active?
+          # dunning 진행 중 — 재차감은 Subscriptions::DunningRetryJob이 담당한다(무변경).
+        elsif subscription.active? && subscription.pg_billing_key.present?
           charge_and_extend!(subscription) if renewal_due?(subscription)
         elsif subscription.active? || renewal_due?(subscription)
           subscription.expire! # active-카드 부재 또는 해지 후 주기 종료
         end
+      end
+      raise @renewal_error if @renewal_error
+    end
+
+    # dunning 재차감(PLAN-5 — 잡 전용) — 스케줄 시각(next_retry_at)이 된 구독을 동일 빌링키로
+    # 다시 차감한다. 차감 경로는 갱신과 동일한 charge_and_extend!를 재사용한다(새 API 호출
+    # 코드 없음). 성공 시 extend_period!가 dunning을 초기화한다. 실패 시
+    # record_charge_failure!가 다음 단계를 스케줄하거나(3회 미만) cancelled로 전환한다(3회).
+    # next_retry_at이 아직 미래면(스케줄 이동) Job을 미래 시각으로 다시 걸고 종료한다(멱등).
+    def retry_charge
+      subscription = resolve_subscription
+      @renewal_error = nil
+      subscription.with_lock do
+        subscription.reload
+        if subscription.dunning_active? && subscription.next_retry_at.present? &&
+           subscription.next_retry_at > Time.current
+          Subscriptions::DunningRetryJob
+            .set(wait: (subscription.next_retry_at - Time.current).seconds)
+            .perform_later(subscription.id)
+        elsif subscription.dunning_active? && subscription.pg_billing_key.present?
+          charge_and_extend!(subscription)
+        end
+        # dunning 비대상(성공으로 초기화됨·취소됨·카드 부재)은 무변경 — 멱등 no-op.
       end
       raise @renewal_error if @renewal_error
     end
@@ -230,18 +258,26 @@ module Subscriptions
       subscription.current_period_end.present? && subscription.current_period_end > Time.current
     end
 
-    # 주기 연장 — 현재 주기 종료일(없으면 지금)을 시작으로 1개월 연장한다.
+    # 주기 연장 — 현재 주기 종료일(없으면 지금)을 시작으로 1개월 연장한다. 차감 성공 시점이므로
+    # dunning 진행 상태도 함께 초기화한다(PLAN-5 — 재시도 중 회복).
     def extend_period!(subscription)
       base = subscription.current_period_end || Time.current
       subscription.update!(current_period_start: base,
                            current_period_end: base + Subscription::PERIOD_MONTHS.months)
+      subscription.reset_dunning!
     end
 
     # 차감 실패 처리(이슈 #4) — 모호 실패(TIMEOUT/CONNECTION)는 차감이 실제로는 성공했을 수
     # 있으므로 구독을 유지하고 pending 주문으로 회복을 기다린다(웹훅 Transaction.Paid →
     # settle_renewal, 또는 익일 잡이 같은 결제 ID로 재시도). 같은 주문의 재시도 거절은
-    # "이미 결제됨"일 수 있어 (모호 실패 이력 있음) 만료하지 않는다. 명확한 실패만 실패 주문 +
-    # 즉시 만료를 한 트랜잭션으로 수행해 "실패 주문만 남고 구독은 이용 중"인 상태가 없게 한다.
+    # "이미 결제됨"일 수 있어 (모호 실패 이력 있음) 만료하지 않는다.
+    #
+    # 명확한 실패(PLAN-5 dunning — 2026-11-16 확정)는 실패 주문 기록과 함께 재시도 스케줄에
+    # 진입한다: 3회 미만이면 dunning_stage를 1 진행하고 DUNNING_RETRY_DELAYS만큼 뒤
+    # (D+1·D+3·D+7) 재차감 Job을 예약한다. 3회 모두 실패하면 구독을 cancelled로 전환한다
+    # (기간 말 만료 — 해지 정책과 동일. 주기가 이미 종료됐으므로 갱신 Job의 해지 경로가
+    # 다음 스윕에서 expire!로 강등한다). "실패 주문만 남고 구독 상태가 반영되지 않는" 상태는
+    # 없게 한다. 최종 실패 시점의 실패 주문은 paid가 아니므로 ADMIN-5 매출 집계에 자동 제외다.
     def record_charge_failure!(subscription, order, error)
       metadata = order.metadata.to_h
       if error.ambiguous? || metadata["ambiguous"].present?
@@ -257,9 +293,35 @@ module Subscriptions
         order.update!(status: :failed,
                       metadata: { code: error.code, message: error.message,
                                   pg_code: error.pg_code, pg_message: error.pg_message })
-        subscription.expire!
+        advance_dunning!(subscription)
       end
-      UpgradeError.new("자동 결제에 실패했습니다 (#{error.message}). 구독이 만료되어 Free로 전환됩니다")
+      UpgradeError.new("자동 결제에 실패했습니다 (#{error.message}). #{dunning_message(subscription)}")
+    end
+
+    # dunning 단계 진행 — 실패 1회마다 stage +1. 최종(3회) 실패 시 cancelled(기간 말 만료).
+    def advance_dunning!(subscription)
+      stage = subscription.dunning_stage + 1
+      if stage > Subscription::DUNNING_MAX_STAGE
+        subscription.update!(dunning_stage: Subscription::DUNNING_MAX_STAGE,
+                             next_retry_at: nil, last_payment_failed_at: Time.current)
+        subscription.cancel!
+        nil
+      else
+        delay = Subscription::DUNNING_RETRY_DELAYS[stage - 1]
+        subscription.update!(dunning_stage: stage, next_retry_at: delay.days.from_now,
+                             last_payment_failed_at: Time.current)
+        Subscriptions::DunningRetryJob.set(wait: delay.days).perform_later(subscription.id)
+        nil
+      end
+    end
+
+    def dunning_message(subscription)
+      if subscription.cancelled?
+        "재시도 #{Subscription::DUNNING_MAX_STAGE}회를 모두 실패해 구독이 해지되었습니다"
+      else
+        "#{subscription.next_retry_at.strftime('%m-%d %H:%M')}에 1회 재시도됩니다 " \
+          "(재시도 #{subscription.dunning_stage}/#{Subscription::DUNNING_MAX_STAGE})"
+      end
     end
   end
 end

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_15_224720) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_16_000000) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.string "name", null: false
     t.string "record_type", null: false
@@ -208,6 +208,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_15_224720) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.integer "ticket_id"
+    t.boolean "digest", default: false, null: false
     t.index ["invoice_id", "template_key"], name: "idx_message_logs_debtor_pending_uniq", unique: true, where: "recipient_role = 0 AND status = 0"
     t.index ["invoice_id"], name: "index_message_logs_on_invoice_id"
     t.index ["provider_message_id"], name: "index_message_logs_on_provider_message_id"
@@ -343,6 +344,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_15_224720) do
     t.datetime "updated_at", null: false
     t.boolean "used_trial", default: false, null: false
     t.integer "coupon_id"
+    t.integer "dunning_stage", default: 0, null: false
+    t.datetime "next_retry_at"
+    t.datetime "last_payment_failed_at"
     t.index ["coupon_id"], name: "index_subscriptions_on_coupon_id"
     t.index ["pg_customer_key"], name: "idx_subscriptions_on_pg_customer_key_uniq", unique: true, where: "pg_customer_key IS NOT NULL"
     t.index ["user_id"], name: "index_subscriptions_on_user_id", unique: true
@@ -410,6 +414,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_15_224720) do
     t.integer "tax_type", default: 0, null: false
     t.string "barobill_id"
     t.boolean "barobill_cert_registered", default: false, null: false
+    t.string "remind_allowed_wdays", default: "1,2,3,4,5", null: false
+    t.integer "remind_start_hour", default: 9, null: false
+    t.integer "remind_end_hour", default: 18, null: false
+    t.boolean "noti2_digest_enabled", default: true, null: false
     t.index ["barobill_id"], name: "index_users_on_barobill_id", unique: true
     t.index ["email"], name: "index_users_on_email", unique: true
   end
@@ -422,6 +430,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_15_224720) do
     t.datetime "viewed_at", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.index ["invoice_id", "ip", "viewed_at"], name: "index_view_events_on_invoice_ip_viewed_at"
     t.index ["invoice_id"], name: "index_view_events_on_invoice_id"
   end
 

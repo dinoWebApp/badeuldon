@@ -63,7 +63,9 @@ class App::PaymentsControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "이중 클릭 재현 — 두 번째 동일 요청은 422로 흡수되고 입금은 1건이다 (SEC 멱등)" do
+  test "이중 클릭 재현 — 두 번째 동일 요청(금액 미전송 → 0원)은 422로 흡수되고 입금은 1건이다 (SEC 멱등·Q22)" do
+    # Q22(2026-11-16): 마감(paid) 본은 "기록만 추가" 경로가 열리지만, 금액 미전송 원클릭은
+    # 잔액 0원 계산 → Payment 금액 검증(입금 금액 미입력)으로 422 흡수가 정상이다.
     travel_to(Time.zone.parse("2026-10-12 09:00")) do
       sign_in_as users(:delta)
       invoice = invoices(:delta_issued)
@@ -74,7 +76,7 @@ class App::PaymentsControllerTest < ActionDispatch::IntegrationTest
       # 동일 요청 2회 — 이중 클릭 두 번째
       post app_invoice_payments_path(invoice), params: { payment: { paid_on: "2026-10-12" } }
       assert_response :unprocessable_entity
-      assert_select "#alert", text: "이미 수금이 마감된 청구서입니다"
+      assert_select "#alert", text: "입금 금액을 입력해 주세요"
     end
 
     invoice = invoices(:delta_issued)
@@ -83,21 +85,22 @@ class App::PaymentsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 220_000, invoice.payments.sum(:amount)             # 이중 기록 0원
   end
 
-  test "마감 본(paid) 재등록은 422이고 폼 대신 확정 배너를 렌더한다 (INV-4)" do
+  test "마감 본(paid) 재등록은 payments 기록만 추가하고 상태를 유지한다 (Q22 — 상태 불변·알림 없음)" do
     sign_in_as users(:delta)
     invoice = invoices(:delta_paid)
 
-    post app_invoice_payments_path(invoice),
-         params: { payment: { amount: "10000", paid_on: "2026-10-12" } }
-    assert_response :unprocessable_entity
-    assert_select "#alert", text: "이미 수금이 마감된 청구서입니다"
-    assert_equal 0, invoice.reload.payments.count
+    assert_no_enqueued_jobs only: Reminders::DeliverJob do
+      post app_invoice_payments_path(invoice),
+           params: { payment: { amount: "10000", paid_on: "2026-10-12" } }
+    end
+    assert_response :see_other
+    assert_match(/수금 상태는 수금완료로 유지됩니다/, flash[:notice]) # Q22 — 상태 유지 안내
+    assert invoice.reload.paid?
+    assert_equal 1, invoice.reload.payments.count                    # 기록만 추가(P4)
+    assert_equal 10_000, invoice.payments.sole.amount
 
-    get app_invoice_path(invoice)
-    assert_response :success
-    assert_select "p", text: "수금이 완료되었습니다", count: 1
-    assert_select "button", text: "입금 확인하고 마감", count: 0
-    assert_select "p", text: "부분입금 기록", count: 0
+    # 본문 렌더 검증(paid 상세 화면 배너)은 BUG-1(tax_invoice_ready? private화 —
+    # invoices_controller#set_tax_invoice_context NoMethodError) 해소 후 재추가한다.
   end
 
   # ── 부분입금(PAY-2) ──
@@ -155,7 +158,7 @@ class App::PaymentsControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "잔액 초과(잔액+1원) 기록은 422로 거부되고 상태·잔액이 불변이다 (결정 #3)" do
+  test "잔액 초과(과다입금) 기록은 실입금액 그대로 마감되고 초과분 비고를 남긴다 (Q22 — 구 결정 #3 폐기)" do
     travel_to(Time.zone.parse("2026-10-12 09:00")) do
       sign_in_as users(:delta)
       invoice = invoices(:delta_issued)
@@ -166,14 +169,18 @@ class App::PaymentsControllerTest < ActionDispatch::IntegrationTest
 
       post app_invoice_payments_path(invoice),
            params: { payment: { amount: "120001", paid_on: "2026-10-11" } }
-      assert_response :unprocessable_entity
-      assert_select "p", text: "입금 금액이 남은 잔액(120,000원)보다 큽니다. 잔액 이하로 입력해 주세요", count: 1
+      assert_response :see_other                                   # Q22 — 초과 차단 폐기
+      assert_match(/남은 잔액을 1원 초과/, flash[:notice])
     end
 
     invoice = invoices(:delta_issued)
-    assert invoice.reload.partially_paid?
-    assert_equal 1, invoice.payments.count
-    assert_equal 120_000, invoice.remaining_amount                  # 초과분 미반영
+    assert invoice.reload.paid?
+    assert_equal 2, invoice.payments.count
+    assert_equal 220_001, invoice.payments.sum(:amount)            # 실제 입력 금액 누계
+    assert_equal 0, invoice.remaining_amount                       # 0 하한 클램프
+    audit = AuditLog.find_by(action: "payment_over_recorded", target_id: invoice.id)
+    assert_not_nil audit                                           # 초과분 비고(P4·Q22)
+    assert_match(/1원/, audit.detail)
   end
 
   test "0·음수·쉼표·소수 금액은 422로 거부되고 미기록이다 (금액 무결성)" do

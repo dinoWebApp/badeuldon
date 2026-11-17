@@ -224,7 +224,8 @@ class Subscriptions::UpgradeServiceTest < ActiveSupport::TestCase
     assert_equal @user.orders.sole.pg_order_id, @user.orders.sole.pg_payment_id
   end
 
-  test "명확한 차감 실패는 실패 주문 기록과 즉시 만료를 한 번에 수행한다 (dunning 없음)" do
+  test "명확한 차감 실패는 실패 주문 기록과 dunning 1단계(D+1) 진입을 한 번에 수행한다 (PLAN-5 — 2026-11-16 확정)" do
+    # 구 정책("즉시 만료")은 PLAN-5 dunning 확정으로 폐기 — 명확 실패는 재시도 스케줄에 진입한다.
     @user.create_subscription!(plan: :plus, status: :active, pg_billing_key: "tok_billing_1",
                                current_period_end: Time.zone.parse("2026-10-31 23:59:59"))
     fake = FakePortOneClient.new(raise_on: { charge_billing_key:
@@ -244,9 +245,12 @@ class Subscriptions::UpgradeServiceTest < ActiveSupport::TestCase
     assert_equal({ "code" => "PG_PROVIDER_ERROR", "message" => "PG사 승인이 거절되었습니다",
                    "pg_code" => "F1001", "pg_message" => "한도초과" }, order.metadata)
     subscription = @user.subscription.reload
-    assert_predicate subscription, :free?                    # 즉시 강등
-    assert_predicate subscription, :expired?
-    assert_nil subscription.pg_billing_key
+    assert_predicate subscription, :active?                  # 즉시 강등 아님 — 재시도 대기
+    assert_predicate subscription, :plus?
+    assert_equal 1, subscription.dunning_stage
+    assert_equal Time.zone.parse("2026-11-02 06:05"), subscription.next_retry_at  # D+1
+    assert_not_nil subscription.last_payment_failed_at
+    assert_equal "tok_billing_1", subscription.pg_billing_key  # 재차감용 빌링키 유지
   end
 
   test "모호한 차감 실패(타임아웃)는 구독을 유지하고 pending 주문으로 회복을 연다 (이슈 #4)" do

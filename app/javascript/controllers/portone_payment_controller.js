@@ -1,4 +1,5 @@
 import { Controller } from "@hotwired/stimulus"
+import { portoneSdkAvailable, buildPortoneCustomer } from "./portone_shared"
 
 // 포트원 단건 결제 위젯 호출(F-PLAN — PLAN-4 수금 패스).
 // UI 접점만 담당하는 Stimulus(규약 — 비즈니스 로직 금지): 주문 생성·승인 확정은
@@ -25,11 +26,13 @@ export default class extends Controller {
   }
 
   async pay() {
-    if (typeof PortOne === "undefined") return // SDK 미로드(테스트 환경) — 서버 동작 무영향
+    if (!portoneSdkAvailable()) return // SDK 미로드(테스트 환경) — 서버 동작 무영향
 
-    const customer = { fullName: this.customerNameValue } // KG이니시스 — 항상 필수
-    if (this.customerPhoneValue) customer.phoneNumber = this.customerPhoneValue // PC 필수
-    if (this.customerEmailValue) customer.email = this.customerEmailValue // PC 필수
+    const customer = buildPortoneCustomer({
+      fullName: this.customerNameValue,
+      phone: this.customerPhoneValue,
+      email: this.customerEmailValue // PC 필수
+    })
 
     const response = await PortOne.requestPayment({
       storeId: this.storeIdValue,

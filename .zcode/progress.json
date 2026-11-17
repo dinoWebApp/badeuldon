@@ -1,37 +1,23 @@
 {
-  "domain": "TAX",
+  "domain": null,
   "currentPhase": null,
-  "pipelineType": "standard",
+  "pipelineType": null,
+  "parallelTasks": [],
   "phaseHistory": [
     {
-      "phase": 0,
+      "phase": "6-7b",
       "status": "done",
-      "note": "컨텍스트 — workspace 보존(TAX 런→prev)·AGENTS 미커밋 1파일만"
+      "note": "BUG-1~4+파생 2건 수정 — 전체 1,241 runs 7,047 assertions 0 failures"
     },
     {
-      "phase": 1,
+      "phase": 8,
       "status": "done",
-      "note": "01_plan — I-1~I-8 실측 계획·오케스트레이터 직접 실행·실발행 E2E는 사용자 협조 항목"
-    },
-    {
-      "phase": 2,
-      "status": "done",
-      "note": "PRD v0.40 — TESTBED 실측 진행"
-    },
-    {
-      "phase": 3,
-      "status": "done",
-      "note": "실측 완료 — I-1 오답 수정(B-1 엔드포인트)·I-2 버그 수정(B-2 body 파싱)·P1~P6 전송 계층 전부 검증·03_verification"
-    },
-    {
-      "phase": "4/7",
-      "status": "done",
-      "note": "rubocop 342파일 0·zeitwerk·1,183 runs 0 failures"
+      "note": "부트 스모크·notification_settings PATCH 라우트·가드 302·WARN 0 — 08_run_report"
     },
     {
       "phase": 9,
       "status": "done",
-      "note": "PRD 실측 문장·AGENTS 예정 갱신·progress 리셋"
+      "note": "AGENTS 완료 항목+예정 정리·progress 리셋"
     }
   ],
   "lastUpdated": "2026-11-16T00:00:00+09:00"

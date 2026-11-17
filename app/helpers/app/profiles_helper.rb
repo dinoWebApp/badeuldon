@@ -27,5 +27,30 @@ module App
     def profile_error_message(user, attribute)
       user.errors[attribute].first
     end
+
+    # REM-3 — 발송 가능 요일(월~금 고정 — 주말은 정책상 상시 불허)
+    REMIND_WDAY_OPTIONS = [
+      [ "월", 1 ], [ "화", 2 ], [ "수", 3 ], [ "목", 4 ], [ "금", 5 ]
+    ].freeze
+
+    # 뷰는 헬퍼 상수를 직접 참조할 수 없다(ERB 컴파일 모듈 lookup 불가) — bank_options 선례.
+    def remind_wday_options
+      REMIND_WDAY_OPTIONS
+    end
+
+    # REM-3 — 시작 시각 선택 목록(09~17시 — 종료 18시 고정 상한 내). 고정 경계 내 축소만 허용.
+    def remind_start_hour_options
+      (User::REMIND_MIN_HOUR...User::REMIND_MAX_HOUR).map { |h| [ "%02d시" % h, h ] }
+    end
+
+    # REM-3 — 종료 시각 선택 목록(10~18시 — 시작보다 늦어야 함)
+    def remind_end_hour_options
+      ((User::REMIND_MIN_HOUR + 1)..User::REMIND_MAX_HOUR).map { |h| [ "%02d시" % h, h ] }
+    end
+
+    # 요일 체크박스 공통 클래스(DESIGN — 터치 타깃·포커스 링)
+    def remind_wday_checkbox_classes
+      "h-4 w-4 rounded border-stone-300 text-emerald-700 focus:ring-2 focus:ring-emerald-700/30 cursor-pointer"
+    end
   end
 end

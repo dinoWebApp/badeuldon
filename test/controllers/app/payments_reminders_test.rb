@@ -54,15 +54,17 @@ class App::PaymentsRemindersTest < ActionDispatch::IntegrationTest
     assert invoice.reload.partially_paid?
   end
 
-  test "마감 본 재등록 422 재렌더에도 발송 이력·컨텍스트가 적재된다 (REM-6 — RemindersContext)" do
+  test "마감 본 재등록(Q22 — 기록만 추가)은 어떤 발송 잡도 인큐하지 않는다 (Q22·P4)" do
+    # Q22(2026-11-16): 마감(paid) 후 재입금은 상태 불변·알림 발화 없음 — 기록만 추가된다.
     sign_in_as users(:delta)
     invoice = invoices(:delta_paid)
 
-    post app_invoice_payments_path(invoice),
-         params: { payment: { amount: "10000", paid_on: "2026-10-12" } }
-    assert_response :unprocessable_entity
-    # 422 본문은 app/invoices/show — F-REM 섹션이 렌더되려면 @message_logs·@manual_template_key가
-    # 필요하다(미적재 시 NoMethodError 500이 아니라 이 어설션이 실패한다).
-    assert_match(/자동 안내 현황/, response.body)
+    assert_no_enqueued_jobs only: Reminders::DeliverJob do
+      post app_invoice_payments_path(invoice),
+           params: { payment: { amount: "10000", paid_on: "2026-10-12" } }
+    end
+    assert_response :see_other
+    assert invoice.reload.paid?
+    assert_equal 1, invoice.payments.count
   end
 end

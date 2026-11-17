@@ -10,14 +10,23 @@ class FakeSolapiClient
     @response = response
     @raise_on = raise_on
     @calls = []
+    @successful_calls = []
   end
 
   def send_alimtalk(template_key:, to:, variables: {})
-    @calls << { template_key: template_key.to_s, to: to.to_s, variables: variables }
+    call = { template_key: template_key.to_s, to: to.to_s, variables: variables }
+    @calls << call
     raise @raise_on[template_key.to_s] if @raise_on[template_key.to_s]
 
+    @successful_calls << call
     response = @response
     response.respond_to?(:call) ? response.call : response
+  end
+
+  # 성공(예외 미발생) 호출만 — raise_on 경로는 기록되되 성공으로 세지 않는다
+  # (calls는 실패 호출도 포함하는 기존 컨벤션 유지 — no_template_skip_test 참조).
+  def successful_calls
+    @successful_calls
   end
 
   # 특정 템플릿의 호출 기록 — 스캔 경로에서 대상 스텝만 발송됐는지 검증에 쓴다.
