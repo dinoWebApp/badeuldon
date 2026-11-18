@@ -11,8 +11,11 @@
   <body class="min-h-dvh bg-cream text-stone-800">
     <header class="sticky top-0 z-10 border-b border-stone-200/80 bg-cream/90 backdrop-blur">
       <div class="mx-auto flex h-14 max-w-5xl items-center justify-between px-4 sm:px-6">
-        <%= link_to tools_path, class: "text-lg font-extrabold tracking-tight text-emerald-900" do %>
-          받을돈 <span class="ml-1 text-sm font-semibold text-stone-500">무료 도구</span>
+        <%# 워드마크 — 로고 클릭 시 로그인 상태에 따라 대시보드/랜딩으로 이동(2026-11-18) %>
+        <%= link_to (authenticated? ? app_root_path : root_path),
+              class: "inline-flex items-center gap-1.5 rounded-lg text-lg font-extrabold tracking-tight text-emerald-900 transition hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" do %>
+          <%= image_tag "/icon.png", alt: "받을돈", class: "h-8 w-8", width: 32, height: 32 %>
+          <span class="text-sm font-semibold text-stone-500">무료 도구</span>
         <% end %>
         <% if authenticated? %>
           <%= link_to "대시보드로 가기", app_root_path,

@@ -8,8 +8,8 @@ class RegistrationsControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_select "form[action=?]", registration_path
     assert_select "a[href=?]", new_session_path, text: /로그인/
-    # 인증 화면 브랜드 크롬(Phase 6 #1) — 워드마크 존재, 링크 아님(span)
-    assert_select "span", text: "받을돈", count: 1
+    # 인증 화면 브랜드 크롬(Phase 6 #1) — 워드마크는 로고 이미지(2026-11-18), 링크 아님 유지(SURF-4)
+    assert_select "img[alt='받을돈']", count: 1
     assert_select "a", text: "받을돈", count: 0
   end
 

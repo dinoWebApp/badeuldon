@@ -9,8 +9,8 @@ class SessionsControllerTest < ActionDispatch::IntegrationTest
     assert_select "form[action=?]", session_path
     assert_select "a[href=?]", new_registration_path, text: /무료로 시작하기/
     assert_select "a[href=?]", new_password_path, text: /비밀번호 찾기/
-    # 인증 화면 브랜드 크롬(Phase 6 #1) — 워드마크 존재, 링크 아님(span)
-    assert_select "span", text: "받을돈", count: 1
+    # 인증 화면 브랜드 크롬(Phase 6 #1) — 워드마크는 로고 이미지(2026-11-18), 링크 아님 유지(SURF-4)
+    assert_select "img[alt='받을돈']", count: 1
     assert_select "a", text: "받을돈", count: 0
   end
 

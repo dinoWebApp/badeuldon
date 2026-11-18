@@ -11,7 +11,11 @@
       <aside id="app-sidebar" data-sidebar-target="drawer"
             class="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-stone-200 bg-white lg:flex">
         <div class="flex h-14 shrink-0 items-center border-b border-stone-200/80 px-5">
-          <span class="text-lg font-extrabold tracking-tight text-emerald-900">받을돈</span>
+          <%# 워드마크 — 로고 클릭 시 대시보드 홈으로 이동(2026-11-18) %>
+          <%= link_to app_root_path,
+                class: "inline-flex items-center rounded-lg transition hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" do %>
+            <%= image_tag "/icon.png", alt: "받을돈", class: "h-8 w-8", width: 32, height: 32 %>
+          <% end %>
         </div>
 
         <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-4" aria-label="대시보드 메뉴">
@@ -61,7 +65,11 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
               </svg>
             </button>
-            <span class="text-lg font-extrabold tracking-tight text-emerald-900 lg:hidden">받을돈</span>
+            <%# 모바일 헤더 워드마크 — 로고 클릭 시 대시보드 홈으로 이동(2026-11-18) %>
+            <%= link_to app_root_path,
+                  class: "inline-flex items-center rounded-lg transition hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 lg:hidden" do %>
+              <%= image_tag "/icon.png", alt: "받을돈", class: "h-8 w-8", width: 32, height: 32 %>
+            <% end %>
           </div>
 
           <div class="flex items-center gap-2 sm:gap-3">

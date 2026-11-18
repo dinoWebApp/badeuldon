@@ -11,7 +11,11 @@
     <header class="sticky top-0 z-10 border-b border-stone-200/80 bg-cream/90 backdrop-blur">
       <div class="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
         <div class="flex items-center gap-5">
-          <span class="text-lg font-extrabold tracking-tight text-emerald-900">받을돈</span>
+          <%# 워드마크 — 로고 클릭 시 로그인 상태에 따라 대시보드/랜딩으로 이동(2026-11-18) %>
+          <%= link_to (authenticated? ? app_root_path : root_path),
+                class: "inline-flex items-center rounded-lg transition hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" do %>
+            <%= image_tag "/icon.png", alt: "받을돈", class: "h-8 w-8", width: 32, height: 32 %>
+          <% end %>
           <%# LP-11 콘텐츠 허브 유입 — 랜딩→블로그 텍스트 링크(히어로 CTA 단일은 유지) %>
           <%= link_to "블로그", blog_path,
                 class: "inline-flex min-h-11 items-center text-sm font-semibold text-stone-600 transition hover:text-emerald-800" %>

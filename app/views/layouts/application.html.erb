@@ -7,9 +7,10 @@
   <body class="min-h-dvh">
     <%# 표면 공통 기반 레이아웃 — 크롬(헤더·사이드바·푸터)은 표면별 레이아웃(landing/app)이 담당한다(SURF-6).
         인증 화면(로그인·가입·재설정)이 이 레이아웃을 사용한다. %>
-    <%# 인증 화면 미니 크롬 — 링크 없는 중앙 워드마크만. 랜딩 상단 바와 동일 계열 스타일, a 요소 없음(SURF-4 앵커 순수성 — 가입 진입 CTA 단일 유지) %>
+    <%# 인증 화면 미니 크롬 — 링크 없는 중앙 워드마크만. 랜딩 상단 바와 동일 계열 스타일, a 요소 없음(SURF-4 앵커 순수성 — 가입 진입 CTA 단일 유지).
+        워드마크는 로고 이미지로 표출(2026-11-18) — 링크 없음 규칙은 유지 %>
     <div class="flex justify-center pb-6 pt-10">
-      <span class="text-lg font-extrabold tracking-tight text-emerald-900">받을돈</span>
+      <%= image_tag "/icon.png", alt: "받을돈", class: "h-10 w-10", width: 40, height: 40 %>
     </div>
 
     <main class="mx-auto w-full max-w-6xl px-4 pb-16 sm:px-6">
