@@ -41,10 +41,11 @@ class Admin::SessionsControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "미존재 이메일도 동일 문구로 응답하고 감사를 남기지 않는다 (열거 방지)" do
+    audit_count = AuditLog.count  # CI 병렬 앰비언트 행 무관하게 '이 행위가 감사를 만들지 않음'을 검증(델타)
     post admin_session_path, params: { email: "ghost@example.com", password: "wrong" }
     assert_response 422
     assert_select "p#alert", text: UNIFIED_LOGIN_ERROR
-    assert_equal 0, AuditLog.count
+    assert_equal audit_count, AuditLog.count
     assert_equal 0, AdminSession.count
   end
 

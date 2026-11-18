@@ -12,6 +12,7 @@ class Admins::MemberAdminServiceTest < ActiveSupport::TestCase
     @admin = admins(:ops)
     @user = users(:alpha) # fixture 적재는 after_create를 우회 — Free 구독 행을 수동 보장
     @subscription = @user.subscription || Subscription.create!(user: @user, plan: :free)
+    @audit_count = AuditLog.count  # CI 병렬 앰비언트 행 무관하게 델타 검증 기준선
   end
 
   # ── grant_trial ──
@@ -130,7 +131,7 @@ class Admins::MemberAdminServiceTest < ActiveSupport::TestCase
     result = service_change(action: "hacked")
 
     assert_not_predicate result, :success?
-    assert_equal 0, AuditLog.count
+    assert_equal @audit_count, AuditLog.count
   end
 
   test "구독 행이 없으면 각 action은 거부된다 (ADMIN-3 방어)" do
@@ -141,7 +142,7 @@ class Admins::MemberAdminServiceTest < ActiveSupport::TestCase
       result = service_change(action: action)
       assert_not_predicate result, :success?, "#{action} — 구독 행 없음 거부"
     end
-    assert_equal 0, AuditLog.count
+    assert_equal @audit_count, AuditLog.count
   end
 
   # ── toggle_suspension ──
