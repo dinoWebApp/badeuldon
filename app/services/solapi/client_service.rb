@@ -40,7 +40,18 @@ module Solapi
       @api_secret = api_secret
       @pf_id = pf_id
       @sender_number = sender_number
-      @template_ids = template_ids || {}
+      # YAML 작성 스타일(심벌 키 :phone_verification: / 문자열 키) 어느 쪽이든 조회가
+      # 항상 문자열 키(@template_ids[template_key.to_s])로 이뤄지므로 주입분을 포함해
+      # stringify_keys로 정규한다 — 심벌 키 credentials에서 MISSING_TEMPLATE 오동작 방지.
+      @template_ids = (template_ids || {}).stringify_keys
+    end
+
+    # 등록 템플릿 키 맵(credentials solapi.template_ids) — 도메인 계층의 알림톡/SMS 분기
+    # 판정용 접근자(AUTH-9 phone_verification — PhoneVerifications::SendService가 키 존재
+    # 여부로 경로를 고른다). 읽기 전용 노출이며 @template_ids는 initialize에서 항상 Hash
+    # 보장(nil → {}).
+    def template_ids
+      @template_ids
     end
 
     # SMS 단일 발송(AUTH-9 — 휴대폰 인증번호 등 템플릿 불요 문자). 알림톡과 동일 엔드포인트

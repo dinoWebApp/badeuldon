@@ -58,8 +58,23 @@ Rails.application.configure do
   # Set this to true and configure the email server for immediate delivery to raise delivery errors.
   # config.action_mailer.raise_delivery_errors = false
 
+  # F-EMAIL — 자체 Outbound Mail API(OUTBOUND_MAIL_API.md)로 발송한다. credentials
+  # outbound_mail.token 미등록 시 DeliveryMethod가 로그 폴백으로 흡수하므로
+  # raise_delivery_errors = true는 안전하다(등록 전 무중단·등록 후 API 실패는 예외 상승).
+  config.action_mailer.raise_delivery_errors = true
+  config.action_mailer.delivery_method = :outbound_mail_api
+
+  # deliver_later 잡 클래스 전역 지정(F-EMAIL C-1·W-5) — 기존 4곳 deliver_later 호출부를
+  # 수정 없이 OutboundMail::DeliveryJob으로 승격해 멱등 키를 잡 식별자 기반으로 만든다
+  # (이벤트마다 유일·재시도 동일 키·retryable 5회 재시도 — SEC-5). 문자열 지정은 Action
+  # Mailer railtie가 ActionMailer::Base 로드 시점(on_load — production은 eager load 중)에
+  # constantize하므로 app/ 자동 로딩 확립 후 상수화돼 부트 순서 안전. 개발·테스트 환경은
+  # 기존 잡(ActionMailer::MailDeliveryJob)을 유지해 기존 테스트 단정에 영향이 없다.
+  config.action_mailer.delivery_job = "OutboundMail::DeliveryJob"
+
   # Set host to be used by links generated in mailer templates.
-  config.action_mailer.default_url_options = { host: "example.com" }
+  # F-EMAIL — 재설정 링크가 실제 도메인(https)으로 생성되게 한다(기존 example.com).
+  config.action_mailer.default_url_options = { host: "badeuldon.kr", protocol: "https" }
 
   # Specify outgoing SMTP server. Remember to add smtp/* credentials via bin/rails credentials:edit.
   # config.action_mailer.smtp_settings = {

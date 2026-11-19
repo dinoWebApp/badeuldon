@@ -1,45 +1,28 @@
-# 01_plan — 기능 잔여·기술 부채 병렬 배치 (2026-11-16, §6.14 · 절약 모드)
+# 01_plan — F-SALES 후속: 인증번호 알림톡 전환 (2026-11-19, Standard · 절약 모드)
 
-## 제외 항목 (병렬 배치 부적합 — 사유 명시)
+## 배경
 
-| 항목 | 사유 |
-|---|---|
-| TAX 실서비스 개시(포인트 충전·실 BRN 스모크·계약 확인) | 운영 절차·사용자 행동 필요 — 코드 작업 아님 |
-| 웹훅 data 필드 [INFERENCE] 실측 | 운영 라이브 결제 필요 — 별도 실측 시점 |
-| 약관·개인정보 문서 / 후기 | 콘텐츠·법무 검토 필요 |
-| 인앱 실기 QA | 실기기 수동 QA |
-| 이메일 서비스 선정·연동 | 벤더 선택(사용자 결정)·SMTP 크리덴셜 필요 — 선정 후 소규모 런 권장 |
-| 환불 처리 | ADMIN-4로 이미 구현 확정(Run B — refunded_at·refund_reason·PG 콘솔 수동 병기). 잔여 없음 — 예정 목록에서 정리만 |
+AUTH-9 인증번호를 SMS로 구현한 이유는 인증번호 알림톡 템플릿 미등록(검수 필요). 사용자 요청으로 **알림톡 우선·SMS 폴백** 전환 — 템플릿 등록 전에도 가입 플로우 무중단·등록 즉시 자동 알림톡(NOTI-3 선례 패턴).
 
-## 병렬 태스크 (3조건 판정 — 소유권 분리·의존 없음·공유 파일은 3-S 결선)
+## 구현 범위 (Standard — 기존 로직 수정)
 
-| 태스크 | 내용 | 소유 파일 | 판정 |
-|---|---|---|---|
-| **A 경량 정리 묶음** | ① 폰트 장기 캐시 헤더(W-3 — Thruster CACHE_CONTROL·deploy.yml) ② en.yml 한국어 잔존 구조 정리(ko.yml 이식 완료분 정리·키 회귀 확인) ③ Stimulus 정리(scaffold 잔존 제거·포트원 컨트롤러 중복 정리) | `config/deploy.yml`·`config/locales/{en,ko}.yml`·`app/javascript/controllers/*` | ✓ 3종 모두 비앱도메인·상호 격리 |
-| **T3 ViewEvent 하드닝** | 열람 이벤트 스팸 억제(동일 뷰어 단기 재열람 중복 이벤트 억제 — SHARE-4 60초 알림 불변 유지)·페이로드/IP 기록 검증 강화 | `app/models/view_event.rb`·viewers 컨트롤러/서비스·해당 로직 주변 | ✓ 단일 도메인 |
-| **T5 dunning(결제 실패 재시도)** | 자동 갱신 결제 실패 시 재시도 스케줄(D+1·D+3·D+7 — 포트원 빌링키 재차감)·실패 상태 마킹·ADMIN-4 재시도 현황 표시. **스키마 선언: subscriptions에 dunning 컬럼**(3-S 통합 마이그레이션) | `app/jobs/subscriptions/*`·`app/models/subscription.rb`·admin 결제 뷰 일부 | ✓ 단일 도메인(migration은 3-S) |
-| **T6 REM-3 발송 요일·시간대 세부 지정 UI** | 사용자별 허용 요일·시간대 설정(REM-3 고정 경계 평일 09:00~18:00 내에서만 축소 가능 — 해제 불원칙 유지)·시퀀스 스케줄링 반영. **스키마 선언: users에 발송 설정 컬럼**(3-S) | users 설정 폼·reminders 스케줄링 서비스 | ✓ (users migration은 3-S) |
-| **T7 NOTI-2 주간 다이제스트** | 매주 월요일 아침 이번 주 만기·약속·수금 완료 요약 알림톡(Solid Queue recurring)·사용자 토글. **템플릿 미등록 → NOTI-3 선례**: skipped(NO_TEMPLATE) 기록·등록 후 자동 활성화. **스키마 선언: users 토글 컬럼**(3-S) | 신규 weekly job·집계 쿼리·solapi 템플릿 상수 | ✓ (users migration은 3-S) |
-| **T8 정책 확정(부분입금)** | Q22 부분입금 오기록 정책(권고: 과다입금=잔액 0 마감·초과분 비고 기록·환불 오프라인 안내 / paid 후 재입금=기록만·알림 없음)·Q23 partial_paid 반복 재발송(권고: 부분입금 추가마다 재발송 — 1회성·PLAN-3 상한 제외 유지(Q10)·시퀀스 잔액 기준 계속) — **Phase 2에서 PRD 결정 기록으로 확정 후 코드 정합 수정** | payments 관련 서비스·invoices 마감 로직 | ✓ 단일 도메인(정책은 게이트에서 권고안 승인) |
+1. `PhoneVerifications::SendService` — 발송 경로 이원화:
+   - `TEMPLATE_KEY = "phone_verification"` 상수 — credentials `solapi.template_ids.phone_verification`에 키 존재 시 `send_alimtalk(template_key:, to:, variables: { 인증번호: code })`(래퍼 기존 — variables는 `#{}` 키 규격)
+   - 키 부재·발송 실패(ApiError 등) 시 기존 `send_sms` 폴백 (기록: MessageLog 아님 — phone_verifications 행에 발송 채널 컬럼 없이 로그만? **채널 기록 없이 단순 폴백·실패 시에도 인증번호는 반드시 전달** — 부분 실패 시 SMS가 최종 결과)
+   - rate limit·만료·1회용 로직 불변
+2. PRD AUTH-9 문구 갱신: "SMS 문자" → "알림톡 우선(템플릿 `phone_verification` — 등록 전 SMS 폴백)"
+3. 테스트 갱신: 알림톡 경로(키 존재 stub)·폴백 경로(키 부재·알림톡 실패)·기존 rate limit 시나리오 유지
+4. **사용자 운영 작업 안내(산출에 포함)**: 솔라피 콘솔 템플릿 등록 — 문구 제안 `[받을돈] 가입 인증번호는 [#{인증번호}]입니다. 5분간 유효합니다.` (변수 1개·검수 통과용 간결) + 등록 후 credentials `solapi.template_ids.phone_verification`에 템플릿 ID 추가
 
-## 3-S 결선 (직렬 통합)
+## 대상 파일
 
-1. **마이그레이션 단 1회 통합**: users(T6 발송 설정·T7 토글)·subscriptions(T5 dunning) 컬럼
-2. `config/routes.rb` 결선(T5·T6·T7의 UI 경로 추가분)
-3. PRD(Q22·Q23 결정 기록·REM-3·NOTI-2 구현 확정 문장)·AGENTS 예정 정리
-
-## 파이프라인
-
-0✓ → 1-P✓ → **✋ multiSelect 게이트**(아래) → 2(문서 직렬) → 3-P(fan-out·동시성 상한 3 — A/T3/T5 → T6/T7/T8 웨이브) → 3-S(통합) → 4(기계 검증) → 5(리뷰) → 6(수정) → 7(전체 테스트 게이트) → 8(부트) → 9(보고)
-
-## 리스크
-
-1. T5 dunning은 실빌링 재차감 로직 — 테스트는 포트원 stub 필수(기존 선례)·운영 활성화 시점 주의
-2. T6는 시퀀스 엔진 타이밍 변경 — REM-3 고정 경계 침범 금지(테스트 경계 필수)
-3. T7은 템플릿 미등록 상태라 실발송 dormant — skipped 기록까지가 완성 범위
-4. T8 정책은 게이트 권고안 승인 기반 — 사용자 수정 가능
-5. T6·T7 users 동일 테이블 — 3-S 통합 마이그레이션으로 해소(개별 마이그레이션 금지)
+- `app/services/phone_verifications/send_service.rb`(주 수정)·`PRD.md`(AUTH-9 1문장)·`test/services/phone_verifications/send_service_test.rb`
 
 ## Rule ID
 
-REM-3(세부 지정·고정 경계 유지)·NOTI-2(주간 다이제스트)·PLAN-5·ADMIN-4(dunning 현황)·PAY-2(부분입금 — Q22·Q23)·Q10/PLAN-3(상한 산정 유지)·SEC-5(멱등)·P4(기록) — 신규 결정 기록 Q22·Q23 채번(Phase 2)
+AUTH-9(경로 전환)·REM-10(솔라피 템플릿 체계)·NOTI-3 선례(등록 전 폴백·자동 활성화)
+
+## 리스크
+
+- 알림톡 variables 키 형식(`#{인증번호}`)은 F-REM 확정 스펙 준용 — 템플릿 등록 문구의 변수명과 코드 키 일치 필요(안내 문구에 변수명 "인증번호" 고정)
+- 폴백 이중 발송 가능성(알림톡 성공했는데 실패 오판) 방지: 실패 판정은 ApiError 예외 기준(래퍼 fail-fast) — 성공 응답 후 폴백 없음

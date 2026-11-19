@@ -92,6 +92,53 @@ class TaxInvoices::PollStateJobTest < ActiveSupport::TestCase
     assert_empty client.calls.values.flatten
   end
 
+  # 발행 완료 알림톡 훅(TAX-2·NOTI-1) — pending→issued 전이 확정 시 1회 호출. 잡은 서비스
+  # 호출만 하고 발송 로직은 갖지 않는다(규약). 서비스를 스파이로 교체해 호출 인자·횟수만 검증.
+  def with_notify_issued_spy
+    calls = []
+    original = TaxInvoices::NotifyIssuedService.method(:call)
+    TaxInvoices::NotifyIssuedService.define_singleton_method(:call) do |**kwargs|
+      calls << kwargs
+      :sent
+    end
+    yield calls
+  ensure
+    TaxInvoices::NotifyIssuedService.define_singleton_method(:call, original)
+  end
+
+  test "pending→issued 전이 확정 시 발행 완료 알림 서비스를 1회 호출한다 (TAX-2·NOTI-1)" do
+    with_notify_issued_spy do |calls|
+      with_baro_bill_client(fake_state(barobill_state: 3014, nts_send_state: 4)) do
+        TaxInvoices::PollStateJob.perform_now(@tax_invoice.id)
+      end
+
+      assert_equal 1, calls.size
+      assert_equal @tax_invoice.reload, calls.sole[:tax_invoice], "확정(승인번호 캡처) 이후의 재적재본을 넘긴다"
+    end
+  end
+
+  test "canceled·failed 전이에서는 발행 완료 알림 서비스를 호출하지 않는다 (트리거는 issued 한정)" do
+    with_notify_issued_spy do |calls|
+      with_baro_bill_client(fake_state(barobill_state: 5031, nts_send_state: 4,
+                                       nts_send_key: "")) do
+        assert_nothing_raised do
+          TaxInvoices::PollStateJob.perform_now(@tax_invoice.id)
+        end
+      end
+      # 5031(공급자 취소)은 issued·failed 어느 분기도 아니다 — PENDING 예외로 재시도 궤도.
+      # 발행 완료 알림이 아닌 경로에서 호출이 없어야 한다.
+      assert_empty calls
+
+      @tax_invoice.reload
+      return if @tax_invoice.issued? # 방어 — 전이 없이 pending이면 아래 failed 분기는 생략
+
+      with_baro_bill_client(fake_state(barobill_state: 3014, nts_send_state: 5)) do
+        TaxInvoices::PollStateJob.perform_now(@tax_invoice.id)
+      end
+      assert_empty calls, "failed 확정에서도 발행 완료 알림은 호출되지 않는다"
+    end
+  end
+
   test "삭제된 레코드의 폴링은 discard로 흡수된다" do
     tax_invoice_id = @tax_invoice.id
     @tax_invoice.destroy!

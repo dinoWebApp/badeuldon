@@ -2,16 +2,20 @@
 # 공유한다. 실외부 호출이 절대 일어나지 않는다(REM-10 — 솔라피 API 실호출 금지).
 # 성공 응답·예외를 주입하고, 호출 인자(템플릿 키·수신번호·변수)를 기록해 전달값을 검증한다.
 class FakeSolapiClient
-  attr_reader :calls
+  attr_reader :calls, :template_ids
 
   # response — 성공 응답 Hash(또는 호출마다 평가되는 Proc). raise_on — template_key별 예외
   # (Solapi::ApiError 인스턴스 — 확정 실패 HTTP_400·모호 실패 TIMEOUT 시나리오용).
   # sms_error — send_sms(AUTH-9 SMS 단일 발송) 실패 주입용 예외(발송 실패 → rate limit
-  # 미소진 검증에 사용). 신규 확장(F-SALES) — 기존 호출부에는 영향 없다(키워드 기본값).
-  def initialize(response: { messageId: "msg_fake_1" }, raise_on: {}, sms_error: nil)
+  # 미소진 검증에 사용). template_ids — credentials solapi.template_ids 대역(AUTH-9 알림톡
+  # 전환 — SendService#deliver!가 키 존재로 알림톡/SMS를 분기. 기본 {} = 키 부재 → SMS 경로,
+  # 기존 테스트 무변경 통과). 신규 확장(F-SALES) — 기존 호출부에는 영향 없다(키워드 기본값).
+  def initialize(response: { messageId: "msg_fake_1" }, raise_on: {}, sms_error: nil,
+                 template_ids: {})
     @response = response
     @raise_on = raise_on
     @sms_error = sms_error
+    @template_ids = template_ids
     @calls = []
     @successful_calls = []
   end

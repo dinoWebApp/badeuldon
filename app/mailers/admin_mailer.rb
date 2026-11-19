@@ -1,5 +1,6 @@
-# 관리자 보안 통보 메일(AUTH-7.3·7.4·7.6) — 이메일 서비스 미지정으로
-# Action Mailer 기본 발송(개발/운영 로그). 실발송 연결은 U1과 동일 기술 부채 항목.
+# 관리자 보안 통보 메일(AUTH-7.3·7.4·7.6) — F-EMAIL(2026-11-20)로 자체 Outbound Mail API
+# 실발송에 전환됐다(production: OutboundMail::DeliveryJob — 잡 식별자 멱등 키·retryable
+# 5회 재시도. 개발·테스트 환경은 기존 배달 방식 유지).
 class AdminMailer < ApplicationMailer
   def locked_out(admin)
     @admin = admin

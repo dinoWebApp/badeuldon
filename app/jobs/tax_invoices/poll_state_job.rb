@@ -37,6 +37,9 @@ module TaxInvoices
 
       if state[:barobill_state].to_i == ISSUED_STATE && state[:nts_send_state].to_i == NTS_DONE
         tax_invoice.update!(status: :issued) # TAX-2 — 승인번호 수신 확정
+        # pending→issued 전이 확정 시 1회 — 발행 완료 알림톡(TAX-2·U1 이벤트). 잡은 서비스
+        # 호출만 하고 발송 로직·재시도는 서비스가 담당한다(멱등 — 재실행 시 재발송 없음).
+        TaxInvoices::NotifyIssuedService.call(tax_invoice: tax_invoice)
       elsif state[:nts_send_state].to_i == NTS_FAILED
         tax_invoice.update!(status: :failed)
       else

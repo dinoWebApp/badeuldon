@@ -1,7 +1,6 @@
-# 02_prd_update — F-SALES (2026-11-19, Phase 2)
+# 02_prd_update — F-EMAIL (2026-11-20, Phase 2)
 
-- PRD v0.41 → **v0.42**
-- **§6.20 신설**(F-SALES): SALES-1 계정 이원화(sales 20%·12개월 캡 / officer 15%·무기한·title)·SALES-2 주간 코드 로테이션·SALES-3 어트리뷰션·SALES-4 첫결제 20%(Q12 재사용)·SALES-5 월 정산 스냅샷·SALES-6 /sales 대시보드·SALES-7 격리
-- **AUTH-9 신설**: 휴대폰 SMS 인증 가입·번호 유일(신규 가입 한정)
-- **Q24 신설**: 수수료 정책(역할 이원화·기준·지급 시점·첫결제 20%)
-- AGENTS Rule ID 색인·표면 구조 갱신은 Phase 9에서 수행(기존 패턴)
+- PRD v0.42 → **v0.43**
+- AUTH-8 구현 확정: 자체 Outbound Mail API(mail-api.veloloop.kr)·커스텀 ActionMailer 배달 방식·발신 badeuldon@veloloop.kr(사용자 확정)·Idempotency-Key 멱등·등록 전 로그 폴백 유지
+- AUTH-7.6 배달 경로 공유 명시·EXT 표 이메일 행 미지정→지정(EXT-1)
+- Rule ID 신규 없음(AUTH-8/7.4/7.6·EXT-1·SEC-5 재정의)

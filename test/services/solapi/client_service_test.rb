@@ -140,6 +140,43 @@ module Solapi
       assert_empty transport.requests                                # 발송 시도 전 구성 오류 분류
     end
 
+    test "template_ids 심벌 키 주입은 stringify_keys 정규화로 문자열 조회에 성공한다 (YAML 스타일 무관)" do
+      # credentials solapi.template_ids는 심벌 키 YAML(:phone_verification:)로 작성돼도 조회는
+      # 항상 문자열 키(@template_ids[template_key.to_s]) — 주입분(stub 포함)까지 정규해야
+      # MISSING_TEMPLATE 오동작이 없다(2026-11-19 결함 수정).
+      client = ClientService.new(
+        api_key: "test-api-key", api_secret: "test-api-secret", pf_id: "pf_badeuldon",
+        sender_number: "01000000000",
+        template_ids: { phone_verification: "TPH01", "confirm_d1" => "t2" } # 혼합 — 심벌+문자열
+      )
+      transport = FakeSolapiTransport.new(response: http_ok({ messageId: "m1" }.to_json))
+
+      result = with_http_transport(transport) do
+        client.send_alimtalk(template_key: :phone_verification, to: "010-3333-7777",
+                             variables: { "인증번호" => "123456" })
+      end
+
+      assert_equal({ messageId: "m1" }, result)
+      template_id = JSON.parse(transport.requests.sole.body)["message"]["kakaoOptions"]["templateId"]
+      assert_equal "TPH01", template_id
+      assert_equal({ "phone_verification" => "TPH01", "confirm_d1" => "t2" },
+                   client.template_ids, "접근자는 문자열 키 Hash를 돌려준다")
+    end
+
+    test "template_ids가 nil이면 빈 Hash로 정규되고 미등록 키는 MISSING_TEMPLATE이다 (nil 안전)" do
+      client = ClientService.new(api_key: "k", api_secret: "s", pf_id: "pf",
+                                 sender_number: "01000000000", template_ids: nil)
+      assert_equal({}, client.template_ids)
+
+      transport = FakeSolapiTransport.new(response: http_ok("{}".to_json))
+      error = with_http_transport(transport) do
+        assert_raises(ApiError) { client.send_alimtalk(template_key: "phone_verification",
+                                                       to: "010-3333-7777") }
+      end
+      assert_equal "MISSING_TEMPLATE", error.code
+      assert_empty transport.requests
+    end
+
     test "credentials 누락은 요청 없이 MISSING_CREDENTIALS로 fail-fast한다 (반복 시도 방지)" do
       client = ClientService.new(api_key: "", api_secret: "s", pf_id: "pf",
                                  sender_number: "01000000000",

@@ -1,136 +1,105 @@
-# 05_review — F-SALES 영업 직원·추천 코드·수수료 + 휴대폰 인증 가입 (2026-11-19, Phase 5 Reviewer · 일반 모드)
+# 05_review — F-EMAIL 자체 메일 API 연동 (2026-11-20, 일반 모드 · reviewer)
 
-status: CHANGES_REQUESTED
+## 상태: **CHANGES_REQUESTED** (CRITICAL 1 · WARNING 6)
 
-- BLOCKER 0 · CRITICAL 1 · WARNING 8
-- 리뷰 범위: `git status --short` 전수(신규 28 + 수정 11 + 통합 마이그레이션 1 + schema.rb)·PRD v0.42 §6.20 SALES-1~7·AUTH-9·Q24·Q12·PLAN-5·SEC-5·P4·SURF-1/3/4 문언 대조
-- BLOCKER 없음 — 데이터 정합성 훼손·런타임 에러·/sales 무단 접근 경로는 확인되지 않았다. CRITICAL 1건 수정 후 재리뷰 대상.
-
----
-
-## 1. 이슈 목록
-
-### CRITICAL
-
-#### C-1. AUTH-9 이중 검증이 "번호"에만 결합 — 검증 통과 주체와 가입 주체가 다를 수 있음
-- **위치**: `app/controllers/registrations_controller.rb:84-87`(`phone_verified?`)·`:48-56`(`verify_phone_code`)
-- **근거**: PRD AUTH-9 "**검증 통과 시에만 가입 진행**·인증 코드는 **1회용**(consumed)". 현재 `create`의 이중 검증은 `PhoneVerification.consumed_recently.exists?(phone: 제출번호)` — 판정 근거가 번호뿐이고 세션(브라우저)과 무결결합돼 있지 않다.
-- **시나리오**: 피해자가 자신의 번호로 인증을 통과(consumed 행 생성, 30분 창) → 공격자가 그 번호를 알고 있으면 **코드 없이** 같은 30분 창 내에 `create`를 제출(공격자 이메일 + 피해자 번호)해 "인증된" 계정을 만들 수 있다. 결과: ① 피해자 번호가 부분 유니크 인덱스로 선점돼 본인 가입이 차단(지원 비용) ② 코드를 받지 않은 주체가 번호 소유를 위장한 계정 확보(AUTH-9의 남용 방지 목적 — SALES-3 연계 — 일부 무력화).
-- **현실적 완화 요인**(솔직 평가): 피해자 번호 + "인증 진행 중" 타이밍을 아는 표적 공격이어야 하며, 30분 창으로 좁혀져 있다. 그러나 결함 자체는 명확하고 수정이 저렴하다.
-- **수정 방향**: `verify_phone_code` 성공 시 서버 세션에 `session[:verified_phone] = phone` 저장 → `create`의 `phone_verified?`를 `session[:verified_phone] == 정규화(제출번호) && consumed_recently.exists?(phone:)`로 판정(가입 성공 후 세션값 파기). 검증을 수행한 브라우저만 가입할 수 있게 결합된다. JS는 변겨 없이 동작(동일 브라우저 흐름).
-
-### WARNING
-
-#### W-1. 잠긴 영업 계정의 콘솔 unlock 경로 부재 — 비밀번호 변경으로도 잠금이 풀리지 않음
-- **위치**: `app/controllers/sales/sessions_controller.rb:18`(`rep.locked?` 차단)·`app/controllers/admin/sales_reps_controller.rb`(unlock 액션 부재)
-- **내용**: 5회 실패 잠금(AUTH-7.3 준용) 계정은 `reset_failed_attempts!`가 로그인 성공 시에만 호출되므로 자력 복구 불가. Admin 콘솔에는 `edit`(비밀번호 변경)이 있으나 `locked_at`을 초기화하지 않아 **비밀번호를 바꿔도 여전히 로그인 거부**(문구는 "이메일 또는 비밀번호가 올바르지 않습니다"라 운영자 오해 유발). admins 선례(`Admins::RoleService.unlock!` + `require_owner` member 액션, AGENTS runner 절차)와 달리 복구 수단이 전무하다.
-- **수정 방향**: admin 콘솔에 `unlock` member 액션 추가(admins 패턴 — 감사 `sales_rep_unlocked`)하거나, 최소한 AGENTS에 `bin/rails runner 'rep.unlock!'` 운영 절차 문서화. 잠금 상태를 목록에 표시하면 운영성 향상.
-
-#### W-2. `SalesRep#commission_rate` 무검증 — 서버 측 범위(0~100 정수) 보장 없음
-- **위치**: `app/models/sales_rep.rb:16`(enum들)·`:36-38`(`effective_rate`)
-- **내용**: 폼은 `min:0 max:100 step:1`이나 조작 요청으로 999·음수·소수가 저장될 수 있다. `effective_rate`가 100 초과면 `SalesCommission`의 `rate 0..100` 검증에서 `find_or_create_by!`가 RecordInvalid → `call`의 rescue가 로그만 남기고 해당 rep 정산이 **조용히 누락**된다.
-- **수정 방향**: `validates :commission_rate, numericality: { only_integer: true, greater_than_or_equal_to: 0, less_than_or_equal_to: 100 }, allow_nil: true` 추가.
-
-#### W-3. 대시보드 "내 사용자 N명"이 `limit(30).size` 표시 — 실제 총원 아님
-- **위치**: `app/controllers/sales/dashboards_controller.rb:8`·`app/views/sales/dashboards/show.html.erb:96`
-- **내용**: 31명 이상 유치 시 "30명(최근 순)"으로 과소 표시 — 실적 표면의 수치 부정확(SALES-6).
-- **수정 방향**: `@referred_users_count = @rep.referred_users.count` 별도 집계 후 표기(목록은 최근 30명 유지·"최근 30명 표시" 문언).
-
-#### W-4. 유치 사용자 이메일 노출 — PRD SALES-6 명세(가입일·플랜·상태)를 초과 (확인 요청)
-- **위치**: `app/views/sales/dashboards/show.html.erb:102-112`
-- **내용**: PRD SALES-6 "내 사용자 목록(**가입일·플랜·상태**)" — 구현이 이메일 칼럼을 추가했다. 유치자가 개인적으로 아는 지인이라는 운영 전제라면 식별 편의가 있으나, 유치 사용자는 자신의 이메일이 영업 직원에게 제공됨에 동의한 적이 없다(개인정보 최소 수집·이용 원칙).
-- **수정 방향**: 이메일 칼럼 제거(가입일·플랜·상태만)하거나, 노출이 필요하면 PRD SALES-6 문언 갱신 + 개인정보 처리 절차(제3자 제공 고지) 확인 후 유지. 오케스트레이터 판정 항목으로 남긴다.
-
-#### W-5. SMS 발송 rate limit 경합 우회 + IP 결합 한도의 CGNAT 영향 (확인 요청)
-- **위치**: `app/services/phone_verifications/send_service.rb:44-47`(조회 후 INSERT)·`app/controllers/registrations_controller.rb:14-15`(IP 6회/1시간, send+verify 합산)
-- **내용**: ① 두 동시 요청이 `rate_limited?` 조회를 통과한 뒤 각자 INSERT하면 "1분 1회"가 우회된다(레코드 삽입 경쟁 — 예상 리스크 5번 지적). 6자리 코드·5회 시도 제한이 있어 실질 위험은 낮다. ② 국내 이동통신은 CGNAT로 다수 사용자가 IP를 공유한다 — 인증 요청 다수가 같은 IP로 몰리면 정상 가입이 6회/1시간에 걸릴 수 있다.
-- **수정 방향**: ① 부분 유니크 인덱스 `(phone, created_at)` 유니크화는 과하고, `rate_limited?` 통과 후 `create!`에서 `RecordNotUnique` 무시 재시도 수준이면 충분(선택). ② 한도 상향(예: 20/1시간) 또는 send/verify 분리 판단 — 운영 데이터 없이 단정 불가하므로 확인 요청.
-
-#### W-6. 추천 어트리뷰션·쿠폰 부착 실패가 Rails 로그에만 기록 — 감시·재시도 경로 없음
-- **위치**: `app/controllers/registrations_controller.rb:91-97`(`attach_referral!` rescue)
-- **내용**: `referred_by` 설정 실패 시 어트리뷰션이 소리 없이 소실되면 해당 사용자의 수수료가 영구 누락된다(SALES-5 원천). 가입은 완료돼 재시도 창구가 없다. 발생 확률은 매우 낮으나(검증 없는 컬럼 update) P4·ADMIN-2 정신상 콘솔에서 보이는 기록이 바람직하다.
-- **수정 방향**: rescue에서 `AuditLogs::RecordService.call(action: "referral_attach_failed", target: @user, ...)` 기록(admin nil — coupon_redeemed 선례). 사후 복구는 admin 콘솔 또는 runner로 가능함을 03 문서 운영 노트에 명시.
-
-#### W-7. 정산 집계 N+1 — rep별 유저 루프당 집계 쿼리 1회
-- **위치**: `app/services/sales/monthly_settlement_service.rb:39-43`(`sum_base_amount`)
-- **내용**: `rep.referred_users.sum do … end`이 유저마다 `orders.sum(:amount)`을 실행한다. 월 1회 잡이라 실영향은 작으나 유치자 수백 명 규모에서 쿼리 수백 회.
-- **수정 방향**: 단일 그룹 집계로 전환 권장 — `Order.joins(:user).where(users: { referred_by_sales_rep_id: rep.id }, paid_at: month_range).paid.plus_monthly.not_refunded`에 12개월 캡은 `users.created_at` 조인 조건(`orders.paid_at <= (users.created_at, '+12 months')` 또는 Ruby side 필터)으로. 대안으로 현행 유지도 허용(월 1회·트래픽 무관) — 비차단.
-
-#### W-8. rep 파괴 방어선이 부분적 — referred_users 없는 rep은 이력 연쇄 삭제 가능
-- **위치**: `app/models/sales_rep.rb:8-14`
-- **내용**: `sales_referral_codes`/`sales_commissions`가 `dependent: :destroy`라, 유치 사용자가 없는 rep을 콘솔 등에서 파괴하면 코드 이력·정산 이력이 함께 사라진다(P4 위반 소지). `referred_users`의 restrict는 유치자가 있는 경우에만 발화한다. 콘솔에 destroy 액션은 없으므로 노출면은 좁다.
-- **수정 방향**: 두 연관도 `dependent: :restrict_with_error`로 전환하거나 `before_destroy`에서 항상 차단(삭제 금지 원칙의 완전한 방어선).
+- 리뷰 범위: `app/services/outbound_mail/{api_error,client_service,delivery_method}.rb`·`config/initializers/outbound_mail.rb`·`config/environments/production.rb`·`app/mailers/application_mailer.rb` (03 §1 목록 기준 — 작업 트리의 solapi/tax/credentials 변경은 제외)
+- 검증 방법: 코드 전수 + Rails 8.1.4 젬 소스 실측(`delivery_methods.rb`·`mail_delivery_job.rb`·`rescuable.rb`) + 콜사이트·뷰·credentials 키 존재 여부(불리언만) 실측. 코드 수정 0건.
+- 총평: 래퍼·배달 방식·폴백·등록 시점의 설계와 실측 근거는 솔라피/포트원 선례에 정합하고 대부분의 집중 검증 항목을 통과했다. 그러나 **SHA-256 콘텐츠 해시 멱등 키가 '새 이벤트'와 '재시도'를 구분하지 못해**, 본문이 정적인 보안 통보(AUTH-7.3/7.4)의 반복 이벤트가 메일 서버의 영구 idempotent_replay에 흡수되어 **조용히 미발송**되는 결함이 있다. 운영 개시 전 수정을 권고한다.
 
 ---
 
-## 2. Rule ID 준수 매핑 (판정)
+## 이슈
 
-| Rule ID | 판정 | 근거 |
+### C-1 (CRITICAL) — 반복 이벤트 멱등 흡수: AUTH-7.4/AUTH-7.3 보안 통보 메일 무음 소멸
+
+- `rule_id`: AUTH-7.4(주)·AUTH-7.3·P4
+- `file:line`: `app/services/outbound_mail/delivery_method.rb:112-116`(`idempotency_key` — 수신자·제목·본문의 SHA-256)
+- **문제**: 멱등 키가 렌더 결과 콘텐츠에서만 파생되므로, 본문이 정적인 통보 메일은 **(수신자, IP) 쌍마다 키가 영구 고정**된다. 메일 서버는 `UNIQUE (api_client, idempotency_key)`(OUTBOUND_MAIL_API.md §Idempotency 동작 — TTL 없음)로 같은 키+같은 payload에 **202를 내며 기존 메시지를 반환(재발송 없음)**한다. 즉 두 번째 이벤트는 앱 입장에서 "성공"이지만 실제 이메일은 존재하지 않는다.
+- **실측 트리거(현실적·반복 가능)**:
+  - `app/controllers/admin/sessions_controller.rb:166-171` — `notify_new_ip`는 `last_login_ip != request.remote_ip`일 때마다 발동한다. 사무실(A)/자택(B) IP를 오가는 관리자는 **매 로그인마다 통보가 발생**하는데, 본문(`app/views/admin_mailer/new_login.text.erb:2` — 변수는 admin.email·ip뿐)은 (관리자, IP)마다 동일 → 두 번째 A 로그인부터 알림이 전부 흡수된다.
+  - `app/controllers/admin/sessions_controller.rb:84-87` — unlock→재잠금 시 `locked_out`(변수=admin.email뿐 — `locked_out.text.erb`)도 동일 본문 → 재잠금 통보 미발송.
+- **03 §2.1 분석의 간극**: 개발자는 "재시도·재실행 모두 동일 키 → 완전 멱등"을 장점으로 기술했으나, 이는 **같은 잡의 재실행**에 대한 서술이다. **새 이벤트(새 deliver_later)**가 같은 콘텐츠를 만드는 경우는 분석 범위 밖이었고, `MailDeliveryJob`에 retry_on이 없어(실측 재확인 — 아래 통과 근거 T-9) 현재 이 키 설계가 주는 유일한 실효가 바로 이 이벤트 억제다.
+- `suggestion`: 03 §2.1이 스스로 제안한 **잡 식별자 기반 키로 승격**(지금 수행 권장): `ActionMailer::MailDeliveryJob` 서브클래스(`config.action_mailer.delivery_job`)에서 `job_id`(재시도에 보존)를 전달해 키 파생에 포함 — "이벤트별 유일 + 재시도 동일"을 동시에 충족하고 C-1·W-2가 함께 해소된다. 근시일 대안: 이벤트 식별자(admin_session id·lockout 감사 행 id)를 메일러에서 `mail.headers`로 전달하고 `idempotency_key` 파생에 포함(임의 헤더가 payload에 유출되지 않음은 `build_payload`가 명시적으로 재조립하므로 보장됨).
+
+### W-1 (WARNING) — PRD AUTH-8 '구현 확정' 문구와 메커니즘 불일치(문서 정합)
+
+- `rule_id`: AUTH-8
+- `file:line`: `PRD.md:107`(문구) ↔ `app/services/outbound_mail/delivery_method.rb:12-24`(구현)
+- PRD v0.43 AUTH-8은 "**Idempotency-Key=메시지 ID**(잡 재시도 멱등)"로 구현 확정 기재. message_id가 렌더 직후 nil임을 실측해 SHA-256 파생으로 대체한 것은 타당하나(지시 메커니즘의 원천 불가는 인정), ① PRD가 단일 소스인 이상 괄호 목적 "잡 재시도 멱등"도 현재 미충족(retry 부재 + 재시도를 도입해도 재설정 링크 로테이션으로 재렌더=새 키)이므로 **PRD 문구 개정이 후속으로 필요**하다. 02_prd_update 후속 또는 C-1 수정 시 함께 반영.
+
+### W-2 (WARNING) — "같은 키 ↔ 같은 payload 구조적 보장(409 불가)" 주장은 성립하지 않음
+
+- `rule_id`: SEC-5
+- `file:line`: `app/services/outbound_mail/delivery_method.rb:21-23`(주석)·`_workspace/03_implementation.md` §2.1 표
+- 멱등 키는 `to·subject·body`만 커버하고 payload의 **`from.name`·`reply_to`·`cc`·`bcc`는 키에 미포함**이다. 동일 본문 이벤트 재발(C-1 시나리오)과 credentials 정책 변경(예: from_name·reply_to 추가)이 겹치면 같은 키+다른 payload → **409 IDEMPOTENCY_CONFLICT** → ApiError(재시도 불가) → 잡 실패(가시적이나 메일은 역시 미발송). 주석·03 문서의 "구조상 발생하지 않는다" 서술을 정정하고, C-1의 job_id 기반 전환으로 키-페이로드 커플링을 끊을 것.
+
+### W-3 (WARNING) — 폴백 로그의 수신자 전체 주소 노출 (확인 요청 성격)
+
+- `rule_id`: P4/개인정보
+- `file:line`: `app/services/outbound_mail/delivery_method.rb:49-50`
+- 폴백 로그가 `to=<이메일 전체>`·`subject=`를 기록한다. 본문 미기록은 준수했으나 리뷰 기준('로그에 본문·수신자 미노출')과는 배치된다. 다만 운영 전환 확인(03 §4.3 `grep OUTBOUND_MAIL`)에 to·subject가 실제 필요하고, 프로젝트 내 이메일 로그 선례(audit_logs 이메일 스냅샷 — ADMIN-3)가 있어 **수용 가능**하나 마스킹(예: `h***@domain`) 권장. 오케스트레이터 판정 요청.
+
+### W-4 (WARNING) — 성공 발송의 앱 쪽 기록 0행 (P4 '로그 수준' 미달)
+
+- `rule_id`: P4
+- `file:line`: `app/services/outbound_mail/delivery_method.rb:54`(202 스냅샷 반환값이 버려짐)
+- 실발송 성공 시 앱 로그에 어떤 흔적도 남지 않는다(기록은 메일 서버 MailApiMessage에만 존재). 01_plan은 "P4(발송 기록: 로그 수준)"을 선언했다. 성공 1행(`id`·수신자만 — 본문 없음) 로그 추가 권장. W-3과 마스킹 기준을 통일해 결정.
+
+### W-5 (WARNING) — 01_plan 대비 미구현: 429/5xx 잡 재시도 없음
+
+- `rule_id`: EXT-1·SEC-5
+- `file:line`: `app/services/outbound_mail/api_error.rb:11-24`(retryable? — 사용처 없음)
+- 01_plan은 "API 5xx/429 시 잡 재시도(Solid Queue retry_on)"를 명시했으나 `retryable?` 분류만 존재하고 실제 재시도는 없다(실패 잡 종결·수동 재실행 필요). 낮은 트래픽·분량 한도(분 30/일 100)·문서화되어 있어 v1 수용 가능하나, **계획-구현 편차로 기록**한다. C-1의 DeliveryJob 서브클래스 도입 시 `retry_on ApiError, if: :retryable?` 설계와 함께 정리할 것(같은 job_id로 안전 재시도가 가능해진다).
+
+### W-6 (WARNING) — AdminMailer 헤더 주석 시효 만료 (Developer 판정 요청 항목 — 수정 권고)
+
+- `file:line`: `app/mailers/admin_mailer.rb:1-2`
+- "이메일 서비스 미지정으로 Action Mailer 기본 발송… 실발송 연결은 기술 부채" — 이번 전환으로 과거 서술이 됐다. 주석 1행이지만 신뢰성 문서이므로 정정 권고(이번 스코프에 포함해도 무방 — 파일 2줄 수정).
+
+---
+
+## 통과 근거 (집중 검증 항목별)
+
+| # | 항목 | 판정 |
 |---|---|---|
-| SALES-1 | 통과 | 별도 테이블·별도 세션(`sales_rep_sessions`)·role 이원화(sales 20%/officer 15% — `ROLE_DEFAULT_RATES`·`effective_rate` 단일 판정점)·title 표시용·Admin CRUD+감사 전건·삭제 없음(정지 운영). 단 W-1(unlock 부재)·W-2(rate 무검증)·W-8(파괴 방어선) 보강 권장 |
-| SALES-2 | 통과 | 주간 로테이션 recurring(월 00:00 KST — production/development 양 블록)·8자 안전 문자열(O/I/L 제외 — 31^8 공간)·기존 코드 valid_until 조기 종료로 이력 보존(P4)·가입은 `current_valid`(오늘 포함 양끝)만 수용·당일 발급분 멱등 가드(SEC-5). 일요일→월요일 0시 끊김 없음(전날 valid_until=일요일·신규 from=월요일) 확인 |
-| SALES-3 | 통과 | 가입 폼 선택 입력·공백 무시·오류 시 422 안내(조용한 무시 아님)·`referred_by_sales_rep_id`+`referral_code_snapshot`(P4) 기록. 코드 무차별 대입: 전용 검증 엔드포인트 없음 — 코드 유효성 탐침은 create 필요(이메일·비밀번호·휴대폰 인증 전제 + IP 10회/3분) — 31^8 대비 실무적으로 비탐색 가능. 별도 이슈 없음 |
-| SALES-4 | 통과 | **Q12 경로 0줄 수정 재사용 확인** — `subscription.coupon_id` 예약 → `resolve_first_charge_coupon!`(재검증·정가 폴밑 금지) → 첫차감 성공 트랜잭션에서 `consume!`(원자·SEC-5)·예약 해제 → 이후 재과금 정상가. 쿠폰 생성값 percent 20·max 1·active·무만료·"REF"+hex8(11자 — Coupon 형식 통과)·final_price 7,920원. 웹훅 settle 경로(C-2 선례)도 예약 쿠폰 소비 정합 |
-| SALES-5 | 통과 | 매월 1일 00:05 KST Job·직전월 plus_monthly·paid·`not_refunded` **실차감액**(orders.amount)·역할 정책(sales `paid_at <= created_at+12개월` 포함 경계 / officer 무필터)·`effective_rate` 스냅샷·복합 유니크 upsert(재실행 동일·paid 보존 가드)·RecordNotUnique retry·mark paid 감사. W-7(N+1) 비차단 |
-| SALES-6 | 통과(조건부) | 자체 레이아웃("받을돈 파트너스")·본인 스코프 전 요소(referred_users·RepMonthlyPaymentsQuery rep_id 조인·SalesCommission rep 연관)·직전월 스냅샷·연도/전체 누적·원천징수 3.3% 고지·12개월 CSS 막대(reports 헬퍼 재사용 — include_all_helpers로 해석됨·렌더 실측 03 §5). W-3(총원 표기)·W-4(이메일 노출) 보완 |
-| SALES-7 | 통과 | 세션 키 `session[:sales_session_token]` — U1은 `cookies.signed[:session_id]`(별도 쿠키), admin은 `session[:admin_session_token]`과 키·토큰 테이블 모두 분리(교차 사용 불가 확인). U1 로그아웃(`terminate_session`)이 쿠키 삭제 방식이라 /sales 세션 무관 확인. 정지 시 세션 전량 파기 + 로그인 차단(422 통일 문구 — 열거 방지). noindex+robots(§3 참조) |
-| AUTH-9 | **C-1** | SMS(솔라피 `send_sms` — 동일 엔드포인트·HMAC·pf_id 불요 검증 분기)·5분 만료·시도 5회·1회용 consumed·rate limit 1분 1회·1시간 3회(DB 이력·발송 실패 시 행 제거로 미소진)·phone 부분 유니크 인덱스+모델 이중 검증·코드 네트워크 응답 비노출(마스킹만)·폼 2단계 비동기(submit 게이트+서버 재판정). 이중 검증의 주체 결합 결함만 C-1 |
-| Q24 | 통과 | 역할 이원화·실차감액 기준·지급 M+1(스냅샷 pending→admin mark paid)·원천징수 3.3% 화면 고지+오프라인. 해석 노트: 정지 rep도 정산 대상에 포함(PRD 무침 — 지급은 mark_paid 수동 게이트로 통제되므로 수용 가능하나 운영 인지 권장) |
-| Q12 | 통과 | `resolve/consume_first_charge_coupon!`·`coupon_metadata`·웹훅 settle 무변경 — diff 미포함 확인 |
-| PLAN-5 | 통과 | 결제 흐름 무변경·dunning 실패 주문은 status paid가 아니어서 자동 제외 |
-| SEC-5 | 통과 | 로테이션 당일 가드·정산 upsert 멱등·인증 코드 1회용(`consume!` 가드)·쿠폰 used_count 원자 증가(기존)·세션 토큰 urlsafe_base64(32) |
-| P4 | 통과(권장 보강) | 코드 이력 조기 종료식 보존·스냅샷·감사 8종 action(`sales_rep_created/updated/suspended/resumed/code_rotated`·`login_failed/lockout/login_success`·`commission_marked_paid`)·발송 실패 행 destroy는 "발송 안 된 요청"이라 판단 타당(03 §3-2). W-6(부착 실패 감사)·W-8 보강 권장 |
-| SURF-1/3 | 통과 | 표면 ⑤ /sales namespace 분리·`NOINDEX_PATH_PREFIXES "/sales"`(head 파셜 noindex? 재사용)·robots.txt Disallow /sales·뷰어→랜딩 간섭 없음 |
-| TIME-1 | 통과 | recurring KST 접미사(`0 0 * * 1 Asia/Seoul`·`5 0 1 * * Asia/Seoul`)·`Date.current`/`Time.zone.local` 기준·valid_from/until KST 날짜 |
-| ADMIN-2 | 통과 | 콘솔 행위 감사 전건·세션 감사 3종·AuditLog action 자유 확장 설계(모델 무검증) — target polymorphic(target_type/target_id) 정상 기록 |
+| T-1 | **폴백 안전성**: `deliver!`가 `client.configured? == false`면 로그 1행 후 `return`(delivery_method.rb:47-52) — 예외 없이 정상 복귀하므로 production `raise_delivery_errors = true`(production.rb:64)와 무충돌. credentials 실측: `outbound_mail` 블록 미등록 상태(키 불리언 확인만 — 값 미열람) → 현재 로컬에서 폴백 경로가 실제 활성 경로. token만 있고 `from_email` 없는 운영 실수는 fail-fast(`MISSING_CREDENTIALS` — 조용한 통과 아님) — 설계 의도대로 | 통과 |
+| T-2 | **토큰 처리**: token은 `Authorization` 헤더에만 사용·로그·예외 메시지·inspect 경로 전무. ApiError message는 오류 본문/네트워크 예외 메시지만 운반(토큰 미포함). Idempotency-Key는 파생 해시라 민감 아님 | 통과 |
+| T-3 | **SSRF/헤더 주입**: base_url은 credentials(신뢰원) 전용·스킴별 SSL은 로컬 http 검증 지원(문서 명시 목적). Idempotency-Key는 `IDEMPOTENCY_KEY_PATTERN`(client_service.rb:23)으로 CRLF 불가 문자셋만 송신 전 검증. 바디는 JSON.generate로 이스케이프 | 통과 |
+| T-4 | **payload 조립**: from/reply_to credentials 강제(메일러 지정 무시 — delivery_method.rb:82-94)·to/cc/bcc 매핑(`{email:}` 배열·빈 배열 유지는 사양 예시와 정합)·multipart/단일 파트 모두 처리(text+html 없으면 네트워크 전 fail-fast)·`.compact` 이중 방어(DeliveryMethod+ClientService)로 null 필드 미송신 | 통과 |
+| T-5 | **Idempotency-Key 문자셋/길이**: `bd.`+SHA-256 hex64 = 67자·`[A-Za-z0-9._-]` — API 규칙(8~128자) 충족 + 송신 직전 패턴 검증(client_service.rb:49-52) | 통과(단, 파생 원천은 C-1) |
+| T-6 | **등록 시점**: Rails 8.1.4 `delivery_methods.rb` 실측 — `add_delivery_method`는 클래스 객체 저장(개발자 주석 정확)·`wrap_delivery_behavior`는 배달 시점에 registry 조회. `after_initialize` 등록으로 부트 순서 안전(배달은 항상 부트 이후 — deliver_later 잡 프로세스도 전체 부트 수행). 테스트 시먼트 `outbound_mail_api_settings`도 Rails 공식 settings 전달 경로와 일치(실측) | 통과 |
+| T-7 | **default_url_options 교정**: example.com→`badeuldon.kr`·https(production.rb:69) — 재설정 링크 회귀 해소. test.rb의 example.com은 Rails 표준 관행·기존 테스트 단정 무영향. (기존 프로덕션 메일은 애초에 미발송 상태였으므로 '링크 파탄'은 잠재 결함이었고 지금 수정됨) | 통과 |
+| T-8 | **202 처리·오류 매핑**: `Net::HTTPSuccess`는 2xx 전체(202 포함) → data 3키 스냅샷. 오류는 상태+code 정규화·`HTTP_<status>` 폴백·원문 본문 보존(P4 진단). RETRYABLE_CODES 근거는 OUTBOUND_MAIL_API.md §2 오류 표와 정합(모호 실패·일시 장애 / 4xx·409 제외 — 409는 W-2 시나리오에서만 발생 가능) | 통과 |
+| T-9 | **MailDeliveryJob 재시도 부재(Developer 실측 재확인)**: 젬 소스 — `rescue_from StandardError → handle_exception → rescue_with_handler(exception) \|\| raise`(rescuable.rb:15-17)·retry_on 정의 없음. raise_delivery_errors=true에서 ApiError는 잡 실패로 가시 기록됨. "재렌더 케이스는 자동 발생하지 않는다"는 서술 정확 | 통과 |
+| T-10 | **재설정 링크 재발송 = 새 메일(AUTH-8 수용성 판정)**: `has_secure_password` reset token는 exp 타임스탬프 기반 로테이션 → 재렌더 시 새 키·새 메일. 유효 링크 2개 공존(≤15분)은 Rails 표준 재발송 동작이며 "1회성(사용 시 password_salt 불일치로 무효)·단기 만료(15분)" 규칙은 무결 — **AUTH-8 위반 아님**. PRD가 "Rails 인증 표준 플로우"를 명시한 점과도 정합 | 통과(근거 기록) |
+| T-11 | **아키텍처**: 순수 Ruby 래퍼(AR 비의존)·credentials 기본값+주입·fail-fast — 솔라피/포트원 래퍼 패턴 일치(규약 §4 의존 방향 위반 없음). 도메인 네임스페이스 `app/services/outbound_mail/`·네이밍 규약 §5 부합. 커스텀 배달 방식 규격(initialize(settings)/deliver!(mail))은 Rails 8.1 동작과 실측 정합. 기존 메일러·deliver_later 호출부 0줄 수정 — 컨벤션상 모범적 전환 | 통과 |
+| T-12 | **기존 테스트 무영향 구조**: test 환경 `:test` 배달 유지(test.rb:37)·메일러 미수정 → `passwords_mailer_test`(from 미단정)·`passwords_controller_test`·`admin/sessions_controller_test`의 `assert_enqueued_email_with`·deliveries 단정은 구조적으로 무영향 | 통과(Phase 7 실행 확인 — T-13 참조) |
 
-### 아키텍처·컨벤션 판정
+## Rule ID 준수 매핑
 
-- 계층·의존 방향: Model→Service/Current 호출 없음·Service가 params/Current 직접 접근 없음·뷰 DB 쿼리 없음(@변수+헬퍼만)·Job은 Service만 호출 — 준수.
-- 컨트롤러 얇게: 전 액션 10줄 내외 준수(registrations#create 12줄 — 흐름상 허용 범위, 비지적).
-- `params.expect` 전 액션 적용·폼 성공 303 see_other·실패 422 재렌더·JSON 엔드포인트 422/429 — 준수.
-- Query Object(app/queries/sales)·도메인 네임스페이스(app/services/{phone_verifications,sales}) — 규약 §3.2·도메인 분할 준수. Registrations(인증 도메인)→Sales::AttachFirstChargeCouponService(판매 도메인 공개 진입점) 호출은 §4.3 허용 형태.
-- 마이그레이션: null/default/인덱스 명시·부분 유니크 인덱스 `index_users_on_phone_when_present`·복합 유니크 `index_sales_commissions_on_rep_year_month` — 준수·schema.rb 반영 확인.
-- Stimulus: CSRF 메타 토큰·경로 data 속성 주입(하드코딩 없음)·상태 색 DESIGN-2 — 준수.
+| Rule ID | 판정 |
+|---|---|
+| AUTH-8 | **대체 준수** — 자체 Outbound Mail API·커스텀 배달 방식·발신 강제(badeuldon@veloloop.kr — credentials)·등록 전 로그 폴백 ✓. Idempotency-Key 메커니즘은 PRD 문구에서 편차(W-1)·링크 1회성/15분 만료 유지(T-10) |
+| AUTH-7.4 | 경로 전환 ✓ — 단 반복 IP 이벤트 통보 무음 소멸(**C-1**) |
+| AUTH-7.3 | 경로 전환 ✓ — 재잠금 통보 무음 소멸(**C-1**) |
+| AUTH-7.6 | 준수 — 재설정 메일 동일 경로·토큰 로테이션으로 새 이벤트별 정상 발송 |
+| EXT-1(이메일 행) | 준수 — OUTBOUND_MAIL_API.md 사양(Bearer·Idempotency-Key 헤더 승격·202=접수·오류 표 매핑) |
+| SEC-5 | 부분 준수 — Idempotency-Key 멱등 체계는 있으나 파생 원천 결함(C-1)·키-payload 커플링 주장 오류(W-2) |
+| P4 | 부분 준수 — 폴백 기록 ✓·성공 발송 앱 기록 0행(W-4)·수신자 로그 노출(W-3) |
 
----
+## Tester 중점 지시 (Phase 7 — 10항목)
 
-## 3. 통과 근거 (집중 검증 항목)
+1. **멱등 키 결정성/로테이션 분리 검증**: 정적 본문(AdminMailer.locked_out 재렌더)은 동일 키·재설정(reset) 재렌더는 상이 키 — `freeze_time` 2초 경과 케이스 포함(토큰 exp 타임스탬프 의존).
+2. **C-1 회귀(수정 후 필수)**: 같은 admin·같은 IP의 두 번째 new_login 이벤트가 서로 다른 키를 갖는지(이벤트 식별자/job_id 주입 검증)·동일 잡 재수행 시에는 동일 키인지.
+3. **폴백 분기**: token 없는 stub client 주입 → 실호출 0(spay)·로그 1행(본문·링크 미포함 단정)·`deliver!` 예외 없이 정상 복귀.
+4. **실전송 분기**: stub client 주입 → payload 단정 — from/reply_to 강제(메일러 from 무시)·to/cc/bcc 매핑·text/html 파트·nil compact(html 없는 메일에 html_body 키 부재)·`idempotency_key`가 JSON 바디에 없고 헤더로만 전달.
+5. **본문 없는 메일 fail-fast**: 파트 없는 Mail 조립 → `INVALID_REQUEST` ApiError(네트워크 스파이 0).
+6. **ClientService 단위**: fake `Net::HTTP*` 응답으로 202 스냅샷 3키·403/409/429 code 매핑·`retryable?`(429 true·409/400 false)·오류 본문 3형식 탐색+빈 본문/비JSON 방어·키 규격 위반 fail-fast. **Net::HTTP fake 응답 생성 인자 순서 함량 주의**(03 §6.1 — httpv, code, message).
+7. **잡 실패 전파**: `raise_delivery_errors = true`에서 ApiError가 잡 실패로 종결되는지(perform_enqueued_jobs + 실패 기록 단정) — 재시도 없음 확인.
+8. **링크 유효성(회귀)**: 재설정 링크가 `https://badeuldon.kr/passwords/...`인지 — 기존 `passwords_mailer_test`의 `%r{/passwords/}` 단정 갱신 포인트(프로토콜·host 단정 추가 권장). config 전수 `example.com` 잔존 grep.
+9. **기존 테스트 무영향 회귀**: `passwords_controller_test`·`admin/sessions_controller_test`의 `assert_enqueued_email_with`·deliveries 단정 통과 확인(03 §6.2 주장 검증).
+10. **부트 등록 스모크**: 부트 후 `ActionMailer::Base.delivery_methods[:outbound_mail_api]` 등록·`outbound_mail_api_settings` 주입 경로 동작(런타임 확인).
 
-1. **가입 인증 우회 점검** — ① consumed 여부와 무관하게 `create`는 consumed_recently(30분)+번호 일치로만 판정 → 만료 후 재사용/타 번호 스와핑은 차단. ② `send_code`·`verify` 응답에 코드 미포함(마스킹 번호·ok만). ③ submit disabled는 클라이언트 게이트일 뿐 서버 이중 검증이 최종 권위 — 우회 불가 구조 확인. ④ 단 세션 결합 결함 → C-1.
-2. **추천 코드 무차별 대입** — 전용 유효 검증 엔드포인트 없음. 탐침 경로는 가입 create뿐(휴대폰 인증 전제·IP 10회/3분) — 31^8(≈8.5×10^11) 코드 공간 대비 비실용적. 별도 차단 불요 판정.
-3. **12개월 캡 경계** — `orders.where(paid_at: ..user.created_at + 12.months)` 포함 경계("12개월 내"의 합리적 해석). 스냅샷 rate는 집계 시점 `effective_rate` 고정·역할 전환 소급은 수동 재집계(연월 지정 runner) 시 pending만 갱신·paid 보존 — Q24 "스냅샷 고정" 문언 정합.
-4. **정산 upsert** — 기존 pending은 재집계 값으로 갱신(환불 반영 회복 경로)·paid는 `return if commission.paid?`로 불변(지급 확정 보존)·경합 RecordNotUnique retry 흡수. 기준 금액 orders.amount(첫달 할인가 7,920원 포함) — 실차감액 문언 정합.
-5. **쿠폰 부착 실패** — 가입 완료 우선·정가 폴백·로그(03 §3-1 설계 판단) 확인. 단 감시 기록 부재 → W-6.
-6. **/sales 세션 고립** — 쿠키 키 3원 분리(U1 서명 쿠키 / admin·sales 세션 스토어 키 분리)·토큰 테이블 분리·토큰 유추 불가(urlsafe_base64 32)·CSRF 폼/`button_to`(member PATCH 전부) 적용·정지 시 `sales_rep_sessions.destroy_all` 즉시 파기 확인. 잔여 이슈 없음(정지-로그인 경합 시 12h 잔존 이론상 가능하나 U1·admin 선례와 동일 설계 — 비지적).
-7. **대시보드 겸제** — 컨트롤러 전체 @변수가 `current_sales_rep` 연관·Query는 `users.referred_by_sales_rep_id = rep.id` 조인 — 타 rep 경로 성립하지 않음.
-8. **SMS 발송 남발** — 비인증 경로이나 번호당 1분 1회·1시간 3회(DB)+IP 6/1시간·발송 실패 시 rate 미소진 처리 확인. 잔여: 레이스(W-5①)·CGNAT(W-5②).
-9. **마이그레이션·스키마** — 5테이블+users 확장 통합 1건·`foreign_key: { to_table: :sales_reps }` 명시·schema.rb 버전 2026_11_19 반영·부분 유니크 인덱스 확인.
-10. **기존 기능 회귀 위험** — registrations 기존 컨트롤러 테스트는 phone 인증 전제로 **실패 예상**(개발 단계 테스트 미작성은 지시서 제약 — Phase 7 갱신 필수). admin 네비 추가는 기존 admin 테스트와 무충돌(03 §4-6 판정 타당).
+## 수정 후 재리뷰 범위
 
----
-
-## 4. Tester 중점 지시 (Phase 7)
-
-아래 12항 + 기존 회귀 스윕. 특히 **1·9번은 C-1 수정 회귀 포함**이므로 수정 커밋 후 실행할 것.
-
-1. **AUTH-9 결합 회귀(수정 반영 후)** — 검증 통과 브라우저 A의 consumed 번호로 브라우저 B(별도 세션)가 create → 422 차단 확인. 정상 동일 브라우저 가입은 성공.
-2. **AUTH-9 상태 전이** — 코드 만료(5분 경과)·5회 불일치 초과·정확 코드 재사용(이미 consumed)·만료 후 신규 발급→이전 코드 거부·attempts 증가 추적.
-3. **rate limit** — 동일 번호 1분 내 2회 요청 차단·1시간 3회 상한·IP 6회/1시간(429 JSON)·send 실패 시(stub ApiError) 재요청 즉시 허용(행 제거 검증).
-4. **phone 유일** — 가입된 번호 재가입 422·phone null 다수 기존 유저 호환(레거시 프로필 저장)·하이픈 입력 정규화 저장.
-5. **가입 E2E(추천 코드)** — 유효/만료/공백/소문자 코드 각 분기·성공 시 referred_by+snapshot 기록·쿠폰 예약(percent 20·max 1)·첫차감 7,920원·orders.amount=7920·2회차 정상가 9,900원·쿠폰 used_count 1에서 증가 없음(Q12 E2E 재사용).
-6. **쿠폰 부착 실패 폴백** — AttachFirstChargeCouponService 실패 주입 시 가입 완료·정가 첫차감·(W-6 반영 시 감사 로그 기록).
-7. **/sales 격리·세션** — U1·admin·sales 3중 로그인 공존 브라우저에서 상호 세션 침투 없음·U1 로그아웃 후 /sales 유지·세션 12h/2h 만료·무효 토큰 리다이렉트.
-8. **잠금·정지** — 5회 실패 잠금+감사(lockout)·정지 계정 로그인 422·정지 즉시 기존 세션 파기(대시보드 접근 303)·(W-1 반영 시 unlock 회복).
-9. **정산 경계** — sales 캡 경계(paid_at = created_at+12개월 ±1초 포함/제외)·officer 무기한·환불(refunded_at) 제외·upsert 재실행 동일 스냅샷·mark paid 후 재집계 시 금액 불변·rate 오버라이드 반영(W-2 반영 시 100 초과 거부).
-10. **로테이션** — 주간 Job 재실행 무변경(멱등)·만료 코드 가입 422 안내·수동 재생성 후 이전 코드 즉시 무효·일요일 23:59→월요일 00:01 코드 전환 끊김 없음(valid_until 경계).
-11. **noindex·robots** — /sales 전 경로 noindex 메타·robots.txt Disallow /sales·가입 폼(공개 표면)은 색인 허용 유지.
-12. **대시보드 스코프·표기** — 타 rep 유치 사용자·수수료 미노출(2계정 교차 확인)·스냅샷 상태 배지·(W-3 반영 시 총원 표기)·원천징수 고지 문언.
-
-**회귀 스윕**: 기존 `registrations`·`sessions`·profile(문맥 검증 변경)·admin 대시보드 테스트 전체 — phone 필수 전환으로 인한 기존 가입 테스트 실패분 갱신 포함. 솔라피 실호출 금지(stub 주입)·`bin/ci` 게이트 통과까지.
-
----
-
-## 5. 재리뷰 범위
-
-C-1 수정 + 권장(W-1~W-8 중 수용분) 반영 후 **변경 파일 한정 재리뷰**. W-4(이메일 노출)·W-5②(CGNAT 한도)는 제품 판정 필요 — 오케스트레이터 질의 권장.
+C-1 수정(키 파생 전환)은 `delivery_method.rb`·신규 DeliveryJob·initializer·production.rb(delivery_job 지정)에 걸치므로 **재리뷰 대상**. W-1~W-6은 문서·보조 수정으로 동시 반영 권장(재리뷰에서 확인만).
