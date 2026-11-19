@@ -1,7 +1,14 @@
 Rails.application.routes.draw do
   # ── 인증(표면 ② 진입 전) — AUTH-1 이메일/비밀번호, AUTH-8 비밀번호 재설정 ──
   resource :session, only: %i[ new create destroy ]                    # 로그인/로그아웃
-  resource :registration, only: %i[ new create ]                       # 회원가입(SURF-4 가입 단일 진입)
+  resource :registration, only: %i[ new create ] do                    # 회원가입(SURF-4 가입 단일 진입)
+    # AUTH-9 — 휴대폰 인증번호 발송·확인(폼 내 2단계 비동기). 검증 자원의 생성·소비라
+    # registration 하위 collection POST로 정당화하며, 최종 권위 판정은 가입 create가 이중 검증한다.
+    collection do
+      post :send_phone_code
+      post :verify_phone_code
+    end
+  end
   resources :passwords, param: :token, only: %i[ new create edit update ]  # 비밀번호 재설정(AUTH-8)
 
   # ── 표면 ② 대시보드(/app) — 로그인 U1 전용. require_authentication 기본 가드 적용(공개 예외 없음) ──
@@ -171,6 +178,20 @@ Rails.application.routes.draw do
       # 전제). GET /admin/tickets/:ticket_id/messages/:message_id/image
       get "messages/:message_id/image" => "tickets#image", as: :message_image
     end
+
+    # F-SALES — 영업 직원 관리(SALES-1 — T-C1 admins 콘솔 패턴·감사 전건)·수수료 정산
+    # (SALES-5). 정지 전환·코드 재생성·잠금 해제(W-1 — admins unlock 선례)는 상태 전이라
+    # member PATCH로 정당화.
+    resources :sales_reps do
+      member do
+        patch :toggle_suspension
+        patch :rotate_code
+        patch :unlock
+      end
+    end
+    resources :sales_commissions, only: :index do
+      member { patch :mark_paid }
+    end
   end
 
   # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html
@@ -233,6 +254,15 @@ Rails.application.routes.draw do
         patch :unpublish
       end
     end
+  end
+
+  # ── 표면 ⑤ 영업 직원(/sales) — SALES-6·7(F-SALES) ─────────────
+  # AUTH-7 준용 격리 — U1(/app)·관리자(/admin)와 별도 계정(sales_reps)·별도 세션
+  # (session[:sales_session_token])·별도 쿠키 키. 전 경로 noindex(SURF-3 —
+  # NOINDEX_PATH_PREFIXES "/sales" + public/robots.txt). 본인 데이터만 스코프(SALES-7).
+  namespace :sales do
+    resource :session, only: %i[ new create destroy ]
+    root to: "dashboards#show"
   end
 
   # ── 표면 ① 공개 정적 페이지 — 법적 고지(PG 심사 요건) ──────────

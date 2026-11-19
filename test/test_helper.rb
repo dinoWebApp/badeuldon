@@ -3,6 +3,8 @@ require_relative "../config/environment"
 require "rails/test_help"
 require_relative "test_helpers/session_test_helper"
 require_relative "test_helpers/admin_session_test_helper"
+require_relative "test_helpers/sales_session_test_helper"
+require_relative "test_helpers/memory_rate_limit_helper"
 
 module ActiveSupport
   class TestCase

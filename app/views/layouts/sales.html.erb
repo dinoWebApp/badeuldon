@@ -1,0 +1,35 @@
+<%# 표면 ⑤ 영업 직원(/sales) 레이아웃(SALES-6·7) — U1(/app)·관리자(/admin)와 분리된 전용
+    크롬. 로그인 전·후 공통이며 noindex는 표면 경로 접두어(/sales — SURF-3)로 적용된다.
+    Pretendard·공통 head는 표면 공통 파셜 재사용, 톤은 앱 브랜드(딥 그린·크림) 계승(DESIGN-2). %>
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <%= render "layouts/head" %>
+    <style>
+      .sales-shell { max-width: 52rem; margin: 0 auto; padding: 2rem 1rem; }
+    </style>
+  </head>
+  <body class="bg-[#faf9f5] text-stone-800">
+    <main class="sales-shell">
+      <header class="flex items-center justify-between pb-4">
+        <div class="flex items-baseline gap-2">
+          <span class="text-lg font-bold tracking-tight text-emerald-900">받을돈 파트너스</span>
+          <% if current_sales_rep %>
+            <span class="text-xs text-stone-400">영업 직원 공간</span>
+          <% end %>
+        </div>
+        <% if current_sales_rep %>
+          <div class="flex items-center gap-3 text-sm">
+            <span class="text-stone-500">
+              <%= current_sales_rep.name %><%= " · #{current_sales_rep.title}" if current_sales_rep.title.present? %>
+            </span>
+            <%= button_to "로그아웃", sales_session_path, method: :delete,
+                          class: "text-emerald-800 hover:underline" %>
+          </div>
+        <% end %>
+      </header>
+      <%= render "layouts/flash" %>
+      <%= yield %>
+    </main>
+  </body>
+</html>

@@ -157,14 +157,16 @@ class App::InvoicesRemindersTest < ActionDispatch::IntegrationTest
         post remind_app_invoice_path(invoice)
         post remind_app_invoice_path(due_day)
       end
-    end
-    assert_response :see_other
-    assert_match(/보낼 수 있는 안내 문구가 없습니다/, flash[:notice])
+      assert_response :see_other
+      assert_match(/보낼 수 있는 안내 문구가 없습니다/, flash[:notice])
 
-    # nil 창 상태에서 show 재렌더 시 「다음 안내」 라벨 행이 아예 렌더되지 않는다(빈 표기 방지)
-    get app_invoice_path(invoice)
-    assert_response :ok
-    assert_no_match(/다음 안내/, response.body)
+      # nil 창 상태에서 show 재렌더 시 「다음 안내」 라벨 행이 아예 렌더되지 않는다(빈 표기 방지).
+      # [2026-11-19 Tester] GET도 시나리오 시점(11-10) 안에서 수행한다 — 블록 밖이면 실제
+      # 오늘 기준으로 판정해 약속일(11-20)이 내일이 되는 구간에 이 테스트가 실패했다.
+      get app_invoice_path(invoice)
+      assert_response :ok
+      assert_no_match(/다음 안내/, response.body)
+    end
 
     assert_empty MessageLog.where(invoice_id: invoice.id)          # 발송·기록 0건
     assert_empty MessageLog.where(invoice_id: due_day.id)

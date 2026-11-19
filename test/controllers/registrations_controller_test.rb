@@ -1,8 +1,13 @@
 require "test_helper"
+require_relative "../test_helpers/fake_solapi_client"
+require_relative "../test_helpers/solapi_stubbing"
 
-# 회원가입 — AUTH-1(이메일/비밀번호), AUTH-1.4(중복·정규화), 가입 즉시 세션 시작
-# 시나리오 기준: _workspace/05_review.md 재리뷰 「Phase 7 Tester 최종 중점 영역 §1」
+# 회원가입 — AUTH-1(이메일/비밀번호), AUTH-1.4(중복·정규화), AUTH-9(휴대폰 SMS 인증 필수),
+# 가입 즉시 세션 시작. AUTH-9는 2026-11-19(F-SALES) 정책으로 휴대폰 인증이 가입 전제다 —
+# 기존 가입 시나리오는 전부 "인증 통과 세션" 전제로 갱신했다(05_review §3-10·Phase 7 인계 2).
 class RegistrationsControllerTest < ActionDispatch::IntegrationTest
+  include SolapiStubbing
+
   test "GET /registration/new은 가입 폼과 로그인 링크를 렌더한다 (SURF-4)" do
     get new_registration_path
     assert_response :success
@@ -13,7 +18,16 @@ class RegistrationsControllerTest < ActionDispatch::IntegrationTest
     assert_select "a", text: "받을돈", count: 0
   end
 
-  test "정상 가입은 303으로 세션을 시작하고 프로필 설정으로 안내한다 (AUTH-1, 03 §4.1)" do
+  test "가입 폼은 휴대폰 인증 2단계와 추천 코드 입력을 제공한다 (AUTH-9·SALES-3)" do
+    get new_registration_path
+    assert_response :success
+    assert_select "input[name='user[phone]']"
+    assert_select "button", text: "인증번호 받기"
+    assert_select "input[name='referred_code']"
+    assert_select "p", text: /휴대폰 인증 완료 후 가입할 수 있습니다/
+  end
+
+  test "정상 가입은 303으로 세션을 시작하고 프로필 설정으로 안내한다 (AUTH-1·9, 03 §4.1)" do
     assert_difference -> { User.count }, +1 do
       assert_difference -> { Session.count }, +1 do
         sign_up(email: "new-user@example.com")
@@ -110,11 +124,13 @@ class RegistrationsControllerTest < ActionDispatch::IntegrationTest
   test "가입 요청은 3분에 10회로 제한된다 (rate_limit)" do
     with_memory_rate_limit_store do
       10.times do
-        sign_up(email: "")
+        # rate_limit 계수만 보는 시나리오 — 가입 create를 인증 흐름 없이 직접 반복 제출한다
+        # (AUTH-9 미통과 422. send/verify를 섞으면 IP 20회/1h 한도가 먼저 걸린다)
+        submit_signup_raw(email: "")
         assert_response 422
       end
 
-      sign_up(email: "")
+      submit_signup_raw(email: "")
       assert_redirected_to new_registration_path
       follow_redirect!
       assert_select "p#alert", text: "너무 많은 요청이 있었습니다. 잠시 후 다시 시도해 주세요."
@@ -122,24 +138,34 @@ class RegistrationsControllerTest < ActionDispatch::IntegrationTest
   end
 
   private
+    # AUTH-9 전체 플로우(SMS 발송 stub → 코드 확인 → 가입 제출) — 가입 시나리오 표준 헬퍼.
     def sign_up(email:, password: "secret-123", password_confirmation: password)
-      post registration_path, params: { user: { email:, password:, password_confirmation: } }
+      phone = next_signup_phone
+      with_solapi_client(FakeSolapiClient.new) do
+        post send_phone_code_registration_path, params: { phone: }
+      end
+      code = PhoneVerification.order(:created_at).last.code
+      post verify_phone_code_registration_path, params: { phone:, code: }
+
+      post registration_path, params: {
+        user: { email:, password:, password_confirmation:, phone: }
+      }
+    end
+
+    # rate_limit 계수용 — verify 없이 create만 제출(AUTH-9 미통과 422).
+    def submit_signup_raw(email:, password: "secret-123", password_confirmation: password)
+      post registration_path, params: {
+        user: { email:, password:, password_confirmation:, phone: "01012345678" }
+      }
     end
 
     def attempt_login(email:, password:)
       post session_path, params: { email:, password: }
     end
 
-    # 테스트 환경 캐시(null_store)는 증분을 기억하지 못하므로, rate_limit이 부팅 시 캡처한
-    # 캐시 스토어의 increment를 MemoryStore로 우회시킨다(요청 횟수 계수).
-    def with_memory_rate_limit_store
-      memory_store = ActiveSupport::Cache::MemoryStore.new
-      cache_store = ActionController::Base.cache_store
-      cache_store.define_singleton_method(:increment) do |name, amount = 1, **options|
-        memory_store.increment(name, amount, **options)
-      end
-      yield
-    ensure
-      cache_store.singleton_class.remove_method(:increment) if cache_store.singleton_methods(false).include?(:increment)
+    # 테스트 간·회차 간 번호 충돌(AUTH-9 유일·rate limit)을 피하기 위한 순차 번호 발급.
+    def next_signup_phone
+      @signup_phone_seq = @signup_phone_seq ? @signup_phone_seq + 1 : 10_000_001
+      "010#{@signup_phone_seq}"
     end
 end

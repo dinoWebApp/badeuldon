@@ -44,15 +44,17 @@ class App::ProfilesControllerTest < ActionDispatch::IntegrationTest
     assert_nil users(:alpha).reload.display_name
   end
 
-  test "잘못된 형식의 연락처·계좌번호는 422와 한글 오류로 거부된다 (AUTH-1.3)" do
+  test "잘못된 형식의 연락처·계좌번호는 422와 한글 오류로 거부된다 (AUTH-1.3·AUTH-9)" do
     sign_in_as users(:alpha)
     patch app_profile_path, params: { user: {
       display_name: "알파스튜디오", business_type: "business",
-      phone: "abc", account_number: "12"
+      phone: "010123456789", account_number: "12"
     } }
     assert_response :unprocessable_entity
     assert_select "div[role=alert]" do |alerts|
       text = alerts.first.text
+      # AUTH-9(2026-11-19) — "abc"는 정규화로 공백화되므로 위반 표본은 12자리 숫자다.
+      # 노출 문언은 ko.yml(user.phone.invalid) — 기존 문언 유지.
       assert_includes text, "연락처 형식이 올바르지 않습니다. 예) 010-1234-5678"
       # 리뷰 이슈 #7 — 길이 안내 포함 문구 회귀
       assert_includes text, "계좌번호 형식을 확인해 주세요. 숫자와 하이픈(-)으로 5자 이상 입력해 주세요."
@@ -93,7 +95,8 @@ class App::ProfilesControllerTest < ActionDispatch::IntegrationTest
     assert_equal "우리은행", user.bank_name
     assert_equal "1002-345-678901", user.account_number
     assert_equal "김알파", user.account_holder
-    assert_equal "010-1234-5678", user.phone
+    # AUTH-9(2026-11-19) — phone은 하이픈 제거 숫자만 저장(normalizes)
+    assert_equal "01012345678", user.phone
   end
 
   test "프로필 완료 후 재로그인하면 /app으로 진입한다 (AUTH-1.3 분기, 03 §4.1)" do

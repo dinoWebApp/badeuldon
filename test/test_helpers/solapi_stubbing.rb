@@ -8,8 +8,8 @@
 module SolapiStubbing
   # 솔라피 ClientService 인스턴스를 클래스 생성자 경로에 주입한다 — 서비스의 지연 기본 생성
   # (SendService#client 등)과 잡이 감싸는 서비스 생성 경로를 가로채 잡 계층 검증도 실API
-  # 호출 없이 수행하게 한다. fake는 send_alimtalk(template_key:, to:, variables:) → Hash를
-  # 응답하는 객체면 충분하다.
+  # 호출 없이 수행하게 한다. fake는 send_alimtalk(template_key:, to:, variables:)와
+  # send_sms(to:, body:)(AUTH-9 — F-SALES) → Hash를 응답하는 객체면 충분하다.
   def with_solapi_client(fake)
     original = Solapi::ClientService.method(:new)
     Solapi::ClientService.define_singleton_method(:new) { |*| fake }

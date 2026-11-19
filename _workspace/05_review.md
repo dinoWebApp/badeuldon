@@ -1,154 +1,136 @@
-# 05_review — 기능 잔여·기술 부채 병렬 배치(6태스크) (2026-11-16 · Reviewer)
+# 05_review — F-SALES 영업 직원·추천 코드·수수료 + 휴대폰 인증 가입 (2026-11-19, Phase 5 Reviewer · 일반 모드)
 
-**status: APPROVED** (2026-11-16 재리뷰 — Phase 6 수정 후 · 재리뷰 범위 B-1·C-1/C-2·C-3 + W 부수)
+status: CHANGES_REQUESTED
 
----
-
-# 재리뷰 결과 (Phase 6 수정 재검증 — 2026-11-16)
-
-초차 리뷰(CHANGES_REQUESTED — B1·C3·W7)의 재검토. 수정 내역 `_workspace/parallel/phase6/03_implementation.md`, 실제 코드 기준 재검증 완료. **BLOCKER·CRITICAL 전부 해소 — APPROVED 전환.**
-
-## 이슈별 재검증
-
-**B-1 (BLOCKER) — 해소 [재검증: 제거 확인]**
-- `app/controllers/app/payments_controller.rb:11-19` — create가 `@record_service = Payments::RecordService.new(...)` 인스턴스를 유지하고 `@payment = @record_service.call`로 반환(Payment 모델 — 뷰·load_invoice_show 계약 유지).
-- `success_notice`(L45,49)·`over_notice`(L58) — `@record_service.post_paid_record?`·`@record_service.over_amount`로 서비스 리더 호출 교체. Payment 모델에는 해당 리더가 없으므로(B-1 루트) NoMethodError 경로 소멸 — **모든 입금 성공 경로(원클릭·부분·과다·마감 후 재입금) 정상 303 복원**.
-- 뷰 참조 0건 재확인: `grep -rn "@record_service" app/views/` 매치 없음 — 컨트롤러 플래시 전용.
-- 422 경로 `@payment = e.payment`(Payment 인스턴스)는 success_notice를 호출하지 않아 영향 없음 — 기존 동작 유지.
-
-**C-1 (CRITICAL) — 해소 [재검증: 흐름 닫힘]**
-- `app/models/subscription.rb:62-64` — `def dunning_active? = active? && (dunning_stage.positive? || next_retry_at.present?)`. 주석에 C-1·C-2·W-7 근거 기록.
-- 흐름 추적: 갱신 실패(stage=1·next_retry_at=D+1·status active) → 사용자 cancel!(cancelled) → D+1 `DunningRetryJob#perform` L20 첫 가드 `!dunning_active?` → active?=false → **return — 재차감 없음**. retry_charge로 직접 진입해도 upgrade_service.rb 첫 분기·elsif 모두 `dunning_active?` false → no-op. **해지 사용자 무단 청구 경로 소멸.** 수동 해지 후 주기 종료 전까지는 기존 PLAN-5 정책(기간 말 유지)대로.
-
-**C-2 (CRITICAL) — 해소 [재검증: 흐름 닫힘]**
-- 3회 소진 `advance_dunning!`(stage=3·next_retry_at=nil·cancel!) → 다음 일간 `SubscriptionRenewalJob`(due_subscriptions cancelled 포함) → renew: 첫 분기 `dunning_active?` **false**(active? 한정) → `elsif active? && billing_key` false → `elsif active? || renewal_due?` → renewal_due?(주기 종료) true → **expire! 도달 복원** → plan: free·빌링키 폐기. plan: plus·cancelled 영구 잔존(무료 Plus) 소멸 — PLAN-5 "기간 말 만료" 문언 정합 복원.
-- ADMIN 뷰: 소진 후 `dunning_active?` false로 "재시도 소진" 배지는 사라지고 기존 해지 표기로 전환 — 수용(초차 리뷰 인정 범위).
-- 부대 정합: `app/jobs/subscription_renewal_job.rb:3-5` 헤더 문언을 PLAN-5 확정(dunning 스케줄·3회 소진 cancelled·만료는 본 Job 해지 경로)으로 갱신 — 초차 리뷰 권장 반영.
-
-**C-3 (CRITICAL) — 해소 [재검증: 확인]**
-- `app/controllers/app/notification_settings_controller.rb:10-13` — `render :update` → `head :unprocessable_entity` (초차 리뷰 권장안 ①). MissingTemplate 500 경로 제거·규약 422 준수. 토글 폼 1개 부분 갱신 특성상 뷰 재렌더 불요 판정 타당.
-
-**W 부수 반영 확인**
-| 항목 | 판정 |
-|:---|:---|
-| W-3 | 해소 — `admin/orders_controller.rb:9` `includes(user: :subscription)` |
-| W-4 | 해소 — `.gitignore` `config/locales/*.bak` |
-| W-5 | 해소 — payments_controller.rb:58 "청구액을"→"남은 잔액을" (over_amount=잔액 초과 기준과 문언 일치) |
-| W-6 | 해소 — payment.rb 헤더 Q22 문언 갱신·`audit_logs/record_service.rb` action 목록에 `payment_over_recorded` 추가 |
-| W-7 | 해소 — dunning_retry_job.rb:22·upgrade_service.rb(retry_charge) `next_retry_at.present?` 가드. active+stage>0+nil 조합은 advance_dunning!의 원자 갱신으로 발생 불가 — 방어선으로 충분 |
-| W-1 | **미반영 — 인계 승인**: message_logs 부분 유니크 인덱스는 스키마 과제(마이그레이션 금지 제약)로 3-S 후속 런 인계. 주 1회·단일 스케줄러로 중복 실위험 낮아 APPROVED 판정에 불포함(인계 기록 필수) |
-| W-2 | **미반영 — 인계 승인**: "직전 7일" vs PRD "당주" 문언 판정은 오케스트레이터 사항(Phase 7 인계). 코드 정합 훼손 아님 — 파셜 문구는 구현과 이미 일치 |
-
-## 재리뷰 결론
-
-- 재리뷰 범위 외 코드(T3·T6·T7·T8 본문·A·공통)는 초차 리뷰 판정(통과) 유지 — Phase 6에서 미접촉 확인(수정 파일 목록 상호 배타).
-- 공유 판정점(dunning_active?) 1줄 수정이 renew·retry_charge·DunningRetryJob·ADMIN 뷰 전체에 파급되는 구조라 회귀 표면이 넓다 — **Phase 7 Tester는 아래 초차 리뷰의 T5 시나리오(2번 블록)를 최우선 실행**할 것. 특히 ③ 해지 후 D+1 무차감·⑥ 소진 후 갱신 스윕 expire!는 C-1/C-2의 직접 회귀 테스트다.
-- B-1 회귀 테스트(입금 4케이스 전부 303·플래시 정상)도 Phase 7 필수 — 초차 리뷰 지시 1번 블록 그대로.
+- BLOCKER 0 · CRITICAL 1 · WARNING 8
+- 리뷰 범위: `git status --short` 전수(신규 28 + 수정 11 + 통합 마이그레이션 1 + schema.rb)·PRD v0.42 §6.20 SALES-1~7·AUTH-9·Q24·Q12·PLAN-5·SEC-5·P4·SURF-1/3/4 문언 대조
+- BLOCKER 없음 — 데이터 정합성 훼손·런타임 에러·/sales 무단 접근 경로는 확인되지 않았다. CRITICAL 1건 수정 후 재리뷰 대상.
 
 ---
 
-# 초차 리뷰 (2026-11-16 — CHANGES_REQUESTED 이력 보존)
-
-## 이슈 목록
-
-### BLOCKER
-
-**B-1 (T8) — 입금 기록 성공 경로 전체가 NoMethodError 500으로 파탄 — [Phase 6 해소]**
-- 위치: `app/controllers/app/payments_controller.rb:42,46` · `app/services/payments/record_service.rb:47-60`
-- 내용: 컨트롤러의 `@payment`는 `Payments::RecordService#call`의 반환값(`payment` — **Payment 모델 인스턴스**, record_service.rb:57)이다. 그러나 `success_notice`가 `@payment.post_paid_record?`·`@payment.over_amount`를 호출한다. 두 리더는 **RecordService에** 추가됐고 Payment 모델에는 존재하지 않는다(grep 확인 — app/models/payment.rb 매치 0건). → PAY-1 원클릭·부분입금·과다입금·마감 후 재입금 **모든 입금 성공 경로에서 NoMethodError**. T8 문서의 "공개 리더 추가(컨트롤러 플래시 분기용)" 선언과 실제 연결이 어긋난 런타임 에러.
-- PRD 근거: PAY-1·PAY-2 원클릭 마감·부분입금(Q22) — 정상 동작 전제 룰 전반이 파탄.
-- 수정 방향: 컨트롤러가 서비스 인스턴스를 유지하도록 교체 —
-  `service = Payments::RecordService.new(...); @payment = service.call` 후 `success_notice`에서 `service.post_paid_record?`·`service.over_amount` 사용(컨트롤러 10줄 규약 유지). 컨트롤러 수정 최소안이며 서비스 계약은 그대로.
+## 1. 이슈 목록
 
 ### CRITICAL
 
-**C-1 (T5) — 해지된 구독이 dunning 재차감으로 자동 청구됨(무단 차감 경로) — [Phase 6 해소]**
-- 위치: `app/models/subscription.rb:59-61` · `app/services/subscriptions/upgrade_service.rb:109-124,118` · `app/jobs/subscriptions/dunning_retry_job.rb:18-30`
-- 재현: ① 갱신 차감 명확 실패 → dunning_stage=1·D+1 DunningRetryJob 예약 ② 사용자가 /app/billing에서 해지(cancel — active이므로 가드 통과. ADMIN 플랜 수동 변경 해지도 cancel!로 동일) ③ D+1에 Job 실행 → `dunning_active?`는 **status를 보지 않음**(dunning_stage.positive? || next_retry_at.present?) → retry_charge → with_lock 내 `elsif subscription.dunning_active? && pg_billing_key.present?` → **charge_and_extend!로 카드 재차감 + 주기 연장**. 해지 의사를 표명한 사용자에게 자동 청구 — 결제 정합·PLAN-5("해지 시 결제 기간 말까지 이용" — 해지 후 신규 과금 규정 없음) 위반.
-- 수정 방향: `dunning_active?`를 이용 중 상태로 한정 — `def dunning_active? = active? && (dunning_stage.positive? || next_retry_at.present?)`. 이 한 줄로 C-1·C-2·W-7이 동시 해소된다(renew·retry_charge·DunningRetryJob·ADMIN 뷰가 모두 이 판정점 공유).
-
-**C-2 (T5) — 3회 소진 cancel! 후 만료 강등이 영구 미발동(무료 Plus 잔존) — [Phase 6 해소]**
-- 위치: `app/services/subscriptions/upgrade_service.rb:88-102(renew)` · `app/jobs/subscription_renewal_job.rb(due_subscriptions)` · `app/models/subscription.rb:105-108(expire!)`
-- 재현: 소진 시 `advance_dunning!` 최종 경로는 `dunning_stage=3·next_retry_at=nil·cancel!`(stage 잔존). 다음 일간 갱신 스윕(due_subscriptions는 cancelled 포함) → renew → 첫 분기 `if subscription.dunning_active?`가 **true(stage=3)** → 무변경 통과 → 기존 `elsif active? || renewal_due?` → `expire!`에 절대 도달 불가. plan: plus·status: cancelled 영구 잔존 → `reminder_eligible?`(subscription&.plus?) true·Plus 한도 무제한을 무료로 사용. PRD PLAN-5 문언 위반: "3회 모두 실패 시 구독 **cancelled(기간 말 만료** — PLAN-5 해지 정책 동일)" — 기간 말 만료가 발동하지 않음. T5 03 문서의 "갱신 Job의 기존 cancelled 경로가 다음 일간 스윕에서 expire!" 주장은 dunning 가드 분기와 모순.
-- 수정 방향: C-1과 동일 수정(dunning_active? status 한정)으로 해소 — cancelled는 dunning 비대상이 되어 기존 `elsif active? || renewal_due?` → expire! 경로가 복원된다. `SubscriptionRenewalJob` 헤더 주석의 "차감 실패 → 즉시 만료 강등(dunning 미실시)"도 PLAN-5 확정 문언으로 갱신 권장.
-
-**C-3 (T7) — 다이제스트 토글 저장 실패 시 렌더 템플릿 부재로 500 — [Phase 6 해소]**
-- 위치: `app/controllers/app/notification_settings_controller.rb:10` — `render :update, status: :unprocessable_entity`
-- 내용: `app/views/app/notification_settings/` 디렉터리 자체가 없다(ls 확인 — 파일 0건). 검증 실패 시 ActionView::MissingTemplate → 500. 토글은 boolean 단일 필드라 정상 데이터에서 실패 빈도가 낮지만, User 전역 검증(remind_* 검증 — context 없음·이번 배치 신설)이 모든 update save에 발동하므로 이상 데이터에서 도달 가능한 미구현 에러 경로다.
-- PRD 규약: 응답 전략 — 실패 재렌더 `422`(ARCHITECTURE_CONVENTION). 422를 응답하려다 뷰 부재로 500 — 규약 자체 위반.
-- 수정 방향(택1): ① `head :unprocessable_entity`(부분 갱신 대상이 토글 폼 하나뿐이라 충분) ② redirect with alert. `render :edit`은 @user 파셜 계약(app/shared/_noti_digest_setting이 user: @user 전제)과 불일치 — 권장하지 않음.
+#### C-1. AUTH-9 이중 검증이 "번호"에만 결합 — 검증 통과 주체와 가입 주체가 다를 수 있음
+- **위치**: `app/controllers/registrations_controller.rb:84-87`(`phone_verified?`)·`:48-56`(`verify_phone_code`)
+- **근거**: PRD AUTH-9 "**검증 통과 시에만 가입 진행**·인증 코드는 **1회용**(consumed)". 현재 `create`의 이중 검증은 `PhoneVerification.consumed_recently.exists?(phone: 제출번호)` — 판정 근거가 번호뿐이고 세션(브라우저)과 무결결합돼 있지 않다.
+- **시나리오**: 피해자가 자신의 번호로 인증을 통과(consumed 행 생성, 30분 창) → 공격자가 그 번호를 알고 있으면 **코드 없이** 같은 30분 창 내에 `create`를 제출(공격자 이메일 + 피해자 번호)해 "인증된" 계정을 만들 수 있다. 결과: ① 피해자 번호가 부분 유니크 인덱스로 선점돼 본인 가입이 차단(지원 비용) ② 코드를 받지 않은 주체가 번호 소유를 위장한 계정 확보(AUTH-9의 남용 방지 목적 — SALES-3 연계 — 일부 무력화).
+- **현실적 완화 요인**(솔직 평가): 피해자 번호 + "인증 진행 중" 타이밍을 아는 표적 공격이어야 하며, 30분 창으로 좁혀져 있다. 그러나 결함 자체는 명확하고 수정이 저렴하다.
+- **수정 방향**: `verify_phone_code` 성공 시 서버 세션에 `session[:verified_phone] = phone` 저장 → `create`의 `phone_verified?`를 `session[:verified_phone] == 정규화(제출번호) && consumed_recently.exists?(phone:)`로 판정(가입 성공 후 세션값 파기). 검증을 수행한 브라우저만 가입할 수 있게 결합된다. JS는 변겨 없이 동작(동일 브라우저 흐름).
 
 ### WARNING
 
-**W-1 (T7) — 주간 다이제스트 멱등의 동시 실행 DB 방어선 부재 — [3-S 후속 스키마 과제로 인계 승인]**
-- `app/services/noti/weekly_digest_service.rb:72-75` — 결정적 키 `(user_id, template_key, scheduled_at)` exists?→create!는 재실행은 흡수하나 **동시 실행 경합에서 중복 MessageLog 2개·중복 발송 가능**. Reminders 선례(debtor×pending 부분 유니크 인덱스 — SEC-5 DB 방어선)와 격차. T7 03 문서의 "동시 실행 모두 중복 발송·이력 누적 없다"는 과잉 주장. 주 1회·단일 스케줄러라 확률은 낮다.
-- 수정 방향: `message_logs`에 `(user_id, template_key, scheduled_at)` 부분 유니크 인덱스(digest=true 한정) 추가 또는 RecordNotUnique rescue 흡수. 후속 스키마 과제(payments.note와 함께 3-S 후속 런)로 명시 가능.
+#### W-1. 잠긴 영업 계정의 콘솔 unlock 경로 부재 — 비밀번호 변경으로도 잠금이 풀리지 않음
+- **위치**: `app/controllers/sales/sessions_controller.rb:18`(`rep.locked?` 차단)·`app/controllers/admin/sales_reps_controller.rb`(unlock 액션 부재)
+- **내용**: 5회 실패 잠금(AUTH-7.3 준용) 계정은 `reset_failed_attempts!`가 로그인 성공 시에만 호출되므로 자력 복구 불가. Admin 콘솔에는 `edit`(비밀번호 변경)이 있으나 `locked_at`을 초기화하지 않아 **비밀번호를 바꿔도 여전히 로그인 거부**(문구는 "이메일 또는 비밀번호가 올바르지 않습니다"라 운영자 오해 유발). admins 선례(`Admins::RoleService.unlock!` + `require_owner` member 액션, AGENTS runner 절차)와 달리 복구 수단이 전무하다.
+- **수정 방향**: admin 콘솔에 `unlock` member 액션 추가(admins 패턴 — 감사 `sales_rep_unlocked`)하거나, 최소한 AGENTS에 `bin/rails runner 'rep.unlock!'` 운영 절차 문서화. 잠금 상태를 목록에 표시하면 운영성 향상.
 
-**W-2 (T7) — 집계 기간 "직전 7일" vs PRD 문언 "당주" 갭 (확인 요청) — [오케스트레이터 판정 인계]**
-- PRD v0.41 NOTI-2: "집계: **당주** 만기·약속·수금 완료 건수/금액" / 구현: `[지난주 월 00:00, 실행 시각)` 직전 7일(`weekly_digest_service.rb:84-90`). 월요일 아침 기준 당주 집계는 9시간치 데이터뿐이라 구현 해석이 실용적으로 타당하나, PRD가 단일 소스 — PRD 문언 갱신(「직전 7일」 확정 문장) 또는 구현 정합 중 오케스트레이터 결정 필요. 파셜 문구는 이미 "지난 7일간"으로 구현과 일치.
+#### W-2. `SalesRep#commission_rate` 무검증 — 서버 측 범위(0~100 정수) 보장 없음
+- **위치**: `app/models/sales_rep.rb:16`(enum들)·`:36-38`(`effective_rate`)
+- **내용**: 폼은 `min:0 max:100 step:1`이나 조작 요청으로 999·음수·소수가 저장될 수 있다. `effective_rate`가 100 초과면 `SalesCommission`의 `rate 0..100` 검증에서 `find_or_create_by!`가 RecordInvalid → `call`의 rescue가 로그만 남기고 해당 rep 정산이 **조용히 누락**된다.
+- **수정 방향**: `validates :commission_rate, numericality: { only_integer: true, greater_than_or_equal_to: 0, less_than_or_equal_to: 100 }, allow_nil: true` 추가.
 
-**W-3 (T5) — admin orders/index 뷰의 행별 연관 접근(N+1) — [Phase 6 해소]**
-- `app/views/admin/orders/index.html.erb:76-78` — 행마다 `order.user.subscription`(컨트롤러 수정 불가 제약 인정). 기존 `order.user.email` N+1 패턴 준용·페이징 범위 소규모라 수용하나, 컨트롤러 후속 정리 시 `includes(:user => :subscription)` 권장. 뷰어가 ADMIN 한정이라 정보 노출 문제는 없음(dunning 상태·시각만 표기).
+#### W-3. 대시보드 "내 사용자 N명"이 `limit(30).size` 표시 — 실제 총원 아님
+- **위치**: `app/controllers/sales/dashboards_controller.rb:8`·`app/views/sales/dashboards/show.html.erb:96`
+- **내용**: 31명 이상 유치 시 "30명(최근 순)"으로 과소 표시 — 실적 표면의 수치 부정확(SALES-6).
+- **수정 방향**: `@referred_users_count = @rep.referred_users.count` 별도 집계 후 표기(목록은 최근 30명 유지·"최근 30명 표시" 문언).
 
-**W-4 (A) — en.yml.bak이 .gitignore 미등록 — [Phase 6 해소]**
-- `config/locales/en.yml.bak` untracked·.gitignore 규칙 없음(grep 확인). A 03 문서 자체가 ".gitignore 추가 권장"을 명시했으나 미반영 — 커밋 시 백업 파일 유입 리스크. 다음 커밋 전 `config/locales/*.bak` 추가 권장.
+#### W-4. 유치 사용자 이메일 노출 — PRD SALES-6 명세(가입일·플랜·상태)를 초과 (확인 요청)
+- **위치**: `app/views/sales/dashboards/show.html.erb:102-112`
+- **내용**: PRD SALES-6 "내 사용자 목록(**가입일·플랜·상태**)" — 구현이 이메일 칼럼을 추가했다. 유치자가 개인적으로 아는 지인이라는 운영 전제라면 식별 편의가 있으나, 유치 사용자는 자신의 이메일이 영업 직원에게 제공됨에 동의한 적이 없다(개인정보 최소 수집·이용 원칙).
+- **수정 방향**: 이메일 칼럼 제거(가입일·플랜·상태만)하거나, 노출이 필요하면 PRD SALES-6 문언 갱신 + 개인정보 처리 절차(제3자 제공 고지) 확인 후 유지. 오케스트레이터 판정 항목으로 남긴다.
 
-**W-5 (T8) — Q22 플래시 문구 "청구액을 N원 초과" 부정확 — [Phase 6 해소]**
-- `app/controllers/app/payments_controller.rb:55` — over_amount는 **잔액** 초과 기준(`[amount - remain, 0].max`)인데 문구는 "청구액을 N원 초과". 부분입금 후 과다입금(누계가 총액을 넘지 않는 케이스)에서 사실과 어긋난다. "남은 잔액을 N원 초과했습니다"로 정정 권장. AuditLog detail("과다입금 초과분")은 중립이라 무해.
+#### W-5. SMS 발송 rate limit 경합 우회 + IP 결합 한도의 CGNAT 영향 (확인 요청)
+- **위치**: `app/services/phone_verifications/send_service.rb:44-47`(조회 후 INSERT)·`app/controllers/registrations_controller.rb:14-15`(IP 6회/1시간, send+verify 합산)
+- **내용**: ① 두 동시 요청이 `rate_limited?` 조회를 통과한 뒤 각자 INSERT하면 "1분 1회"가 우회된다(레코드 삽입 경쟁 — 예상 리스크 5번 지적). 6자리 코드·5회 시도 제한이 있어 실질 위험은 낮다. ② 국내 이동통신은 CGNAT로 다수 사용자가 IP를 공유한다 — 인증 요청 다수가 같은 IP로 몰리면 정상 가입이 6회/1시간에 걸릴 수 있다.
+- **수정 방향**: ① 부분 유니크 인덱스 `(phone, created_at)` 유니크화는 과하고, `rate_limited?` 통과 후 `create!`에서 `RecordNotUnique` 무시 재시도 수준이면 충분(선택). ② 한도 상향(예: 20/1시간) 또는 send/verify 분리 판단 — 운영 데이터 없이 단정 불가하므로 확인 요청.
 
-**W-6 (T8) — stale 주석 2건(구 결정 #3·감사 action 목록) — [Phase 6 해소]**
-- `app/models/payment.rb:2-3` "잔액 초과 등록은 서비스 계층에서 차단한다(결정 #3)" — Q22로 폐기된 결정. `app/services/audit_logs/record_service.rb:3` action 확정 목록에 `payment_over_recorded` 미추가. 동작 무영향·P4 기록 자체는 정상 — 문서 단일 소스 정합 차원 정정.
+#### W-6. 추천 어트리뷰션·쿠폰 부착 실패가 Rails 로그에만 기록 — 감시·재시도 경로 없음
+- **위치**: `app/controllers/registrations_controller.rb:91-97`(`attach_referral!` rescue)
+- **내용**: `referred_by` 설정 실패 시 어트리뷰션이 소리 없이 소실되면 해당 사용자의 수수료가 영구 누락된다(SALES-5 원천). 가입은 완료돼 재시도 창구가 없다. 발생 확률은 매우 낮으나(검증 없는 컬럼 update) P4·ADMIN-2 정신상 콘솔에서 보이는 기록이 바람직하다.
+- **수정 방향**: rescue에서 `AuditLogs::RecordService.call(action: "referral_attach_failed", target: @user, ...)` 기록(admin nil — coupon_redeemed 선례). 사후 복구는 admin 콘솔 또는 runner로 가능함을 03 문서 운영 노트에 명시.
 
-**W-7 (T5) — next_retry_at nil 비교 방어 부재 — [Phase 6 해소]**
-- `app/jobs/subscriptions/dunning_retry_job.rb:22`·`upgrade_service.rb:114` — `next_retry_at > Time.current`에 nil 방어 없음(소진 상태 stage=3·nil에서 Job이 실행되면 NoMethodError). C-1 수정(dunning_active? status 한정)으로 소진 상태가 dunning 비대상이 되어 도달 불가해지므로 별도 수정 불요 — C-1 수정 후 회귀 테스트로만 고정 권장.
+#### W-7. 정산 집계 N+1 — rep별 유저 루프당 집계 쿼리 1회
+- **위치**: `app/services/sales/monthly_settlement_service.rb:39-43`(`sum_base_amount`)
+- **내용**: `rep.referred_users.sum do … end`이 유저마다 `orders.sum(:amount)`을 실행한다. 월 1회 잡이라 실영향은 작으나 유치자 수백 명 규모에서 쿼리 수백 회.
+- **수정 방향**: 단일 그룹 집계로 전환 권장 — `Order.joins(:user).where(users: { referred_by_sales_rep_id: rep.id }, paid_at: month_range).paid.plus_monthly.not_refunded`에 12개월 캡은 `users.created_at` 조인 조건(`orders.paid_at <= (users.created_at, '+12 months')` 또는 Ruby side 필터)으로. 대안으로 현행 유지도 허용(월 1회·트래픽 무관) — 비차단.
 
-## 공유 파일 특별 검증 — T6+T8(send_service.rb) 공존 정합: **통과**
+#### W-8. rep 파괴 방어선이 부분적 — referred_users 없는 rep은 이력 연쇄 삭제 가능
+- **위치**: `app/models/sales_rep.rb:8-14`
+- **내용**: `sales_referral_codes`/`sales_commissions`가 `dependent: :destroy`라, 유치 사용자가 없는 rep을 콘솔 등에서 파괴하면 코드 이력·정산 이력이 함께 사라진다(P4 위반 소지). `referred_users`의 restrict는 유치자가 있는 경우에만 발화한다. 콘솔에 destroy 액션은 없으므로 노출면은 좁다.
+- **수정 방향**: 두 연관도 `dependent: :restrict_with_error`로 전환하거나 `before_destroy`에서 항상 차단(삭제 금지 원칙의 완전한 방어선).
 
-지시서 요구사항(논리 충돌 검증) 코드 흐름 결과:
+---
 
-1. **partial_paid가 윈도우 게이트를 우회하지 않는다** — `call` 첫 줄 `return reschedule! if debtor? && outside_window?`(send_service.rb:38)은 recipient_role=debtor이면 template 무관 적용 → partial_paid(채무자 향)도 REM-3 창 밖이면 `reschedule!` → 다음 허용 슬롯 예약. 창 게이트 우회 없음.
-2. **윈도우 이월이 partial_paid를 무한 지연시키지 않는다** — `User#next_remind_slot`은 허용 요일 최소 1개 보장(검증 `remind_wdays_within_fixed_boundary`)으로 루핑 반드시 종료(user.rb:130-140). 최악 이월 7일.
-3. **예약→실행 흡수 정합** — 창 밖 부분입금: `reschedule!`가 pending 예약 로그 생성(scheduled_at=다음 슬롯) → 슬롯 실행 시 `claim_log` → `per_event_debtor_notice?` → `new_log!` → 기존 pending 예약과 부분 유니크(debtor×pending) 충돌 → RecordNotUnique rescue → `find_existing_log` → in_flight 해제(예약 시점 경과) 후 **그 로그를 갱신해 1통만 발송**. 이력 누적·이중 발송 없음.
-4. **Q23 재발송 정합** — `per_event_debtor_notice?`(149-151)가 `step_sent?`·갱신 경로를 우회해 건마다 새 이력. 상한 집계는 `sequence_step?`(SEQUENCE_TEMPLATE_KEYS 밖)·`manual_cap_reached?` 모두 partial_paid 미포함 — Q10 "1회성 3종 상한 집계 제외" 유지. PLAN-3 문언과 정합.
-5. **T6 위임 정합** — `outside_window?`→`User#remind_window_open?`·`next_window_at`→`User#next_remind_slot` 단일 출처 위임, U1 향(noti_opened 등)은 창 무관 즉시 기존 유지. WINDOW 상수는 문서화용 유지로 고정 경계 소스 이중화 아님(판정은 User 검증이 담당).
-6. 마커 충돌 0건 — T6(226·256행 근방)과 T8(claim_log 61-62·146-151행)이 서로 다른 영역을 편집, 양쪽 변경 공존.
+## 2. Rule ID 준수 매핑 (판정)
 
-## Rule ID 준수 매핑
+| Rule ID | 판정 | 근거 |
+|---|---|---|
+| SALES-1 | 통과 | 별도 테이블·별도 세션(`sales_rep_sessions`)·role 이원화(sales 20%/officer 15% — `ROLE_DEFAULT_RATES`·`effective_rate` 단일 판정점)·title 표시용·Admin CRUD+감사 전건·삭제 없음(정지 운영). 단 W-1(unlock 부재)·W-2(rate 무검증)·W-8(파괴 방어선) 보강 권장 |
+| SALES-2 | 통과 | 주간 로테이션 recurring(월 00:00 KST — production/development 양 블록)·8자 안전 문자열(O/I/L 제외 — 31^8 공간)·기존 코드 valid_until 조기 종료로 이력 보존(P4)·가입은 `current_valid`(오늘 포함 양끝)만 수용·당일 발급분 멱등 가드(SEC-5). 일요일→월요일 0시 끊김 없음(전날 valid_until=일요일·신규 from=월요일) 확인 |
+| SALES-3 | 통과 | 가입 폼 선택 입력·공백 무시·오류 시 422 안내(조용한 무시 아님)·`referred_by_sales_rep_id`+`referral_code_snapshot`(P4) 기록. 코드 무차별 대입: 전용 검증 엔드포인트 없음 — 코드 유효성 탐침은 create 필요(이메일·비밀번호·휴대폰 인증 전제 + IP 10회/3분) — 31^8 대비 실무적으로 비탐색 가능. 별도 이슈 없음 |
+| SALES-4 | 통과 | **Q12 경로 0줄 수정 재사용 확인** — `subscription.coupon_id` 예약 → `resolve_first_charge_coupon!`(재검증·정가 폴밑 금지) → 첫차감 성공 트랜잭션에서 `consume!`(원자·SEC-5)·예약 해제 → 이후 재과금 정상가. 쿠폰 생성값 percent 20·max 1·active·무만료·"REF"+hex8(11자 — Coupon 형식 통과)·final_price 7,920원. 웹훅 settle 경로(C-2 선례)도 예약 쿠폰 소비 정합 |
+| SALES-5 | 통과 | 매월 1일 00:05 KST Job·직전월 plus_monthly·paid·`not_refunded` **실차감액**(orders.amount)·역할 정책(sales `paid_at <= created_at+12개월` 포함 경계 / officer 무필터)·`effective_rate` 스냅샷·복합 유니크 upsert(재실행 동일·paid 보존 가드)·RecordNotUnique retry·mark paid 감사. W-7(N+1) 비차단 |
+| SALES-6 | 통과(조건부) | 자체 레이아웃("받을돈 파트너스")·본인 스코프 전 요소(referred_users·RepMonthlyPaymentsQuery rep_id 조인·SalesCommission rep 연관)·직전월 스냅샷·연도/전체 누적·원천징수 3.3% 고지·12개월 CSS 막대(reports 헬퍼 재사용 — include_all_helpers로 해석됨·렌더 실측 03 §5). W-3(총원 표기)·W-4(이메일 노출) 보완 |
+| SALES-7 | 통과 | 세션 키 `session[:sales_session_token]` — U1은 `cookies.signed[:session_id]`(별도 쿠키), admin은 `session[:admin_session_token]`과 키·토큰 테이블 모두 분리(교차 사용 불가 확인). U1 로그아웃(`terminate_session`)이 쿠키 삭제 방식이라 /sales 세션 무관 확인. 정지 시 세션 전량 파기 + 로그인 차단(422 통일 문구 — 열거 방지). noindex+robots(§3 참조) |
+| AUTH-9 | **C-1** | SMS(솔라피 `send_sms` — 동일 엔드포인트·HMAC·pf_id 불요 검증 분기)·5분 만료·시도 5회·1회용 consumed·rate limit 1분 1회·1시간 3회(DB 이력·발송 실패 시 행 제거로 미소진)·phone 부분 유니크 인덱스+모델 이중 검증·코드 네트워크 응답 비노출(마스킹만)·폼 2단계 비동기(submit 게이트+서버 재판정). 이중 검증의 주체 결합 결함만 C-1 |
+| Q24 | 통과 | 역할 이원화·실차감액 기준·지급 M+1(스냅샷 pending→admin mark paid)·원천징수 3.3% 화면 고지+오프라인. 해석 노트: 정지 rep도 정산 대상에 포함(PRD 무침 — 지급은 mark_paid 수동 게이트로 통제되므로 수용 가능하나 운영 인지 권장) |
+| Q12 | 통과 | `resolve/consume_first_charge_coupon!`·`coupon_metadata`·웹훅 settle 무변경 — diff 미포함 확인 |
+| PLAN-5 | 통과 | 결제 흐름 무변경·dunning 실패 주문은 status paid가 아니어서 자동 제외 |
+| SEC-5 | 통과 | 로테이션 당일 가드·정산 upsert 멱등·인증 코드 1회용(`consume!` 가드)·쿠폰 used_count 원자 증가(기존)·세션 토큰 urlsafe_base64(32) |
+| P4 | 통과(권장 보강) | 코드 이력 조기 종료식 보존·스냅샷·감사 8종 action(`sales_rep_created/updated/suspended/resumed/code_rotated`·`login_failed/lockout/login_success`·`commission_marked_paid`)·발송 실패 행 destroy는 "발송 안 된 요청"이라 판단 타당(03 §3-2). W-6(부착 실패 감사)·W-8 보강 권장 |
+| SURF-1/3 | 통과 | 표면 ⑤ /sales namespace 분리·`NOINDEX_PATH_PREFIXES "/sales"`(head 파셜 noindex? 재사용)·robots.txt Disallow /sales·뷰어→랜딩 간섭 없음 |
+| TIME-1 | 통과 | recurring KST 접미사(`0 0 * * 1 Asia/Seoul`·`5 0 1 * * Asia/Seoul`)·`Date.current`/`Time.zone.local` 기준·valid_from/until KST 날짜 |
+| ADMIN-2 | 통과 | 콘솔 행위 감사 전건·세션 감사 3종·AuditLog action 자유 확장 설계(모델 무검증) — target polymorphic(target_type/target_id) 정상 기록 |
 
-| Rule | 판정 | 근거 |
-|:---|:---|:---|
-| REM-3(세부 지정 — 고정 경계 내 축소만) | 통과 | 확장 3중 차단(모델 검증 user.rb:102-109 + 컨트롤러 서버 필터 profiles_controller + 헬퍼 선택지 9~18 범위). 기본값이 고정 경계 전체라 기존 사용자 무중단 |
-| REM-3·시퀀스 스케줄링 반영 | 통과 | next_remind_slot 이월 — D+1/D+7 의미 불변·PLAN-3 상한·REM-12 종결 로직 무영향(발송 횟수 불변) |
-| NOTI-2(월요일 아침·토글·NO_TEMPLATE) | 통과(W-2 문언 갭) | recurring `0 9 * * 1 Asia/Seoul` 기존 항목과 형식 일치·토글 기본 on·skipped(NO_TEMPLATE) 기록 — NOTI-3 선례 정합 |
-| PLAN-5(dunning D+1·3·7·3회 cancelled) | 통과(재리뷰 — 초차 위반 해소) | dunning_active? active? 한정으로 해지 후 무차단 재차감·소진 후 만료 데드락 모두 해소. 재시도 스케줄·소진 cancel!·기간 말 만료 전 경로 PLAN-5 문언 정합 |
-| PAY-2·Q22(과다입금/마감 후 재입금) | 통과(B-1 재리뷰 해소) | 초과 차단 폐기·실입금액 기록·마감·AuditLog 비고·기록만/알림 없음 — 문언 정합. remaining_amount 0 하한 클램프로 DASH-1 미수 집계·솔라피 "잔액" 변수 정합 |
-| PAY-2·Q23(partial_paid 재발송·상한 제외) | 통과 | per_event 경로·Q10 산정 유지 — 위 특별 검증 4번 |
-| SEC-5(멱등) | 통과(단 W-1 인계) | T7 주 단위 결정적 키(재실행 안전)·T3 첫열람 억제 면제·T8 부분 유니크 선점 유지 |
-| SHARE-4·PERF-1 | 통과 | 기록 0건(첫 열람)은 억제 판정 없이 기록+mark_viewed!+noti_opened 인큐 — track_service.rb:23-38 |
-| P4 | 통과 | digest 발송도 MessageLog 기록·partial_paid 건마다 이력·AuditLog 초과분 비고 |
-| VIEW-8·SURF-3 | 통과 | 뷰어·랜딩 미수정 — T7 url은 U1 향 /app 링크로 뷰어(③)와 무관 |
-| 소유권 격리 | 통과 | notification_settings=Current.user만·T7 집계는 @user.invoices 서브쿼리 스코프(누출 없음)·payments_controller set_invoice 기존 유지 |
+### 아키텍처·컨벤션 판정
 
-## 통과 근거 (무결성·보안 확인 항목)
+- 계층·의존 방향: Model→Service/Current 호출 없음·Service가 params/Current 직접 접근 없음·뷰 DB 쿼리 없음(@변수+헬퍼만)·Job은 Service만 호출 — 준수.
+- 컨트롤러 얇게: 전 액션 10줄 내외 준수(registrations#create 12줄 — 흐름상 허용 범위, 비지적).
+- `params.expect` 전 액션 적용·폼 성공 303 see_other·실패 422 재렌더·JSON 엔드포인트 422/429 — 준수.
+- Query Object(app/queries/sales)·도메인 네임스페이스(app/services/{phone_verifications,sales}) — 규약 §3.2·도메인 분할 준수. Registrations(인증 도메인)→Sales::AttachFirstChargeCouponService(판매 도메인 공개 진입점) 호출은 §4.3 허용 형태.
+- 마이그레이션: null/default/인덱스 명시·부분 유니크 인덱스 `index_users_on_phone_when_present`·복합 유니크 `index_sales_commissions_on_rep_year_month` — 준수·schema.rb 반영 확인.
+- Stimulus: CSRF 메타 토큰·경로 data 속성 주입(하드코딩 없음)·상태 색 DESIGN-2 — 준수.
 
-- **T3**: 억제 키 = invoice_id+정제 IP — 공유 오피스 IP에서 타 청구서 열람은 억제되지 않음(청구서 스코프). IP 정제(45자 절단·IPAddr 형식 검증·unknown 폴백)는 CF-Connecting-IP 원본 보존과 양립(개인정보 회귀 없음). 봇 UA 필터·HeadlessChrome 제외 의도 유지. 복합 인덱스 schema.rb:433 반영 확인.
-- **T6**: 주말(0·6)·야간(<9·>18)은 서버 검증+서버 필터로 설정 자체가 저장 불가 — "고정 경계 침범 불가" 충족. csv 빈값 제출 → 검증 실패(최소 1일 강제).
-- **T7**: suspended·phone 미보유·토글 off 사용자 제외. 집계 3지표 모두 사용자 스코프(due_within=unsettled 한정 재사용 — draft/voided 제외 확인). recurring.yml production/development 양쪽 동기화.
-- **T8**: with_lock 직렬화·조건부 UPDATE 전이(INV-4) 유지. Payment amount>0 DB check constraint+모델 검증 이중 — 마감 후 amount 0·nil은 422로 흡수(schema.rb:280 확인). 마감 후 재입금은 상태 불변·알림 스킵 — PROMISE-7·INV-5와 무충돌.
-- **A**: Thruster CACHE_CONTROL은 실제 지원 키(정적 서빙 Cache-Control) — public/fonts 셀프호스팅 폰트가 대상. portone_shared 추출은 두 컨트롤러의 customer 키 집합을 보존(billing=email 무조건(requireEmail)·payment=email 조건부 — 동등 확인), node 계약 유지. hello 잔존 참조 0건(grep). 제거 키의 ko.yml 이식 샘플 5키 확인(email/display_name/business_type/account_number/total_amount_must_be_positive) + default_locale=:ko라 t()는 ko.yml 단일 경로.
-- **공통**: 3-S 단일 마이그레이션(컬럼명 vs 코드 참조 전수 일치 — users 3+1·subscriptions 3·message_logs.digest·view_events 인덱스), routes 1줄 결선(PATCH /app/notification_settings — 파셜 전제 헬퍼와 일치), 기존 라우트 무손상.
+---
 
-## Tester 중점 지시 (7-S 게이트 — 태스크별 경계 시나리오)
+## 3. 통과 근거 (집중 검증 항목)
 
-1. **B-1 회귀(최우선)** — 입금 4케이스(정상 부분/정확 전액/과다입금/마감 후 재입금) 모두 성공 303·플래시 정상. 수정 전 코드로는 전부 500임을 먼저 재현·고정하는 테스트 권장.
-2. **C-1/C-2 회귀(T5) — 재리뷰 최우선** — ① 갱신 실패→stage1·D+1 예약 ② D+1·D+3·D+7 연속 실패→소진 cancel!→**다음 갱신 스윕에서 expire!·Free 강등 확인** ③ **dunning 중 수동 해지 후 D+1에 차감이 없음** 확인(가짜 차감 stub) ④ dunning 중 재차감 성공→reset_dunning!·주기 연장 정확 1회 ⑤ 모호 실패(TIMEOUT)는 dunning 진입 없음·웹훅 settle_renewal 시 reset ⑥ ADMIN members 표기(stage·다음 재시도·소진 문구) ⑦ cancel 후 기간 종료 전 구독 유지(해지 정책)·종료 후 Free 강등.
-3. **T6 슬롯 이월 9시나리오** — 기본 설정: 금 18:00→월 09:00 / 토 10:00→월 09:00 / 월 07:30→당일 09:00 / 월 17:59→즉시 / 화·목 13~16: 월 14:00→화 13:00·화 16:00→목 13:00 / 창 내 임의 시각→즉시 / 비허용 요일→다음 허용일 start. + 주말·야간(start<9·end>18·wdays 0/6 포함·빈 배열) 설정 저장 422 / 시퀀스 5통 상한 불변(지연 후에도 CAP 5 초과 없음) / U1 향 noti_opened는 창 무관 즉시 유지.
-4. **T7** — 같은 주 재실행 :duplicate / 템플릿 미등록 → skipped(NO_TEMPLATE)·주 1회만 기록 / 집계에 타 사용자 청구 미포함 / digest=true 단일_subject 면제·기존 청구·티켓 경로 검증 불변 / 토글 off·suspended·phone 빈값 제외 / NO_PHONE skip 경로.
-5. **T8 4케이스** — 정상 부분(잔액 재계산·partial_paid) / 과다입금(remaining 0·paid·AuditLog "payment_over_recorded"·초과분 플래시) / 마감 후 재입금(payments 기록 추가·status paid 불변·알림 0·플래시 상태 유지 문구) / 반복 부분입금(sent partial_paid 이력 건마다 증가·수동 포함 총량 5통 불변). + 동시 2건 partial_paid 1통 / amount 0·nil·음수 422 / 기존 테스트 중 구 정책(초과 차단·마감 후 차단·1회 발송) 전제분 Q22/Q23 시나리오로 갱신 필드 확인.
-6. **T3** — 첫 열람 기록+noti_opened 인큐 / 30분 내 동일 청구서+동일 IP 재열람 억제(이벤트 0·알림 0) / 31분 경과 재열람 기록 / 동일 IP·타 청구서는 억제 안 됨 / 잘못된 IP 헤더→ip="unknown" 기록 / UA 512자 초과 절단·device 판별 유지 / 봇 UA 무기록.
-7. **en.yml 회귀 샘플** — 모델 검증 메시지 ko 노출(가입 blank·청구 폼 blank·금액 양수 위반) + 뷰 t() 샘플 + `en: ~` 파싱(부트·테스트 전수 통과가 실질 검증).
-8. **C-3 확인** — 토글 저장 실패 강제(remind_* 이상 데이터 선주입) 시 422 응답·500 아님.
+1. **가입 인증 우회 점검** — ① consumed 여부와 무관하게 `create`는 consumed_recently(30분)+번호 일치로만 판정 → 만료 후 재사용/타 번호 스와핑은 차단. ② `send_code`·`verify` 응답에 코드 미포함(마스킹 번호·ok만). ③ submit disabled는 클라이언트 게이트일 뿐 서버 이중 검증이 최종 권위 — 우회 불가 구조 확인. ④ 단 세션 결합 결함 → C-1.
+2. **추천 코드 무차별 대입** — 전용 유효 검증 엔드포인트 없음. 탐침 경로는 가입 create뿐(휴대폰 인증 전제·IP 10회/3분) — 31^8(≈8.5×10^11) 코드 공간 대비 비실용적. 별도 차단 불요 판정.
+3. **12개월 캡 경계** — `orders.where(paid_at: ..user.created_at + 12.months)` 포함 경계("12개월 내"의 합리적 해석). 스냅샷 rate는 집계 시점 `effective_rate` 고정·역할 전환 소급은 수동 재집계(연월 지정 runner) 시 pending만 갱신·paid 보존 — Q24 "스냅샷 고정" 문언 정합.
+4. **정산 upsert** — 기존 pending은 재집계 값으로 갱신(환불 반영 회복 경로)·paid는 `return if commission.paid?`로 불변(지급 확정 보존)·경합 RecordNotUnique retry 흡수. 기준 금액 orders.amount(첫달 할인가 7,920원 포함) — 실차감액 문언 정합.
+5. **쿠폰 부착 실패** — 가입 완료 우선·정가 폴백·로그(03 §3-1 설계 판단) 확인. 단 감시 기록 부재 → W-6.
+6. **/sales 세션 고립** — 쿠키 키 3원 분리(U1 서명 쿠키 / admin·sales 세션 스토어 키 분리)·토큰 테이블 분리·토큰 유추 불가(urlsafe_base64 32)·CSRF 폼/`button_to`(member PATCH 전부) 적용·정지 시 `sales_rep_sessions.destroy_all` 즉시 파기 확인. 잔여 이슈 없음(정지-로그인 경합 시 12h 잔존 이론상 가능하나 U1·admin 선례와 동일 설계 — 비지적).
+7. **대시보드 겸제** — 컨트롤러 전체 @변수가 `current_sales_rep` 연관·Query는 `users.referred_by_sales_rep_id = rep.id` 조인 — 타 rep 경로 성립하지 않음.
+8. **SMS 발송 남발** — 비인증 경로이나 번호당 1분 1회·1시간 3회(DB)+IP 6/1시간·발송 실패 시 rate 미소진 처리 확인. 잔여: 레이스(W-5①)·CGNAT(W-5②).
+9. **마이그레이션·스키마** — 5테이블+users 확장 통합 1건·`foreign_key: { to_table: :sales_reps }` 명시·schema.rb 버전 2026_11_19 반영·부분 유니크 인덱스 확인.
+10. **기존 기능 회귀 위험** — registrations 기존 컨트롤러 테스트는 phone 인증 전제로 **실패 예상**(개발 단계 테스트 미작성은 지시서 제약 — Phase 7 갱신 필수). admin 네비 추가는 기존 admin 테스트와 무충돌(03 §4-6 판정 타당).
 
-## 재리뷰 범위
+---
 
-B-1(컨트롤러-서비스 계약)·C-1/C-2(dunning_active? 상태 한정 — 수정 시 upgrade_service·subscription·관련 주석 포함 전후 diff)·C-3(422 경로)만 재검토. WARNING은 다음 런 통합 반영 허용. → **재리뷰 완료(상단). W-1은 3-S 후속 스키마 과제, W-2는 PRD 문언 판정으로 각각 인계 — APPROVED 판정에 불포함.**
+## 4. Tester 중점 지시 (Phase 7)
+
+아래 12항 + 기존 회귀 스윕. 특히 **1·9번은 C-1 수정 회귀 포함**이므로 수정 커밋 후 실행할 것.
+
+1. **AUTH-9 결합 회귀(수정 반영 후)** — 검증 통과 브라우저 A의 consumed 번호로 브라우저 B(별도 세션)가 create → 422 차단 확인. 정상 동일 브라우저 가입은 성공.
+2. **AUTH-9 상태 전이** — 코드 만료(5분 경과)·5회 불일치 초과·정확 코드 재사용(이미 consumed)·만료 후 신규 발급→이전 코드 거부·attempts 증가 추적.
+3. **rate limit** — 동일 번호 1분 내 2회 요청 차단·1시간 3회 상한·IP 6회/1시간(429 JSON)·send 실패 시(stub ApiError) 재요청 즉시 허용(행 제거 검증).
+4. **phone 유일** — 가입된 번호 재가입 422·phone null 다수 기존 유저 호환(레거시 프로필 저장)·하이픈 입력 정규화 저장.
+5. **가입 E2E(추천 코드)** — 유효/만료/공백/소문자 코드 각 분기·성공 시 referred_by+snapshot 기록·쿠폰 예약(percent 20·max 1)·첫차감 7,920원·orders.amount=7920·2회차 정상가 9,900원·쿠폰 used_count 1에서 증가 없음(Q12 E2E 재사용).
+6. **쿠폰 부착 실패 폴백** — AttachFirstChargeCouponService 실패 주입 시 가입 완료·정가 첫차감·(W-6 반영 시 감사 로그 기록).
+7. **/sales 격리·세션** — U1·admin·sales 3중 로그인 공존 브라우저에서 상호 세션 침투 없음·U1 로그아웃 후 /sales 유지·세션 12h/2h 만료·무효 토큰 리다이렉트.
+8. **잠금·정지** — 5회 실패 잠금+감사(lockout)·정지 계정 로그인 422·정지 즉시 기존 세션 파기(대시보드 접근 303)·(W-1 반영 시 unlock 회복).
+9. **정산 경계** — sales 캡 경계(paid_at = created_at+12개월 ±1초 포함/제외)·officer 무기한·환불(refunded_at) 제외·upsert 재실행 동일 스냅샷·mark paid 후 재집계 시 금액 불변·rate 오버라이드 반영(W-2 반영 시 100 초과 거부).
+10. **로테이션** — 주간 Job 재실행 무변경(멱등)·만료 코드 가입 422 안내·수동 재생성 후 이전 코드 즉시 무효·일요일 23:59→월요일 00:01 코드 전환 끊김 없음(valid_until 경계).
+11. **noindex·robots** — /sales 전 경로 noindex 메타·robots.txt Disallow /sales·가입 폼(공개 표면)은 색인 허용 유지.
+12. **대시보드 스코프·표기** — 타 rep 유치 사용자·수수료 미노출(2계정 교차 확인)·스냅샷 상태 배지·(W-3 반영 시 총원 표기)·원천징수 고지 문언.
+
+**회귀 스윕**: 기존 `registrations`·`sessions`·profile(문맥 검증 변경)·admin 대시보드 테스트 전체 — phone 필수 전환으로 인한 기존 가입 테스트 실패분 갱신 포함. 솔라피 실호출 금지(stub 주입)·`bin/ci` 게이트 통과까지.
+
+---
+
+## 5. 재리뷰 범위
+
+C-1 수정 + 권장(W-1~W-8 중 수용분) 반영 후 **변경 파일 한정 재리뷰**. W-4(이메일 노출)·W-5②(CGNAT 한도)는 제품 판정 필요 — 오케스트레이터 질의 권장.

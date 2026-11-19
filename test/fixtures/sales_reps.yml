@@ -1,0 +1,23 @@
+<%# 영업 직원 fixtures(SALES-1 — F-SALES) — 세 사용자 모두 평문 "password".
+    role 이원화(sales 20%·12개월 캡 / officer 15%·무기한)·정지(suspended) 상태별 1행씩. %>
+
+sales_kim:
+  email: sales.kim@example.com
+  password_digest: <%= BCrypt::Password.create("password") %>
+  name: 김영업
+  title: CRO
+  role: sales
+
+officer_park:
+  email: officer.park@example.com
+  password_digest: <%= BCrypt::Password.create("password") %>
+  name: 박감투
+  title: 고문
+  role: officer
+
+suspended_choi:
+  email: suspended.choi@example.com
+  password_digest: <%= BCrypt::Password.create("password") %>
+  name: 최정지
+  role: sales
+  status: suspended

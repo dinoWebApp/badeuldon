@@ -1,0 +1,45 @@
+<%# SALES-1 — 영업 직원 생성(콘솔). role 이원화 선택·표시용 title·개별 요율(빈 값 = 역할 기본).
+    생성 성공 시 컨트롤러가 초기 추천 코드를 발급한다(SALES-2). %>
+<div class="admin-title">새 영업 직원</div>
+
+<% if @sales_rep.errors.any? %>
+  <div class="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600">
+    <ul class="list-disc pl-5">
+      <% @sales_rep.errors.full_messages.each do |message| %>
+        <li><%= message %></li>
+      <% end %>
+    </ul>
+  </div>
+<% end %>
+
+<%= form_with model: @sales_rep, url: admin_sales_reps_path, class: "admin-card" do |form| %>
+  <div>
+    <%= form.label :email, "이메일", class: "admin-label" %>
+    <%= form.email_field :email, required: true, class: "admin-input" %>
+  </div>
+  <div class="mt-3">
+    <%= form.label :password, "비밀번호", class: "admin-label" %>
+    <%= form.password_field :password, required: true, maxlength: 72, class: "admin-input" %>
+  </div>
+  <div class="mt-3">
+    <%= form.label :name, "이름", class: "admin-label" %>
+    <%= form.text_field :name, required: true, class: "admin-input" %>
+  </div>
+  <div class="mt-3">
+    <%= form.label :title, "직함(표시용 — 선택)", class: "admin-label" %>
+    <%= form.text_field :title, placeholder: "예: CRO · 영업 이사 · 고문", class: "admin-input" %>
+  </div>
+  <div class="mt-3">
+    <%= form.label :role, "역할", class: "admin-label" %>
+    <%= form.select :role, [ [ "영업 직원(20%·유치 후 12개월)", "sales" ], [ "감투 임원(15%·무기한)", "officer" ] ], {},
+          class: "admin-input" %>
+  </div>
+  <div class="mt-3">
+    <%= form.label :commission_rate, "개별 요율 % (빈 값 = 역할 기본)", class: "admin-label" %>
+    <%= form.number_field :commission_rate, min: 1, max: 50, step: 1, class: "admin-input" %>
+    <p class="mt-1 text-xs text-[#6b6b66]">1~50 사이의 정수만 가능합니다(빈 값 = 역할 기본 요율 사용).</p>
+  </div>
+  <%= form.submit "생성", class: "admin-btn" %>
+<% end %>
+
+<%= link_to "목록으로", admin_sales_reps_path, class: "mt-4 inline-block text-sm text-[#1e4d3b] hover:underline" %>

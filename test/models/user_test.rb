@@ -68,12 +68,38 @@ class UserTest < ActiveSupport::TestCase
     assert users(:gamma).valid?(:profile)
   end
 
-  test "프로필 컨텍스트는 잘못된 형식의 연락처·계좌번호를 거부한다 (AUTH-1.3)" do
+  test "전화번호 형식 위반은 ko.yml 문언으로 거부되고 하이픈 입력은 정규화 저장된다 (AUTH-9 — 2026-11-19 정책 갱신)" do
     user = users(:gamma)
-    user.phone = "abc"
+    # normalizes(AUTH-9)가 "abc"를 공백화하므로 형식 위반 표본은 숫자 과잉값을 쓴다.
+    # 노출 문언은 ko.yml(user.phone.invalid)이 단일 소스다 — 모델 inline message는
+    # Rails 8 i18n 키 우선 참조로 shadowed(07_test_report 관찰 참조).
+    user.phone = "010123456789"
+    assert_not user.valid?
+    assert_includes user.errors[:phone], "연락처 형식이 올바르지 않습니다. 예) 010-1234-5678"
+
+    user.phone = "010-9876-0001"
+    assert user.valid?, "하이픈 입력은 형식 검증을 통과한다(레거시 호환)"
+    assert_equal "01098760001", user.phone, "저장값은 하이픈 제거 숫자만(정규화)"
+  end
+
+  test "전화번호는 값이 있을 때만 유일하다 — null 다수 허용 (AUTH-9 소급 없음)" do
+    # 비교 표본은 정규화 저장된 신규 유저 — fixture 레거시(하이픈 저장) 값과의 비교는
+    # "소급 없음" 영역이라 단정하지 않는다(07_test_report 관찰 참조).
+    taken = User.create!(email: "phone-taken@example.com", password: "password123",
+                         phone: "01055500011")
+    user = users(:alpha)
+    user.phone = taken.phone # 정규화 저장값 그대로
+    assert_not user.valid?
+    assert user.errors[:phone].present?, "동일 번호 재사용은 거부된다"
+
+    user.phone = nil
+    assert user.valid?, "null은 유일성 판정 제외(기존 유저 소급 없음 — AUTH-9)"
+  end
+
+  test "프로필 컨텍스트는 잘못된 형식의 계좌번호를 거부한다 (AUTH-1.3 — 기존 커버 유지)" do
+    user = users(:gamma)
     user.account_number = "12"
     assert_not user.valid?(:profile)
-    assert_includes user.errors[:phone], "연락처 형식이 올바르지 않습니다. 예) 010-1234-5678"
     assert_includes user.errors[:account_number],
       "계좌번호 형식을 확인해 주세요. 숫자와 하이픈(-)으로 5자 이상 입력해 주세요."
   end

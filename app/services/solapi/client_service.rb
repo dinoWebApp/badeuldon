@@ -43,6 +43,28 @@ module Solapi
       @template_ids = template_ids || {}
     end
 
+    # SMS 단일 발송(AUTH-9 — 휴대폰 인증번호 등 템플릿 불요 문자). 알림톡과 동일 엔드포인트
+    # (POST /messages/v4/send)·동일 인증(HMAC-SHA256)을 쓰며, message 객체에 type: "SMS"와
+    # text 본문을 넣는다(kakaoOptions 대신). pf_id·템플릿이 필요 없으므로 credentials 검증도
+    # api_key·api_secret·sender_number만 요구한다(ensure_credentials!의 require_pf_id 옵션).
+    # [INFERENCE] 바디 스펙(type/text 키 배치)은 공식 문서 messages-v4/send 규격과 공식 SDK의
+    # SMS 타입 필드에 근거한 실측 전 항목 — 첫 실발송 시 응답으로 확정한다(운영 노트에 기록).
+    def send_sms(to:, body:, dry_run: false)
+      ensure_credentials!(require_pf_id: false)
+
+      payload = {
+        message: {
+          to: normalize_phone(to),
+          from: @sender_number,
+          text: body,
+          type: "SMS"
+        }
+      }
+      return dry_run_response(payload) if dry_run
+
+      request(method: :post, path: SEND_PATH, body: payload)
+    end
+
     # 알림톡 발송(REM-10) — template_key는 ALIMTALK_TEMPLATES.md·credentials template_ids의
     # 키와 동일 문자열이며, variables는 순수 변수명("발행인명")을 키로 하는 치환값 맵이다.
     # dry_run: true는 실발송·네트워크 호출 없이 조립된 요청 스펙을 돌려준다(검증용 —
@@ -78,9 +100,11 @@ module Solapi
     private
 
     # fail-fast — credentials 누락은 발송 시도 전에 구성 오류로 분류한다(반복 시도 방지).
-    def ensure_credentials!
-      missing = [ :@api_key, :@api_secret, :@pf_id, :@sender_number ]
-        .select { |name| instance_variable_get(name).blank? }
+    # send_sms는 카카오채널 발신 프로필(pf_id)이 필요 없다(require_pf_id: false).
+    def ensure_credentials!(require_pf_id: true)
+      required = [ :@api_key, :@api_secret, :@sender_number ]
+      required << :@pf_id if require_pf_id
+      missing = required.select { |name| instance_variable_get(name).blank? }
       return if missing.empty?
 
       raise ApiError.new(status: nil, code: "MISSING_CREDENTIALS",

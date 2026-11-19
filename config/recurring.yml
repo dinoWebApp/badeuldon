@@ -48,6 +48,16 @@ production:
   noti2_weekly_digest:
     class: Noti::WeeklyDigestJob
     schedule: "0 9 * * 1 Asia/Seoul"
+  # F-SALES(SALES-2) — 추천 코드 주간 로테이션. 활동 직원 전체 새 코드 발급·기존 조기 종료.
+  # 당일 발급분 가드로 멱등(재실행 무변경). 다이제스트(09시)보다 먼저 돌려 만료 안내 정합 유지.
+  sales_referral_codes_rotate:
+    class: Sales::RotateReferralCodesJob
+    schedule: "0 0 * * 1 Asia/Seoul"
+  # F-SALES(SALES-5·Q24) — 월 수수료 정산 스냅샷. 직전월 Plus 월결제 실차감액을 유치자별
+  # 집계·역할 정책(sales 20%/12개월 캡·officer 15%/무기한) 적용 upsert(복합 유니크 — 멱등).
+  sales_monthly_settlement:
+    class: Sales::MonthlySettlementJob
+    schedule: "5 0 1 * * Asia/Seoul"
 
 development:
   subscription_trial_expiry:
@@ -78,4 +88,12 @@ development:
   noti2_weekly_digest:
     class: Noti::WeeklyDigestJob
     schedule: "0 9 * * 1 Asia/Seoul"
+  # F-SALES(SALES-2) 추천 코드 주간 로테이션(production 블록 주석 참조).
+  sales_referral_codes_rotate:
+    class: Sales::RotateReferralCodesJob
+    schedule: "0 0 * * 1 Asia/Seoul"
+  # F-SALES(SALES-5·Q24) 월 수수료 정산 스냅샷(production 블록 주석 참조).
+  sales_monthly_settlement:
+    class: Sales::MonthlySettlementJob
+    schedule: "5 0 1 * * Asia/Seoul"
 

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_16_000000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_19_000000) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.string "name", null: false
     t.string "record_type", null: false
@@ -280,6 +280,17 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_16_000000) do
     t.check_constraint "amount > 0", name: "payments_amount_positive"
   end
 
+  create_table "phone_verifications", force: :cascade do |t|
+    t.string "phone", null: false
+    t.string "code", null: false
+    t.datetime "expires_at", null: false
+    t.integer "attempts", default: 0, null: false
+    t.datetime "consumed_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["phone", "created_at"], name: "index_phone_verifications_on_phone_and_created_at"
+  end
+
   create_table "promises", force: :cascade do |t|
     t.integer "invoice_id", null: false
     t.integer "kind", null: false
@@ -320,6 +331,61 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_16_000000) do
     t.index ["last_invoice_id"], name: "index_recurring_invoices_on_last_invoice_id"
     t.index ["user_id", "next_issue_on"], name: "index_recurring_invoices_on_user_id_and_next_issue_on"
     t.index ["user_id"], name: "index_recurring_invoices_on_user_id"
+  end
+
+  create_table "sales_commissions", force: :cascade do |t|
+    t.integer "sales_rep_id", null: false
+    t.integer "year", null: false
+    t.integer "month", null: false
+    t.integer "base_amount", default: 0, null: false
+    t.integer "rate", null: false
+    t.integer "amount", default: 0, null: false
+    t.integer "status", default: 0, null: false
+    t.datetime "paid_at"
+    t.datetime "settled_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["sales_rep_id", "year", "month"], name: "index_sales_commissions_on_rep_year_month", unique: true
+    t.index ["sales_rep_id"], name: "index_sales_commissions_on_sales_rep_id"
+  end
+
+  create_table "sales_referral_codes", force: :cascade do |t|
+    t.integer "sales_rep_id", null: false
+    t.string "code", null: false
+    t.date "valid_from", null: false
+    t.date "valid_until", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["code"], name: "index_sales_referral_codes_on_code", unique: true
+    t.index ["sales_rep_id", "valid_until"], name: "index_sales_referral_codes_on_sales_rep_id_and_valid_until"
+    t.index ["sales_rep_id"], name: "index_sales_referral_codes_on_sales_rep_id"
+  end
+
+  create_table "sales_rep_sessions", force: :cascade do |t|
+    t.string "token", null: false
+    t.integer "sales_rep_id", null: false
+    t.datetime "expires_at", null: false
+    t.datetime "last_activity_at", null: false
+    t.string "ip"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["sales_rep_id"], name: "index_sales_rep_sessions_on_sales_rep_id"
+    t.index ["token"], name: "index_sales_rep_sessions_on_token", unique: true
+  end
+
+  create_table "sales_reps", force: :cascade do |t|
+    t.string "email", null: false
+    t.string "password_digest", null: false
+    t.string "name", null: false
+    t.string "title"
+    t.integer "role", default: 0, null: false
+    t.integer "commission_rate"
+    t.integer "status", default: 0, null: false
+    t.integer "failed_attempts", default: 0, null: false
+    t.datetime "locked_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["email"], name: "index_sales_reps_on_email", unique: true
   end
 
   create_table "sessions", force: :cascade do |t|
@@ -418,8 +484,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_16_000000) do
     t.integer "remind_start_hour", default: 9, null: false
     t.integer "remind_end_hour", default: 18, null: false
     t.boolean "noti2_digest_enabled", default: true, null: false
+    t.string "referral_code_snapshot"
+    t.integer "referred_by_sales_rep_id"
     t.index ["barobill_id"], name: "index_users_on_barobill_id", unique: true
     t.index ["email"], name: "index_users_on_email", unique: true
+    t.index ["phone"], name: "index_users_on_phone_when_present", unique: true, where: "phone IS NOT NULL"
+    t.index ["referred_by_sales_rep_id"], name: "index_users_on_referred_by_sales_rep_id"
   end
 
   create_table "view_events", force: :cascade do |t|
@@ -458,6 +528,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_16_000000) do
   add_foreign_key "recurring_invoices", "clients", on_delete: :cascade
   add_foreign_key "recurring_invoices", "invoices", column: "last_invoice_id", on_delete: :restrict
   add_foreign_key "recurring_invoices", "users", on_delete: :cascade
+  add_foreign_key "sales_commissions", "sales_reps"
+  add_foreign_key "sales_referral_codes", "sales_reps"
+  add_foreign_key "sales_rep_sessions", "sales_reps"
   add_foreign_key "sessions", "users"
   add_foreign_key "subscriptions", "coupons"
   add_foreign_key "subscriptions", "users", on_delete: :cascade
@@ -466,5 +539,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_16_000000) do
   add_foreign_key "tax_invoices", "users"
   add_foreign_key "ticket_messages", "tickets", on_delete: :cascade
   add_foreign_key "tickets", "users", on_delete: :cascade
+  add_foreign_key "users", "sales_reps", column: "referred_by_sales_rep_id"
   add_foreign_key "view_events", "invoices"
 end

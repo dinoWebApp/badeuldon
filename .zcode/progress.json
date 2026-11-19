@@ -1,24 +1,68 @@
 {
-  "domain": null,
+  "domain": "F-SALES",
   "currentPhase": null,
   "pipelineType": null,
-  "parallelTasks": [],
   "phaseHistory": [
     {
-      "phase": "6-7b",
+      "phase": 0,
       "status": "done",
-      "note": "BUG-1~4+파생 2건 수정 — 전체 1,241 runs 7,047 assertions 0 failures"
+      "note": "컨텍스트 — 트리 클린·workspace 보존"
+    },
+    {
+      "phase": 1,
+      "status": "done",
+      "note": "01_plan — Full·Sequential·수수료 20% recurring 권장(업계 표준 조사)·쿠폰 인프라 재사용·/sales 신규 표면"
+    },
+    {
+      "phase": "1-r",
+      "status": "done",
+      "note": "수정 요청 반영 — role 이원화(sales=20%·12개월 캡/officer=15%·무기한·타이틀) 재계획·수수료 리서치(12개월 캡=지배 구조·lifetime 소수)"
+    },
+    {
+      "phase": "1-r2",
+      "status": "done",
+      "note": "추가 수정 반영 — 첫결제 할인 20% 확정(시장 최빈값)·타이틀 추천(CRO/고문) 안내"
+    },
+    {
+      "phase": "gate",
+      "status": "done",
+      "note": "승인(3차 질의 후) — 역할 이원화·첫결제 20%·타이틀 추천 확정"
+    },
+    {
+      "phase": 2,
+      "status": "done",
+      "note": "PRD v0.42 — §6.20 SALES-1~7·AUTH-9·Q24·02_prd_update"
+    },
+    {
+      "phase": 3,
+      "status": "done",
+      "note": "Developer — 신규 28·수정 11·쿠폰 재사용(결제 로직 0줄)·/sales·admin·SMS 인증·자가 E2E 통과"
+    },
+    {
+      "phase": 4,
+      "status": "done",
+      "note": "rubocop·zeitwerk·migrate 재검증"
+    },
+    {
+      "phase": 5,
+      "status": "done",
+      "note": "CHANGES_REQUESTED — C1(인증-가입 세션 결합)·W8·제품 판정 2건 확정"
+    },
+    {
+      "phase": 6,
+      "status": "done",
+      "note": "C-1+W8 반영 완료 — 재리뷰 불필요(CRITICAL 경로)"
     },
     {
       "phase": 8,
       "status": "done",
-      "note": "부트 스모크·notification_settings PATCH 라우트·가드 302·WARN 0 — 08_run_report"
+      "note": "부트·가드·가입 폼 필드·라우트·WARN 0"
     },
     {
       "phase": 9,
       "status": "done",
-      "note": "AGENTS 완료 항목+예정 정리·progress 리셋"
+      "note": "AGENTS 갱신·progress 리셋"
     }
   ],
-  "lastUpdated": "2026-11-16T00:00:00+09:00"
+  "lastUpdated": "2026-11-19T00:00:00+09:00"
 }

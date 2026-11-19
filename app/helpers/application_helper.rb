@@ -1,7 +1,7 @@
 module ApplicationHelper
-  # SURF-3 — 검색 색인 금지 표면(/app·/b/*·/admin).
+  # SURF-3 — 검색 색인 금지 표면(/app·/b/*·/admin·/sales — F-SALES 영업 표면 추가).
   # 랜딩(①)·공개 콘텐츠는 색인을 허용한다(noindex 미출력).
-  NOINDEX_PATH_PREFIXES = [ "/app", "/b/", "/admin" ].freeze
+  NOINDEX_PATH_PREFIXES = [ "/app", "/b/", "/admin", "/sales" ].freeze
 
   def noindex?
     NOINDEX_PATH_PREFIXES.any? { |prefix| request.path.start_with?(prefix) }

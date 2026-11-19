@@ -1,0 +1,21 @@
+<%# 추천 코드 fixtures(SALES-2 — F-SALES). 유효 창은 fixture 적재 시점(Date.current) 기준
+    상대값 — travel_to로 과거·미래로 이동하는 테스트(로테이션·정산)는 이 fixtures를
+    경계 판정에 쓰지 않고 테스트 내 생성 코드를 사용한다. %>
+
+sales_kim_current:
+  sales_rep: sales_kim
+  code: "KIM2026A"
+  valid_from: <%= Date.current - 2 %>
+  valid_until: <%= Date.current + 4 %>
+
+officer_park_current:
+  sales_rep: officer_park
+  code: "PARK2026"
+  valid_from: <%= Date.current - 2 %>
+  valid_until: <%= Date.current + 4 %>
+
+sales_kim_expired:
+  sales_rep: sales_kim
+  code: "OLDCODE1"
+  valid_from: <%= Date.current - 30 %>
+  valid_until: <%= Date.current - 1 %>

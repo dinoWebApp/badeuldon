@@ -25,6 +25,10 @@ class User < ApplicationRecord
   # TAX-1 — 전자세금계산서 발행 기록(invoices보다 뒤 파괴돼도 FK 제약 없음 — tax_invoices가
   # invoices를 참조하므로 Rails dependent: :destroy는 부모 기준 역순 파괴로 안전하다).
   has_many :tax_invoices, dependent: :destroy
+  # SALES-3 — 추천 어트리뷰션(가입 시 유효 코드로 귀속). optional — 추천 없는 가입이 기본.
+  # rep 측(referred_users)이 restrict_with_error라 탈퇴 연쇄 삭제에 영향이 없다(자식이 아님).
+  belongs_to :referred_by_sales_rep, class_name: "SalesRep", optional: true,
+                                     inverse_of: :referred_users
 
   # AUTH-1.3 사업자 유형 — 사업자(business)·프리랜서(freelancer, 3.3% 원천징수 해당).
   # 미선택 허용: 가입 시점엔 결정하지 않고, 프로필 설정(:profile 컨텍스트)에서 필수가 된다.
@@ -44,15 +48,24 @@ class User < ApplicationRecord
 
   # AUTH-1.3 — 프로필 저장 시 표시명·사업자 유형은 필수, 계좌 3종·연락처는 선택 입력(이후 수정 가능).
   # 가입(register/save)에는 적용되지 않는 컨텍스트 검증 — 미설정은 "프로필 미완료" 판정 근거.
+  # (phone 형식 검증은 AUTH-9 단일 소스로 아래에서 전 컨텍스트 적용 — 프로필 중복 제거)
   validates :display_name, presence: true, on: :profile
   validates :business_type, presence: true, on: :profile
-  validates :phone, allow_blank: true, format: { with: /\A\d{2,3}-?\d{3,4}-?\d{4}\z/ }, on: :profile
   validates :account_number, allow_blank: true, format: { with: /\A\d[\d-]{4,19}\z/ }, on: :profile
 
   # AUTH-1.4 — 이메일 대소문자·공백 정규화(로그인 아이디로서 동일 취급)
   normalizes :email, with: ->(e) { e.strip.downcase }
   # AUTH-1.3 — 표시명 앞뒤 공백 제거
   normalizes :display_name, with: ->(d) { d.strip }
+  # AUTH-9 — 휴대폰 번호는 하이픈 제거 숫자만 저장(솔라피 규격과 동일 정규화·표시는 헬퍼).
+  normalizes :phone, with: ->(p) { p.to_s.gsub(/\D/, "") }
+
+  # AUTH-9 — 전화번호 유일(값 있을 때만 — null 다수 허용). DB 부분 유니크 인덱스와 이중 방어.
+  # 형식은 하이픈 허용(정규화 이전 저장분 레거시 호환 — 신규 저장은 하이픈 제거 숫자만).
+  validates :phone, uniqueness: { allow_blank: true },
+                    format: { with: /\A\d{2,3}-?\d{3,4}-?\d{4}\z/,
+                              message: "은(는) 휴대폰 번호 형식이어야 합니다" },
+                    if: -> { phone.present? }
   # TAX-1 — 사업자번호는 하이픈 제외 숫자만 저장(바로빌 CorpNum 규격 — 정규화는
   # TaxInvoices::RegisterCorpService가 수행하고 여기선 저장 정합 검증만).
   validates :corp_num, allow_blank: true, format: { with: /\A\d{10}\z/,

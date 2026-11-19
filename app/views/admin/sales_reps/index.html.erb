@@ -1,0 +1,77 @@
+<%# SALES-1 — 영업 직원 목록(관리자 콘솔). role·요율·상태·현재 추천 코드·관리 액션.
+    행위 감사(생성·수정·정지·코드 재생성)는 컨트롤러가 RecordService로 전건 기록한다. %>
+<div class="admin-title">영업 직원</div>
+
+<div class="admin-card mb-4">
+  <p class="text-sm text-[#6b6b66]">
+    영업 직원(sales · 20%·12개월 캡)과 감투 임원(officer · 15%·무기한) 계정을 관리합니다.
+    생성 시 초기 추천 코드가 발급되며 코드는 매주 월요일 자동 재생성됩니다.
+    계정 삭제는 지원하지 않습니다(정지로만 운영 — 어트리뷰션·정산 이력 보존).
+  </p>
+  <%= link_to "새 영업 직원", new_admin_sales_rep_path,
+        class: "admin-btn text-center mt-3", style: "width:auto;display:inline-block;" %>
+</div>
+
+<div class="admin-card overflow-x-auto p-0">
+  <table class="w-full min-w-[760px] text-left text-sm">
+    <caption class="sr-only">영업 직원 목록</caption>
+    <thead>
+      <tr class="border-b border-[#e2e2df] text-xs font-semibold text-[#6b6b66]">
+        <th scope="col" class="px-4 py-3">이름(직함)</th>
+        <th scope="col" class="px-4 py-3">이메일</th>
+        <th scope="col" class="px-4 py-3">역할</th>
+        <th scope="col" class="px-4 py-3">요율</th>
+        <th scope="col" class="px-4 py-3">상태</th>
+        <th scope="col" class="px-4 py-3">현재 코드</th>
+        <th scope="col" class="px-4 py-3">관리</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @sales_reps.each do |rep| %>
+        <% code = @current_codes[rep.id] %>
+        <tr class="border-b border-[#ecece8] last:border-0">
+          <th scope="row" class="px-4 py-3 font-semibold">
+            <%= rep.name %><% if rep.title.present? %> <span class="text-xs font-normal text-[#6b6b66]">(<%= rep.title %>)</span><% end %>
+          </th>
+          <td class="px-4 py-3 text-[#6b6b66]"><%= rep.email %></td>
+          <td class="px-4 py-3"><%= rep.sales? ? "영업 직원" : "감투 임원" %></td>
+          <td class="px-4 py-3 tabular-nums"><%= rep.effective_rate %>%<%= " (개별)" if rep.commission_rate.present? %></td>
+          <td class="px-4 py-3">
+            <% if rep.suspended? %>
+              <span class="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700">정지</span>
+            <% else %>
+              <span class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">활동</span>
+            <% end %>
+            <% if rep.locked? %><%# W-1 — 5회 실패 잠금 상태 표시(목록에서 바로 복구 가능) %>
+              <span class="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">잠금</span>
+            <% end %>
+          </td>
+          <td class="px-4 py-3">
+            <% if code %>
+              <span class="font-mono font-bold"><%= code.code %></span>
+              <span class="text-xs text-[#6b6b66]">(~<%= code.valid_until.strftime("%m-%d") %>)</span>
+            <% else %>
+              <span class="text-xs text-[#6b6b66]">없음</span>
+            <% end %>
+          </td>
+          <td class="px-4 py-3">
+            <div class="flex items-center gap-3 text-xs">
+              <%= link_to "수정", edit_admin_sales_rep_path(rep), class: "text-[#1e4d3b] hover:underline" %>
+              <%= button_to "코드 재생성", rotate_code_admin_sales_rep_path(rep), method: :patch,
+                    class: "text-[#1e4d3b] hover:underline" %>
+              <%= button_to (rep.suspended? ? "해제" : "정지"), toggle_suspension_admin_sales_rep_path(rep), method: :patch,
+                    class: rep.suspended? ? "text-[#1e4d3b] hover:underline" : "text-red-700 hover:underline" %>
+              <% if rep.locked? %><%# W-1 — 잠금 해제(admins unlock 선례) %>
+                <%= button_to "잠금 해제", unlock_admin_sales_rep_path(rep), method: :patch,
+                      class: "text-[#1e4d3b] hover:underline" %>
+              <% end %>
+            </div>
+          </td>
+        </tr>
+      <% end %>
+      <% if @sales_reps.empty? %>
+        <tr><td colspan="7" class="px-4 py-8 text-center text-sm text-[#6b6b66]">등록된 영업 직원이 없습니다.</td></tr>
+      <% end %>
+    </tbody>
+  </table>
+</div>
