@@ -61,8 +61,28 @@ class CreateSalesDomainTables < ActiveRecord::Migration[8.1]
     end
     add_reference :users, :referred_by_sales_rep, foreign_key: { to_table: :sales_reps }
     # AUTH-9 — 번호 유일은 "값이 있을 때만"(부분 유니크). 기존 유저 phone null 다수 허용.
+    # 인덱스 생성 전 레거시 데이터 정리(2026-11-19 운영 배포 실패 실측 — 중복 1그룹·하이픈 1건 존재):
+    # ① 하이픈 정규화(User 모델 정규화와 동일 형태) ② 정규화 후에도 중복인 그룹은 첫 가입자(id 최소)만
+    # 유지하고 나머지 phone을 NULL로 — 알림 수신은 번호 보유자만 유지되고 운영자가 콘솔에서 재지정 가능.
+    say_with_time "phone 하이픈 정규화" do
+      exec_update("UPDATE users SET phone = REPLACE(phone, '-', '') WHERE phone LIKE '%-%'")
+    end
+    say_with_time "중복 phone 정리(첫 가입자 유지)" do
+      dupes = select_rows(
+        "SELECT REPLACE(phone,'-','') p, MIN(id) keep_id FROM users " \
+        "WHERE phone IS NOT NULL AND phone != '' GROUP BY p HAVING COUNT(*) > 1"
+      )
+      dupes.each do |normalized, keep_id|
+        exec_update(
+          "UPDATE users SET phone = NULL " \
+          "WHERE phone = '#{normalized}' AND id != #{keep_id}"
+        )
+      end
+      dupes.size
+    end
     add_index :users, :phone, unique: true, where: "phone IS NOT NULL",
               name: "index_users_on_phone_when_present"
+    # 비고: down에서 데이터(정규화·NULL화)는 복구하지 않는다 — 원본은 마이그레이션 로그로만 추적.
 
     # 월 정산 스냅샷(SALES-5·Q24) — rep·연월 1행(복합 유니크). 지급 처리(mark paid) 후에는
     # 집계 재실행으로도 금액을 다시 쓰지 않는다(스냅샷 고정 — 서비스 가드).
