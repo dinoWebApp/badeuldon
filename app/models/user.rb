@@ -58,7 +58,8 @@ class User < ApplicationRecord
   # AUTH-1.3 — 표시명 앞뒤 공백 제거
   normalizes :display_name, with: ->(d) { d.strip }
   # AUTH-9 — 휴대폰 번호는 하이픈 제거 숫자만 저장(솔라피 규격과 동일 정규화·표시는 헬퍼).
-  normalizes :phone, with: ->(p) { p.to_s.gsub(/\D/, "") }
+  # 빈 입력은 nil로 — 부분 유니크 인덱스는 phone IS NOT NULL 조건이라 ''가 다수 저장되면 유일 위반.
+  normalizes :phone, with: ->(p) { p.presence&.gsub(/\D/, "") }
 
   # AUTH-9 — 전화번호 유일(값 있을 때만 — null 다수 허용). DB 부분 유니크 인덱스와 이중 방어.
   # 형식은 하이픈 허용(정규화 이전 저장분 레거시 호환 — 신규 저장은 하이픈 제거 숫자만).

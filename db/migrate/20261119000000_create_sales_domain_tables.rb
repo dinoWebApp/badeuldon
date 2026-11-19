@@ -61,16 +61,17 @@ class CreateSalesDomainTables < ActiveRecord::Migration[8.1]
     end
     add_reference :users, :referred_by_sales_rep, foreign_key: { to_table: :sales_reps }
     # AUTH-9 — 번호 유일은 "값이 있을 때만"(부분 유니크). 기존 유저 phone null 다수 허용.
-    # 인덱스 생성 전 레거시 데이터 정리(2026-11-19 운영 배포 실패 실측 — 중복 1그룹·하이픈 1건 존재):
-    # ① 하이픈 정규화(User 모델 정규화와 동일 형태) ② 정규화 후에도 중복인 그룹은 첫 가입자(id 최소)만
-    # 유지하고 나머지 phone을 NULL로 — 알림 수신은 번호 보유자만 유지되고 운영자가 콘솔에서 재지정 가능.
-    say_with_time "phone 하이픈 정규화" do
-      exec_update("UPDATE users SET phone = REPLACE(phone, '-', '') WHERE phone LIKE '%-%'")
+    # 인덱스 생성 전 레거시 데이터 정리(2026-11-19 운영 배포 실패 2회 실측 — 실제 중복: '' 2건·번호 1그룹·하이픈 1건).
+    # 스캔 조건은 인덱스 조건(phone IS NOT NULL)과 정확히 일치시킨다 — 빈 문자열은 인덱스에 포함되므로 NULL로 정규화 필수.
+    # ① 하이픈 정규화(User 모델과 동일 형태)·빈 문자열 → NULL ② 남은 중복은 첫 가입자(id 최소) 유지·나머지 NULL.
+    say_with_time "phone 정규화(하이픈 제거·빈 문자열 NULL)" do
+      exec_update("UPDATE users SET phone = REPLACE(phone, '-', '') WHERE phone LIKE '%-%'") +
+        exec_update("UPDATE users SET phone = NULL WHERE phone = ''")
     end
     say_with_time "중복 phone 정리(첫 가입자 유지)" do
       dupes = select_rows(
-        "SELECT REPLACE(phone,'-','') p, MIN(id) keep_id FROM users " \
-        "WHERE phone IS NOT NULL AND phone != '' GROUP BY p HAVING COUNT(*) > 1"
+        "SELECT phone, MIN(id) FROM users " \
+        "WHERE phone IS NOT NULL GROUP BY phone HAVING COUNT(*) > 1"
       )
       dupes.each do |normalized, keep_id|
         exec_update(
