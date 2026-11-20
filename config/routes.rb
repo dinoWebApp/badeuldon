@@ -182,7 +182,9 @@ Rails.application.routes.draw do
     # F-SALES — 영업 직원 관리(SALES-1 — T-C1 admins 콘솔 패턴·감사 전건)·수수료 정산
     # (SALES-5). 정지 전환·코드 재생성·잠금 해제(W-1 — admins unlock 선례)는 상태 전이라
     # member PATCH로 정당화.
-    resources :sales_reps do
+    # destroy 미제공 — 영업 직원 삭제는 없다(상태 전이만: 정지 toggle_suspension — 소프트
+    # 삭제 대용·P4 이력 보존). 콘솔 액션 부재 경로의 404 흡수(관찰⑤).
+    resources :sales_reps, except: :destroy do
       member do
         patch :toggle_suspension
         patch :rotate_code

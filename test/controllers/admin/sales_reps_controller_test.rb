@@ -181,4 +181,20 @@ class Admin::SalesRepsControllerTest < ActionDispatch::IntegrationTest
     assert_response :not_found
     assert SalesRep.exists?(rep.id)
   end
+  test "DELETE 라우트는 존재하지 않는다 (T3 routes 정리 — 관찰⑤·P4 이력 보존)" do
+    # resources :sales_reps, except: :destroy — 영업 직원 삭제 경로는 라우팅 자체가 없다
+    # (404 흡수). recognize_path로 라우트 부재를 직접 단정한다.
+    assert_raises ActionController::RoutingError do
+      Rails.application.routes.recognize_path(
+        "/admin/sales_reps/#{sales_reps(:sales_kim).id}", method: :delete
+      )
+    end
+    # member PATCH 3종은 불변
+    %w[toggle_suspension rotate_code unlock].each do |action|
+      route = Rails.application.routes.recognize_path(
+        "/admin/sales_reps/#{sales_reps(:sales_kim).id}/#{action}", method: :patch
+      )
+      assert_equal "admin/sales_reps##{action}", route[:controller] + "#" + route[:action]
+    end
+  end
 end

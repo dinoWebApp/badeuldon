@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_19_000000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_20_000000) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.string "name", null: false
     t.string "record_type", null: false
@@ -213,6 +213,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_19_000000) do
     t.index ["invoice_id"], name: "index_message_logs_on_invoice_id"
     t.index ["provider_message_id"], name: "index_message_logs_on_provider_message_id"
     t.index ["ticket_id"], name: "index_message_logs_on_ticket_id"
+    t.index ["user_id", "template_key", "scheduled_at"], name: "idx_message_logs_digest_period_uniq", unique: true, where: "digest = 1"
     t.index ["user_id"], name: "index_message_logs_on_user_id"
   end
 
@@ -276,6 +277,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_19_000000) do
     t.date "paid_on", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "note"
     t.index ["invoice_id"], name: "index_payments_on_invoice_id"
     t.check_constraint "amount > 0", name: "payments_amount_positive"
   end

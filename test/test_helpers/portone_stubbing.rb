@@ -13,14 +13,19 @@ module PortOneStubbing
   end
 
   # 전송 계층(Net::HTTP.start)을 대역으로 교체한다 — 요청 인자 기록·응답 주입·네트워크 예외
-  # 시뮬레이션(ClientServiceTest 전용).
+  # 시뮬레이션(ClientServiceTest 전용). HTTP가 이미 교체되므로 솔라피·이메일 perform 가드
+  # 플래그도 함께 켠다(2026-11-20 실호출 사고 대응 — HTTP stub은 실호출이 아님을 보증).
   def with_http_transport(transport)
     original = Net::HTTP.method(:start)
     Net::HTTP.define_singleton_method(:start) do |*args, **kwargs, &block|
       transport.stub_start(*args, **kwargs, &block)
     end
+    Thread.current[:solapi_http_stub] = true
+    Thread.current[:outbound_mail_http_stub] = true
     yield
   ensure
+    Thread.current[:solapi_http_stub] = nil
+    Thread.current[:outbound_mail_http_stub] = nil
     Net::HTTP.define_singleton_method(:start, original)
   end
 end

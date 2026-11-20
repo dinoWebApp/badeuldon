@@ -13,6 +13,10 @@
 # 성공 응답은 운영 실측 성공으로 검증됐다(2026-11-06 — messageId 캡처 확인). [INFERENCE] 마킹
 # 해소 — 단일 send 전 규격(엔드포인트·바디·variables 키·인증·응답 식별자)은 실측·공식 문서로
 # 확정 상태다.
+# 잔액 조회(ADMIN-5·REM-10 — 선불 크레딧 모니터링)는 읽기 전용 GET으로, 발송과 동일 HMAC
+# Authorization 헤더를 공유한다. 응답 스키마는 2026-11-20 라이브 실측으로 확정(get_balance
+# 주석 참조). 발송(write) 경로와 무관한 조회라 발송 멱등성(SEC-5)·상한(PLAN-3) 적용 대상이
+# 아니다.
 require "net/http"
 require "json"
 require "openssl"
@@ -24,6 +28,11 @@ module Solapi
     TIMEOUT_SECONDS = 10
     # 메시지 v4 단일 발송 엔드포인트 — 실측·공식 문서로 확정(2026-11-06).
     SEND_PATH = "/messages/v4/send"
+    # 잔액 조회 엔드포인트(ADMIN-5·REM-10) — 2026-11-20 라이브 실측으로 확정(get_balance 주석).
+    BALANCE_PATH = "/cash/v1/balance"
+    # 요청 메서드별 Net::HTTP 클래스 — 발송(POST)·조회(GET) 2종만 사용. 미지원 메서드는
+    # KeyError로 fail-fast한다.
+    NET_REQUEST_CLASSES = { get: Net::HTTP::Get, post: Net::HTTP::Post }.freeze
     # 2026-10-29 최초 승인 4종은 솔라피 등록 변수명이 "발행인명"이 아니라 "발행인"이다
     # (사용자 확인 2026-11-06 — 운영 실측 성공 조합). 나머지 14종은 "발행인명" 그대로다.
     # 도메인 계층은 순수 키 "발행인명"을 유지하고(ALIMTALK_TEMPLATES.md 공통 규칙) 이 래퍼가
@@ -108,6 +117,19 @@ module Solapi
       request(method: :post, path: SEND_PATH, body: body)
     end
 
+    # 잔액 조회(ADMIN-5·REM-10 — 선불 크레딧 소진으로 인한 발송 중단 예방). GET
+    # /cash/v1/balance로 단일 발송과 동일 HMAC-SHA256 Authorization 헤더를 쓴다(인증 체계는
+    # 엔드포인트 무관 공통 — 공식 문서 authentication 규격). 읽기 전용이라 부작용이 없어
+    # dry_run 개념이 필요 없다. 응답은 { balance: 정수(원), point: 정수 }로 정규해 돌려준다.
+    # 스키마 확정(2026-11-20 라이브 실측 — [INFERENCE] 해소): GET /cash/v1/balance에 동일
+    # HMAC Authorization 헤더로 200을 받고, 본문은 {"balance": <정수(원)>, "point": <정수>}
+    # 단일 객체였다(point는 부여 크레딧 없는 계정 기준 0). balance·point 모두 정수 원 단위 —
+    # [INFERENCE] 항목은 이 실측으로 전부 확정되어 더 이상 추정이 아니다.
+    def get_balance
+      ensure_credentials!(require_pf_id: false)
+      parse_balance(request(method: :get, path: BALANCE_PATH))
+    end
+
     private
 
     # fail-fast — credentials 누락은 발송 시도 전에 구성 오류로 분류한다(반복 시도 방지).
@@ -136,6 +158,29 @@ module Solapi
 
     def legacy_issuer_template?(template_key)
       LEGACY_ISSUER_KEY_TEMPLATES.include?(template_key.to_s)
+    end
+
+    # 잔액 응답 정규화 — 방어적 파싱(스키마 이탈은 ApiError로 분류). balance 키 누락·null·
+    # 비숫자는 fail-fast해 관리자 대시보드가 잘못된 잔액을 정상처럼 표시하는 것을 막는다.
+    # point는 부여 크레딧이 없는 계정에서 0으로 관측될 수 있어 기본 0으로 관대하게 정규한다.
+    def parse_balance(payload)
+      balance = parse_amount(payload[:balance])
+      if balance.nil?
+        raise ApiError.new(status: nil, code: "UNEXPECTED_BALANCE_RESPONSE",
+                           message: "솔라피 잔액 응답 스키마가 예상과 다릅니다: #{payload.inspect}")
+      end
+
+      { balance: balance, point: parse_amount(payload[:point]) || 0 }
+    end
+
+    # 금액 정규화 — Numeric은 정수화, "12,345" 같은 콤마 숫자형 문자열은 제거 후 정수화.
+    # 그 외(키 누락·null·비숫자 문자열)는 nil(스키마 이탈 신호).
+    def parse_amount(value)
+      if value.is_a?(Numeric)
+        value.to_i
+      elsif value.is_a?(String) && value.match?(/\A\d+(,\d+)*\z/)
+        value.delete(",").to_i
+      end
     end
 
     # dry_run — 실발송 없는 스펙 검증용. 솔라피 API에 dryRun 파라미터(쿼리·바디 모두)는
@@ -170,7 +215,7 @@ module Solapi
     # 확인하세요" 거부의 원인. 점 구분+apiKey 포함이던 구식 계산과 다르다).
     def build_request(method:, path:, body:)
       uri = URI.parse("#{BASE_URL}#{path}")
-      net_request = Net::HTTP::Post.new(uri)
+      net_request = NET_REQUEST_CLASSES.fetch(method).new(uri)
       date = Time.now.utc.iso8601
       salt = SecureRandom.uuid
       net_request["Authorization"] = hmac_authorization(date, salt)
@@ -186,6 +231,14 @@ module Solapi
     end
 
     def perform((uri, net_request))
+      # TEST 환경 실호출 원천 차단(2026-11-20) — credentials가 로드되므로 stub 누락 시
+      # 실제 API 호출이 나간다(010-5555-1111 실발송 사고 계기). with_solapi_client(생성자
+      # 교체) 또는 HTTP transport stub(client_service_test의 stub_start) 경유 시에만 통과.
+      if Rails.env.test? && !Thread.current[:solapi_http_stub]
+        raise ApiError.new(status: nil, code: "TEST_GUARD",
+                           message: "test 환경 실호출 차단 — with_solapi_client 또는 HTTP transport stub 필요")
+      end
+
       Net::HTTP.start(uri.host, uri.port, use_ssl: true,
                       open_timeout: TIMEOUT_SECONDS, read_timeout: TIMEOUT_SECONDS) do |http|
         http.request(net_request)

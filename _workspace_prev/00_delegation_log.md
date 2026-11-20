@@ -1,10 +1,7 @@
-# 00_delegation_log — F-SALES 후속: 인증번호 알림톡 전환 (2026-11-19, 절약 모드)
+# 00_delegation_log — 정책 문서·인프라·기술 부채 병렬 배치 (2026-11-20, 일반 모드)
 
-- Phase 3·5·7 위임 실측 기록 예정
-- Phase 2·3(2026-11-19): PRD AUTH-9 갱신(오케스트레이터)·Developer-lite — 키 존재 시 알림톡 단독(대체문자 담당·코드 폴백 없음)·키 부재 시 SMS 임시 경로·template_ids public 접근자·스모크 3건 OK.
-- Phase 5·7 압축 위임(Reviewer/Tester-lite, 2026-11-19): 리뷰 APPROVED(B0·C0·W2 — W-1 freeze 후속 권장)·테스트 전체 1,387 runs 0 failures(+2)·코드 버그 0.
-- Phase 8: 부트·가입 폼 렌더·WARN 0.
-- Phase 9: progress 리셋·메모리 갱신.
-- 알림톡 3작업(2026-11-19): Developer-lite — A(심벌 키 정규화·결함 수정) B(검수중 SMS 폴백) C(noti_tax_issued+폴링 훅) 완료·스모크 3건. B-8 초안 오케스트레이터 작성(변수 5종 코드 정합). Tester-lite 리뷰+테스트 — EPIPE 절단 후 SendMessage 재개.
-- 리뷰+테스트 재개 완료(2026-11-19): APPROVED(코드 버그 0·W2 기록)·전체 1,399 runs 0 failures(+13)·rubocop 395파일 0. 폴백 이중발송 양방향 단정·폴링 훅 issued 한정.
-- Phase 8: 부트·가드·WARN 0. Phase 9: progress 리셋 — 커밋 대기.
+- Phase 3-P fan-out 위임 실측 기록 예정
+- Phase 3-P(2026-11-20): T1(정책 문서 3종 갱신 — 법무 검토 7건·범위 외 관찰 2건)·T3(payments.note+digest 인덱스+routes — 통합 마이그레이션 1건·routes 실수 2회 즉시 복구)·T4(솔라피 잔액 — 라이브 실측 200·[INFERENCE] 해소·**실측 잔액 1천원대로 임계 미만 주황 경고 상태**) 병렬 완료.
+- Phase 5/7(2026-11-20): 리뷰 APPROVED(B0·C1 해소[테스트 실호출 위반 → stub 감싸기]·W3)·테스트 1,466 runs 9,068 assertions 0 failures(+28). W-1/W-2 주석 오케스트레이터 교정.
+- 법무 검토 7건+terms 제4조 AUTH-9(2026-11-20 후속): Developer — 8건 전부 문구 확정 반영(표준 관행 정합화)·ERB 스크립틀릿 불변·grep 검증 통과.
+- 법무 검토 후속 테스트 정합(2026-11-20): 3건 단정 갱신(취소 과금 신문구·중복 가입 방지·인증서 직접 등록 문구) — 전체 1,466 runs 0 failures.

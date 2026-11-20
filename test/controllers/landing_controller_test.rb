@@ -6,6 +6,8 @@ require "test_helper"
 # PRD v0.19 Q6 헤드라인 번복·LP-5 버블 UI·LP-10 사업자 정보 반영 — 2026-10-14 갱신
 # PG 심사 요건 — 푸터 법적 고지 링크(/terms·/privacy·/refund) 허용 반영 — 2026-10-15 갱신
 # 법적 고지 링크는 ② 진입이 아니므로 SURF-4 위반이 아니다. ② 진입 링크는 가입 CTA 단일 유지.
+# LP-16 랜딩 전 기능 커버·추천 프로그램(2026-11-20) — 13섹션·가입 CTA 4곳·FAQ 12항목·
+# 인페이지 앵커(#all-features) 허용 반영 — Phase 7 갱신(기존 3건 갱신 + 신규 10건)
 class LandingControllerTest < ActionDispatch::IntegrationTest
   test "GET /는 비로그인 200으로 landing/index 히어로를 렌더한다 (SURF-1, LP-1)" do
     get root_url
@@ -30,27 +32,32 @@ class LandingControllerTest < ActionDispatch::IntegrationTest
     assert_select "button[disabled][aria-disabled='true']", text: /작동 방식 보기/, count: 1
   end
 
-  test "주 CTA는 히어로·LP-10 최종에서 가입 화면 실링크다 (SURF-4, AUTH-1 반전)" do
+  test "주 CTA는 히어로·all_features·sales_program·LP-10 최종에서 가입 화면 실링크다 (SURF-4, AUTH-1 반전, LP-16)" do
     get root_url
-    # 히어로 + LP-10 최종 CTA — 승인된 플랜 변경(03 §4.1): 동일 링크·동일 문구 유지
-    assert_select "a[href=?]", new_registration_path, count: 2
-    assert_select "a[href=?]", new_registration_path, text: /무료로 시작하기/, count: 2
+    # 히어로 + all_features 끝("이 모든 기능, 무료로 시작하기") + sales_program 끝 + LP-10 최종 CTA
+    # — LP-16 "CTA 반복 배치"(03 §4.1 승인): 동일 링크·문구 계열 유지
+    assert_select "a[href=?]", new_registration_path, count: 4
+    assert_select "a[href=?]", new_registration_path, text: /무료로 시작하기/, count: 4
   end
 
-  test "표면 ①의 a 요소는 가입 CTA와 헤더 로그인만 ②에 진입한다 (SURF-4 개정 — 법적 고지 링크 제외)" do
+  test "표면 ①의 a 요소는 가입 CTA·헤더 로그인·법적 고지·인페이지 앵커만 사용한다 (SURF-4 개정 — LP-16 앵커 허용)" do
     get root_url
     # PG 심사 요건(2026-10-15) — 푸터 법적 고지 3종 링크는 ② 진입이 아니므로 허용된다.
     # 법적 고지 3종 + 블로그(표면 ① 내부 콘텐츠 허브 — LP-11·2026-11-11)는 ② 진입이 아니므로 허용
     legal_hrefs = [ terms_path, privacy_path, refund_path, blog_path, root_path ]  # root_path=헤더 로고(비로그인→랜딩·2026-11-18)
+    allowed_hrefs = [ new_registration_path, new_session_path, *legal_hrefs ]
     assert_select "a" do |anchors|
       assert anchors.any?, "랜딩에 가입 CTA 링크가 존재해야 한다"
-      assert anchors.all? { |anchor| anchor["href"] == new_registration_path || anchor["href"] == new_session_path || anchor["href"].in?(legal_hrefs) },
-        "② 진입 링크는 가입·로그인만 허용 — 비밀번호 재설정 등 타 진입 금지(법적 고지 3종 제외)"
+      # 인페이지 앵커(# 접두 href)는 같은 문서 내 이동이라 ② 진입이 아니다(LP-16 — 05_review §4 판정)
+      assert anchors.all? { |anchor| anchor["href"].in?(allowed_hrefs) || anchor["href"].start_with?("#") },
+        "② 진입 링크는 가입·로그인만 허용 — 비밀번호 재설정 등 타 진입 금지(법적 고지 3종·인페이지 앵커는 ② 진입 아님 — 제외)"
     end
     # 헤더 로그인 직행 링크 — 재방문 사용자 동선(SURF-4 개정 2026-10-16)
     assert_select "header a[href=?]", new_session_path, text: "로그인", count: 1
     # 비밀번호 재설정 직접 진입 없음(인증 화면 상호 링크만 존재)
     assert_select "a[href=?]", new_password_path, count: 0
+    # 인페이지 앵커는 #all-features 1건뿐(LP-16 — features→all_features 이동)
+    assert_select "a[href^='#']", count: 1
   end
 
   test "이전 카카오 CTA와 임시 안내문은 잔존하지 않는다 (AUTH-1 반전 회귀)" do
@@ -186,9 +193,9 @@ class LandingControllerTest < ActionDispatch::IntegrationTest
     assert_select "p", text: /부가세 포함/, minimum: 2
   end
 
-  test "LP-8 FAQ 8항목의 질문이 모두 노출된다 (LP-8)" do
+  test "LP-8 FAQ 12항목의 질문이 모두 노출된다 (LP-8, LP-16 확대)" do
     get root_url
-    assert_select "summary", count: 8
+    assert_select "summary", count: 12
     %w[
       추심·법무 대행 서비스인가요?
       거래처가 불쾌해하지 않을까요?
@@ -198,6 +205,10 @@ class LandingControllerTest < ActionDispatch::IntegrationTest
       계좌·거래처 정보는 안전하게 관리되나요?
       유료 구독은 어떻게 해지하나요?
       사업자가 아닌 프리랜서도 쓸 수 있나요?
+      전자세금계산서도 발행할 수 있나요?
+      매달 나가는 정기 청구도 자동으로 보낼 수 있나요?
+      추천 코드는 어떻게 쓰나요?
+      가입할 때 휴대폰 인증이 필요한가요?
     ].each do |question|
       assert_select "summary", text: /#{Regexp.escape(question)}/
     end
@@ -337,5 +348,151 @@ class LandingControllerTest < ActionDispatch::IntegrationTest
     # 히어로 h1과 동일 문구를 closing h2에서 반복 — <br> 개행 포함 매칭
     assert_select "h1", text: /독촉하기 어려울 때,\s*받을돈이 대신합니다/
     assert_select "h2", text: /독촉하기 어려울 때,\s*받을돈이 대신합니다/
+  end
+
+  # === LP-16 랜딩 전 기능 커버·추천 프로그램 — 2026-11-20 신규 10건 (05_review §B 반영) ===
+
+  test "LP-16 재구성 13섹션이 지정 순서로 렌더된다 (LP-16, DESIGN-8)" do
+    get root_url
+    body = response.body
+    markers = {
+      "hero" => "프리랜서 수금 자동화",
+      "pain" => "발행만으로는",
+      "how_it_works" => "수금 루프가 굴러갑니다",
+      "features" => "확인과 약속으로 수금합니다",
+      "all_features" => "id=\"all-features\"",
+      "scenarios" => "모든 상황, 자동으로",
+      "message_samples" => "미리 보여드립니다",
+      "control" => "통제는 사용자에게",
+      "sales_program" => "지인에게 계정을 주고",
+      "positioning" => "추심 서비스가 아닙니다",
+      "pricing" => "투명한 요금",
+      "faq" => "궁금한 점이 남아"
+    }
+    positions = markers.transform_values { |marker| body.index(marker) }
+    missing = positions.select { |_, position| position.nil? }.keys
+    assert_empty missing, "모든 섹션 마커가 렌더되어야 한다 — 누락: #{missing.join(', ')}"
+    %w[
+      hero pain how_it_works features all_features scenarios
+      message_samples control sales_program positioning pricing faq
+    ].each_cons(2) do |before, after|
+      assert_operator positions[before], :<, positions[after], "#{before} 섹션은 #{after} 섹션보다 앞에 있어야 한다"
+    end
+    # closing은 h1과 헤드라인 문구를 공유하므로 마지막 출현 위치로 판정 — faq 뒤에 위치
+    assert_operator positions["faq"], :<, body.rindex("받을돈이 대신합니다"), "closing 섹션은 faq보다 뒤에 있어야 한다"
+  end
+
+  test "all_features 12카드가 LP-16 전 기능 커버 그리드를 구성한다 (LP-16)" do
+    get root_url
+    assert_select "section#all-features ul li", count: 12
+    %w[
+      열람 추적
+      자동 리마인더 4단계
+      입금 약속 수집
+      수금 마감 원클릭
+      반복 청구
+      전자세금계산서
+      내용증명 양식
+      수금 패스
+      부분입금 잔액 관리
+      수신거부·안전장치
+      주간 수금 다이제스트
+      데이터 내보내기
+    ].each do |title|
+      assert_select "section#all-features h3", text: /#{Regexp.escape(title)}/
+    end
+  end
+
+  test "all_features 배지는 신규 2종(반복 청구·전자세금계산서)·예정 1종(데이터 내보내기)만 표기된다 (LP-16, LP-12)" do
+    get root_url
+    # '예정'은 미구현(SEC-4) 1건뿐 — 구현 완료 기능의 현재형 서술과 구분(03 §4 판정 4)
+    assert_select "section#all-features span", text: /\A신규\z/, count: 2
+    assert_select "section#all-features span", text: /\A예정\z/, count: 1
+    css_select("section#all-features ul li").each do |card|
+      title = card.at_css("h3")&.text
+      badge = card.at_css("h3 + span")&.text
+      case title
+      when "반복 청구", "전자세금계산서"
+        assert_equal "신규", badge, "'#{title}' 카드는 신규 배지여야 한다"
+      when "데이터 내보내기"
+        assert_equal "예정", badge, "'데이터 내보내기' 카드는 예정 배지여야 한다"
+      else
+        assert_nil badge, "'#{title}' 카드는 배지 없음이 원칙이다"
+      end
+    end
+  end
+
+  test "features의 더 많은 기능 보기 앵커가 all_features 섹션에 착지한다 (LP-16 — 끊어진 앵커 방지)" do
+    get root_url
+    assert_select "a[href=?]", "#all-features", count: 1
+    assert_select "a[href=?]", "#all-features", text: /더 많은 기능 보기/
+    assert_select "section#all-features", count: 1
+  end
+
+  test "sales_program 수치는 SALES 확정 조건 스냅샷과 일치한다 (LP-16, SALES-1/2/4/5, LP-12)" do
+    get root_url
+    section = css_select("section").find { |node| node.text.include?("지인에게 계정을 주고") }
+    assert section, "sales_program 섹션이 렌더되어야 한다"
+    # SALES-4·Q12 — 피추천인 첫 결제 할인 수치(수치 변경 시 이 테스트가 알림)
+    assert_match(/Plus 첫 결제 20% 할인\(첫 달 7,920원\)/, section.text)
+    assert_match(/다음 달부터 정상가/, section.text)
+    # SALES-1 — 수수료 이원화(12개월·무기한)
+    assert_match(/영업 파트너는 20%\(12개월\), 지인 추천은 15%\(무기한\)입니다/, section.text)
+    # SALES-2 — 추천 코드 주간 갱신
+    assert_match(/매주 월요일 자동으로 새 코드로 갱신됩니다/, section.text)
+    # SALES-5 — 월 정산·원천징수 3.3%
+    assert_match(/매달 집계해 다음 달에 정산하며, 수수료 지급 시 원천징수\(3\.3%\)/, section.text)
+  end
+
+  test "sales_program 섹션의 링크는 가입 CTA 1개뿐이며 외부·mailto 진입이 없다 (SURF-4)" do
+    get root_url
+    section = css_select("section").find { |node| node.text.include?("지인에게 계정을 주고") }
+    assert section, "sales_program 섹션이 렌더되어야 한다"
+    links = section.css("a")
+    assert_equal 1, links.size, "sales_program에는 가입 CTA 단일 링크만 존재해야 한다(참여 문의는 텍스트 안내)"
+    assert_equal new_registration_path, links.first["href"]
+  end
+
+  test "hero 수치 배지 3종이 PRD 확정치로 렌더된다 (LP-16, PLAN-2·PLAN-3·REM-2)" do
+    get root_url
+    hero = css_select("section").first
+    assert hero, "히어로 섹션이 첫 section으로 렌더되어야 한다"
+    [ "첫 14일 무료 체험", "청구 건당 최대 5통", "4단계 정중한 안내" ].each do |badge|
+      assert hero.css("span").any? { |span| span.text.strip == badge },
+        "히어로 배지 '#{badge}'(PRD 확정치)가 누락되었다"
+    end
+  end
+
+  test "LP-16 신규 섹션 2종은 h2 헤딩을 갖고 문서 구조(h1 1개)를 유지한다 (LP-16, DESIGN-8)" do
+    get root_url
+    assert_select "h1", count: 1
+    # W-1 반영 헤드라인 — '전부입니다' 단정을 '한눈에'로 완화
+    assert_select "section#all-features h2", text: /받을돈이 하는 일, 한눈에/
+    assert_select "h2", text: /지인에게 계정을 주고, 첫 달 20% 할인으로 시작하게 하세요/
+  end
+
+  test "LP-16 FAQ 신규 4항목의 답변이 확정 수치·조건과 함께 노출된다 (LP-8, TAX-1·INV-7·SALES-4·AUTH-9)" do
+    get root_url
+    # 전자세금계산서(TAX-1·Q21) — 사업자·paid 한정·300원·승인번호·공동인증서
+    assert_select "p", text: /수금 마감\(입금 완료\) 처리한 청구서에 한해.*건당 300원.*승인번호.*공동인증서/m
+    # 반복 청구(INV-7) — 발행일 1~28일·일시중지/재개
+    assert_select "p", text: /매월 발행일\(1~28일\).*일시중지하거나 재개/m
+    # 추천 코드(SALES-4) — 20%·첫 달 7,920원·정상가·주간 유효
+    assert_select "p", text: /첫 달 7,920원, 다음 달부터 정상가.*매주 새로 발급/m
+    # 휴대폰 인증(AUTH-9) — 알림톡/SMS 폴백·5분
+    assert_select "p", text: /카카오 알림톡\(또는 SMS 문자\).*5분 안에 입력하면 인증이 완료됩니다/m
+  end
+
+  test "LP-16 신규 섹션 문구도 과장·보장·근거 없는 수치가 없다 (LP-12, W-1·03 §4 판정 3 회귀)" do
+    get root_url
+    # W-1 — '전부' 단정 헤드라인은 '한눈에'로 완화됐다. 재유입 시 회귀로 판정
+    assert_no_match(/전부입니다/, response.body)
+    assert_select "h2", text: /받을돈이 하는 일, 한눈에/
+    # 03 §4 판정 3 — 산정 모호한 '알림톡 19종' 배지 미채택 유지
+    assert_no_match(/19종/, response.body)
+    # LP-12 — 확정 보장·측정 근거 없는 마케팅 수치 금지
+    assert_no_match(/완벽/, response.body)
+    assert_no_match(/회수율/, response.body)
+    assert_no_match(/실패 없는/, response.body)
   end
 end

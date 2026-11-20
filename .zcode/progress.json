@@ -5,20 +5,20 @@
   "parallelTasks": [],
   "phaseHistory": [
     {
-      "phase": "7b",
+      "phase": 7,
       "status": "done",
-      "note": "settings 접근자 방어 추가 — 39 runs 0 failures 유지"
+      "note": "landing 41 runs 0실패·전체 1,477 runs 0 failures(+10)"
     },
     {
       "phase": 8,
       "status": "done",
-      "note": "부트·재설정 200·배달 방식 등록·폴백 확인·WARN 0 — 08_run_report"
+      "note": "13섹션 렌더 확인"
     },
     {
       "phase": 9,
       "status": "done",
-      "note": "AGENTS 갱신·progress 리셋·메모리 — 커밋 대기"
+      "note": "AGENTS 갱신·progress 리셋 — 커밋 대기"
     }
   ],
-  "lastUpdated": "2026-11-20T00:00:00+09:00"
+  "lastUpdated": "2026-11-19T00:00:00+09:00"
 }

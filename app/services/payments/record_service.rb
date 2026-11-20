@@ -6,8 +6,9 @@
 # 바꾸지 않는다).
 # Q22(2026-11-16 오기록 정책 확정):
 # - 과다입금(금액 > 잔액) — 실제 입력 금액을 그대로 기록하고 잔액은 0 하한 처리
-#   (Invoice#remaining_amount 클램프)로 수금 마감(paid). 초과분은 감사 로그
-#   (AuditLogs::RecordService — action "payment_over_recorded")에 비고로 남기고
+#   (Invoice#remaining_amount 클램프)로 수금 마감(paid). 초과분은 마감 기록 비고
+#   (payments.note — 같은 트랜잭션에서 구조화 기록)과 감사 로그
+#   (AuditLogs::RecordService — action "payment_over_recorded")에 병행 남기고
 #   환불은 오프라인 안내(컨트롤러 플래시 문구)로 수렴한다. 자동 환불·차감 조정은 하지 않는다.
 # - 마감(paid) 후 재입금 — payments 기록만 추가한다(상태 불변·알림 발화 없음·P4 기록 유지).
 # 실패는 InvalidPayment로 예외화하고 실패 Payment(errors 포함)를 싣는다 — 컨트롤러가
@@ -51,12 +52,13 @@ module Payments
         @post_paid_record = @invoice.paid?  # 전이 전 판정 — paid면 기록만 추가(전이·알림 없음)
         transition! unless post_paid_record?
       end
-      note_over_record(@payment) if over_amount.positive?
+      audit_over_record if over_amount.positive?
       enqueue_reminder_notice  # 잠금 종료(커밋) 후 인큐
       @payment
     rescue ActiveRecord::RecordInvalid
-      # save! 실패 시 @payment는 record_payment!가 확보한 미저장 Payment(new 반환 후 예외)다 —
-      # nil이 아님을 보장해 InvalidPayment가 errors를 읽을 수 있다(BUG-2 — NoMethodError 방지).
+      # save!/update! 실패 시 @payment는 record_payment!가 확보한 미저장 Payment(new 반환 후
+      # 예외)다 — nil이 아님을 보장해 InvalidPayment가 errors를 읽을 수 있다(BUG-2 —
+      # NoMethodError 방지).
       raise InvalidPayment, @payment || rejected_payment(nil)
     end
 
@@ -87,17 +89,25 @@ module Payments
       # 초과분 비고는 미수 계열 과다입금에 한정한다 — 마감 후 재입금(Q22)은 상태 불변 기록만
       # 추가하며 "초과분 마감" 개념이 성립하지 않는다. 저장 성공 후 캐스팅된 정수로 산정한다.
       @over_amount = @invoice.paid? ? 0 : [ @payment.amount - remain, 0 ].max
+      # Q22 구조화 — 초과분을 마감 기록 자체(payments.note)에 남긴다. with_lock 트랜잭션
+      # 안에서 함께 확정되므로 기록과 비고가 어긋나지 않는다(P4 — 마감 기록의 비고 무결성).
+      @payment.update!(note: over_note) if @over_amount.positive?
       @payment
     end
 
-    # 초과분 비고(P4·Q22) — 감사 로그에 기록한다(스키마 변경 없이 기존 감사 구조 재사용.
-    # payments.note 컬럼은 03 문서에 선언된 후속 스키마 과제). target은 청구서(마감 기록의
-    # 소유체)로 남긴다.
-    def note_over_record(_payment)
+    # 초과분 감사 기록(P4·Q22) — 마감 기록 비고(note)와 병행해 기존 감사 구조에도 남긴다.
+    # 트랜잭션 확정 후 호출되며 target은 청구서(마감 기록의 소유체)다.
+    def audit_over_record
       AuditLogs::RecordService.call(
         action: "payment_over_recorded", target: @invoice,
         detail: "과다입금 초과분 #{delimited(over_amount)}원 — 잔액 0 처리·수금 마감. 환불은 오프라인 안내"
       )
+    end
+
+    # 마감 기록 비고 문구(Q22) — U1 입금 이력에 표시되는 사용자 향 표기. 환불은 서비스가
+    # 수행하지 않음을 명시한다(오프라인 협의 안내 — 자동 환불·차감 조정 없음).
+    def over_note
+      "입금액이 남은 잔액을 #{delimited(over_amount)}원 초과하여 마감 처리 — 초과분 환불은 거래처와 직접 협의"
     end
 
     # INV-4 전이 — 생성 직후 합계를 재조회해 기준을 확정한다: 총액 도달(과다입금 포함 —

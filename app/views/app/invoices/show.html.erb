@@ -528,15 +528,21 @@
         </div>
       <% end %>
 
-      <%# 입금 이력 — 입금일 내림차순(PAY-2 잔액 재계산의 근거 이력·P4 영구 기록) %>
+      <%# 입금 이력 — 입금일 내림차순(PAY-2 잔액 재계산의 근거 이력·P4 영구 기록).
+          과다입금 마감 건은 초과분 비고(note — Q22, RecordService 기록)를 1줄 덧보여준다 %>
       <% if @payments.any? %>
         <div class="mt-4 border-t border-stone-100 pt-4">
           <h3 class="text-sm font-bold text-stone-800">입금 이력</h3>
           <ul class="mt-2 divide-y divide-stone-100">
             <% @payments.each do |payment| %>
-              <li class="flex items-center justify-between gap-3 py-2.5 text-sm">
-                <span class="tabular-nums text-stone-600"><%= display_date(payment.paid_on) %></span>
-                <span class="font-bold tabular-nums text-stone-800"><%= won(payment.amount) %></span>
+              <li class="py-2.5 text-sm">
+                <div class="flex items-center justify-between gap-3">
+                  <span class="tabular-nums text-stone-600"><%= display_date(payment.paid_on) %></span>
+                  <span class="font-bold tabular-nums text-stone-800"><%= won(payment.amount) %></span>
+                </div>
+                <% if payment.note.present? %>
+                  <p class="mt-1 text-xs leading-relaxed text-stone-500"><%= payment.note %></p>
+                <% end %>
               </li>
             <% end %>
           </ul>

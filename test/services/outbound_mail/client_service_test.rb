@@ -15,7 +15,13 @@ class OutboundMail::ClientServiceTest < ActiveSupport::TestCase
   TOKEN = "bd-test-token"
 
   def setup
+    # perform 가드 통과 플래그(2026-11-20) — 이 파일은 with_http_transport로 HTTP 계층 교체
+    Thread.current[:outbound_mail_http_stub] = true
     @client = OutboundMail::ClientService.new(base_url: BASE_URL, token: TOKEN)
+  end
+
+  teardown do
+    Thread.current[:outbound_mail_http_stub] = nil
   end
 
   # ── 요청 구성·202 파싱 ─────────────────────────────────────────────────

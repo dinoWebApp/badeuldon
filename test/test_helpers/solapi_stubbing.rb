@@ -17,4 +17,13 @@ module SolapiStubbing
   ensure
     Solapi::ClientService.define_singleton_method(:new, original)
   end
+
+  # HTTP transport stub 경로(래퍼 자체 테스트 — client_service_test의 stub_start)에서
+  # perform 가드를 통과하게 하는 플래그 헬퍼(2026-11-20 실호출 사고 대응).
+  def with_solapi_http_stub
+    Thread.current[:solapi_http_stub] = true
+    yield
+  ensure
+    Thread.current[:solapi_http_stub] = nil
+  end
 end

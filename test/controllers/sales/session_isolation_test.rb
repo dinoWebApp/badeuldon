@@ -1,11 +1,22 @@
 require "test_helper"
+require_relative "../../test_helpers/solapi_stubbing"
 
 # 표면 세션 격리(SALES-7 — F-SALES). U1(/app·서명 쿠키)·관리자(/admin·admin_session_token)·
 # 영업(/sales·sales_session_token) 3원 분리 — 쿠키 키·토큰 테이블 모두 별도.
 # 시나리오 기준: PRD §6.20 SALES-7·_workspace/05_review.md §4 Tester 중점 7번.
 class Sales::SessionIsolationTest < ActionDispatch::IntegrationTest
+  # T4(2026-11-20 — 05_review C-1): /admin 렌더(200)가 솔라피 잔액을 실호출한다 — 대역 교체.
+  include SolapiStubbing
+
   setup do
     setup_admin_totp_secrets
+  end
+
+  private
+
+  def with_admin_balance_stub
+    balance_stub = Object.new.tap { |o| o.define_singleton_method(:get_balance) { { balance: 1, point: 0 } } }
+    with_solapi_client(balance_stub) { yield }
   end
 
   test "U1 세션으로는 /sales에 진입할 수 없다 (표면 격리)" do
@@ -32,8 +43,10 @@ class Sales::SessionIsolationTest < ActionDispatch::IntegrationTest
 
     get app_root_path
     assert_response :success, "U1 세션 유지"
-    get admin_root_path
-    assert_response :success, "관리자 세션 유지"
+    with_admin_balance_stub do
+      get admin_root_path
+      assert_response :success, "관리자 세션 유지"
+    end
     get sales_root_path
     assert_response :success, "영업 세션 유지"
   end
@@ -62,8 +75,10 @@ class Sales::SessionIsolationTest < ActionDispatch::IntegrationTest
     assert_redirected_to new_sales_session_path, "영업 세션은 종료"
     get app_root_path
     assert_response :success
-    get admin_root_path
-    assert_response :success
+    with_admin_balance_stub do
+      get admin_root_path
+      assert_response :success
+    end
   end
 
   test "비활동 2시간 경과 세션은 재검증에서 만료된다 (SALES-7 IDLE_TTL)" do

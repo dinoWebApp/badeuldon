@@ -1,4 +1,5 @@
-<%# LP-4 핵심 기능 3종 — benefit-first(PRD 지정 이점 문구 원문). 기능 설명이 아닌 이점 문장으로 서술. %>
+<%# LP-4 핵심 기능 3종 — benefit-first(PRD 지정 이점 문구 원문). 기능 설명이 아닌 이점 문장으로 서술.
+    LP-16 보강 — 말미에 전 기능 섹션(#all-features)으로 이어지는 인페이지 앵커 링크 추가. %>
 <section class="bg-white">
   <div class="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
     <p class="text-sm font-bold text-emerald-700">핵심 기능</p>
@@ -28,6 +29,15 @@
           거래처가 버튼 한 번으로 입금 예정일을 등록해, 약속이 기록으로 남습니다.
         </p>
       </div>
+    </div>
+
+    <%# LP-16 — 전 기능 커버 섹션으로 이어지는 앵커(인페이지 이동, ② 진입 아님) %>
+    <div class="mt-8 text-center">
+      <%= link_to "#all-features",
+            class: "inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-bold text-emerald-800 transition hover:bg-emerald-800/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" do %>
+        더 많은 기능 보기
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.5 8.25 12 15.75 4.5 8.25"/></svg>
+      <% end %>
     </div>
   </div>
 </section>

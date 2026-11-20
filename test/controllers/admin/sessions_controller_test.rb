@@ -1,9 +1,15 @@
 require "test_helper"
+require_relative "../../test_helpers/solapi_stubbing"
 
 # 관리자 2단계 로그인 플로우 — AUTH-7.1(2FA 등록·검증)·7.3(5회 잠금·열거 방지)·
 # 7.4(신규 IP 통보)·7.5(세션)·ADMIN-2(감사). 시나리오는 _workspace/05_review.md
 # "Tester에게 제안하는 중점 테스트 영역"의 리뷰 재현(B-3·C-1·C-2·W-2·W-6)을 테스트화했다.
 class Admin::SessionsControllerTest < ActionDispatch::IntegrationTest
+  # T4(2026-11-20 — 05_review C-1): 12시간 세션 유지 테스트가 admin 대시보드를 11회
+  # 렌더한다 — 렌더마다 load_solapi_balance가 솔라피 래퍼를 직접 생성하므로 대역으로 교체한다
+  # (AGENTS 테스트 전략 — 외부 API 실호출 금지). 세션 판정 자체는 스텁과 무관하다.
+  include SolapiStubbing
+
   UNIFIED_LOGIN_ERROR = "이메일 또는 비밀번호가 올바르지 않습니다."
 
   setup { setup_admin_totp_secrets }
@@ -217,10 +223,14 @@ class Admin::SessionsControllerTest < ActionDispatch::IntegrationTest
     admin_login(admins(:ops))
     # 1시간 간격 활동 — 비활동 만료(2시간)를 피하며 절대 만료에 접근한다.
     # travel은 블록 없이 호출해야 누적된다(블록 형태는 매번 원점 기준).
-    11.times do
-      travel 1.hour
-      get admin_root_path
-      assert_response :success, "활동 갱신으로 비활동 만료는 아님"
+    # 대시보드 렌더의 솔라피 잔액 호출은 대역으로 교체(C-1 — 11회 렌더 실호출 방지).
+    balance_stub = Object.new.tap { |o| o.define_singleton_method(:get_balance) { { balance: 1, point: 0 } } }
+    with_solapi_client(balance_stub) do
+      11.times do
+        travel 1.hour
+        get admin_root_path
+        assert_response :success, "활동 갱신으로 비활동 만료는 아님"
+      end
     end
     travel 1.hour + 1.second
     get admin_root_path

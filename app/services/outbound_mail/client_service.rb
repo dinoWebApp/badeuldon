@@ -80,6 +80,13 @@ module OutboundMail
 
     # base_url은 로컬 검증용 http(127.0.0.1:3001)를 허용하므로 스킴으로 SSL을 판정한다.
     def perform((uri, net_request))
+      # TEST 환경 실호출 원천 차단(2026-11-20 — 솔라피 실발송 사고 계기). FakeOutboundMailClient
+      # 주입 또는 HTTP transport stub 경유 시에만 통과.
+      if Rails.env.test? && !Thread.current[:outbound_mail_http_stub]
+        raise ApiError.new(status: nil, code: "TEST_GUARD",
+                           message: "test 환경 실호출 차단 — FakeOutboundMailClient 또는 HTTP transport stub 필요")
+      end
+
       Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https",
                       open_timeout: TIMEOUT_SECONDS, read_timeout: TIMEOUT_SECONDS) do |http|
         http.request(net_request)

@@ -170,4 +170,29 @@ class App::PaymentsOverPolicyTest < ActionDispatch::IntegrationTest
       assert invoice.reload.issued?
     end
   end
+
+  # ── Q22 구조화(2026-11-20 T3) — 마감 기록 비고(payments.note) 뷰 표시 ──
+
+  test "과다입금 초과분 비고는 상세 페이지 입금 이력에 1줄 표시된다 (Q22·T3)" do
+    travel_to(Time.zone.parse("2026-10-12 09:00")) do
+      sign_in_as users(:delta)
+      invoice = invoices(:delta_issued)                   # 총액 220,000
+
+      record invoice, amount: "250000"
+      assert_response :see_other
+      follow_redirect!
+      assert_response :success
+
+      # 플래시(#notice)는 "초과해"로 서술하고 비고(note)는 "초과하여 마감 처리"로 서술한다 —
+      # 후자 문언으로 입금 이력 <p>를 특정해 플래시와의 혼동을 배제한다.
+      assert_select "p", text: /초과하여 마감 처리/, count: 1
+      assert_select "p", text: /초과분 환불은 거래처와 직접 협의/, count: 1
+
+      # 마감 후 재입금(Q22)은 note 없음 — 비고 라인은 그대로 1행만
+      record invoice, amount: "10000"
+      assert_response :see_other
+      follow_redirect!
+      assert_select "p", text: /초과하여 마감 처리/, count: 1
+    end
+  end
 end

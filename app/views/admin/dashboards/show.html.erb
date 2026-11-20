@@ -106,6 +106,8 @@
     <span>실패 <strong class="tabular-nums text-orange-600"><%= number_with_delimiter(@message_stats.failed) %></strong>건</span>
     <span>보류(skipped) <strong class="tabular-nums"><%= number_with_delimiter(@message_stats.skipped) %></strong>건</span>
     <span>실패율 <strong class="tabular-nums"><%= @message_stats.failure_rate.nil? ? "-" : "#{@message_stats.failure_rate}%" %></strong></span>
+    <%# ADMIN-5·REM-10 — 솔라피 선불 크레딧 잔액(5분 캐시·임계치 미만 주황 경고) %>
+    <span>솔라피 잔액 <strong class="tabular-nums <%= solapi_balance_value_class(@solapi_balance) %>"><%= solapi_balance_text(@solapi_balance) %></strong><% if solapi_balance_low?(@solapi_balance) %><span class="ml-1 rounded bg-orange-100 px-1.5 py-0.5 text-xs font-semibold text-orange-600">충전 필요</span><% end %></span>
   </div>
   <% max_reason = @message_stats.skip_reasons.values.max.to_i %>
   <table class="mt-3 w-full text-sm" aria-label="보류 사유 분포">
@@ -131,5 +133,5 @@
     </tbody>
   </table>
   <p class="mt-2 text-xs text-stone-400">수신자별 발송량 — 채무자 <%= number_with_delimiter(@message_stats.by_recipient_role["debtor"].to_i) %>건 · 프리랜서 <%= number_with_delimiter(@message_stats.by_recipient_role["user"].to_i) %>건</p>
-  <p class="mt-1 text-xs text-stone-400">※ 솔라피 크레딧 잔액은 로컬 집계에 미포함(라이브 실측 전 — 기술 부채).</p>
+  <p class="mt-1 text-xs text-stone-400">※ 솔라피 잔액 — 5분 캐시·50,000원 미만 주황 경고(REM-10 잔액 부족 전 알림)·조회 실패 시 "일시 조회 불가".</p>
 </div>

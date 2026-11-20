@@ -36,10 +36,17 @@ module Solapi
     include PortOneStubbing
 
     def setup
+      # perform 가드 통과 플래그(2026-11-20) — 이 파일은 with_http_transport로 HTTP 계층을
+      # 교체하므로 실호출이 아님. 가드는 stub 없는 다른 경로의 실호출만 차단한다.
+      Thread.current[:solapi_http_stub] = true
       @client = ClientService.new(
         api_key: "test-api-key", api_secret: "test-api-secret", pf_id: "pf_badeuldon",
         sender_number: "01000000000", template_ids: { "confirm_d1" => "tmpl_confirm_1" }
       )
+    end
+
+    teardown do
+      Thread.current[:solapi_http_stub] = nil
     end
 
     test "send_alimtalk 성공은 v4 단일 발송 요청(HMAC 인증·message 단수·\#{변수명} 키)을 보내고 응답을 돌려준다" do
@@ -275,6 +282,57 @@ module Solapi
 
       assert_equal "CONNECTION", error.code
       assert_predicate error, :retryable?
+    end
+
+    # ── 잔액 조회 get_balance(T4 — ADMIN-5·REM-10, 2026-11-20 라이브 실측 스키마) ──
+
+    test "get_balance는 GET /cash/v1/balance에 HMAC 인증으로 조회하고 정수 잔액을 정규화해 돌려준다" do
+      transport = FakeSolapiTransport.new(
+        response: http_ok({ balance: 123_456, point: 100 }.to_json)
+      )
+
+      result = with_http_transport(transport) { @client.get_balance }
+
+      assert_equal({ balance: 123_456, point: 100 }, result)
+      request = transport.requests.sole
+      assert_instance_of Net::HTTP::Get, request          # GET 전용 — 발송(write) API 무호출
+      assert_equal "/cash/v1/balance", request.path
+      assert_nil request.body                             # 조회 바디 없음
+      # 발송과 동일 인증 체계(HMAC-SHA256 apiKey·date·salt·signature)를 공유한다
+      assert_match(/\AHMAC-SHA256 apiKey=test-api-key, date=.*, salt=.*, signature=[0-9a-f]{64}\z/,
+                   request["Authorization"])
+    end
+
+    test "get_balance는 콤마 숫자형 문자열 잔액을 정수로 정규화한다 (방어적 파싱)" do
+      transport = FakeSolapiTransport.new(
+        response: http_ok({ balance: "12,345", point: "1,000" }.to_json)
+      )
+
+      result = with_http_transport(transport) { @client.get_balance }
+
+      assert_equal({ balance: 12_345, point: 1_000 }, result)
+    end
+
+    test "get_balance는 point 누락을 0으로 정규한다 (부여 크레딧 없는 계정)" do
+      transport = FakeSolapiTransport.new(response: http_ok({ balance: 500 }.to_json))
+
+      result = with_http_transport(transport) { @client.get_balance }
+
+      assert_equal({ balance: 500, point: 0 }, result)
+    end
+
+    test "get_balance 응답 스키마 이탈은 UNEXPECTED_BALANCE_RESPONSE로 fail-fast한다" do
+      # balance 키 누락·null·비숫자 — 잘못된 잔액을 정상처럼 표시하는 것을 차단한다
+      [ {}, { balance: nil, point: 0 }, { balance: "abc" } ].each do |payload|
+        transport = FakeSolapiTransport.new(response: http_ok(payload.to_json))
+
+        error = with_http_transport(transport) do
+          assert_raises(ApiError) { @client.get_balance }
+        end
+
+        assert_nil error.status
+        assert_equal "UNEXPECTED_BALANCE_RESPONSE", error.code
+      end
     end
 
     private
