@@ -143,16 +143,18 @@ class App::InvoicesRemindersTest < ActionDispatch::IntegrationTest
     sign_in_as users(:gamma)
     invoice = create_reminder_invoice(user: users(:gamma), client: clients(:gamma_main),
                                       due_on: Date.new(2026, 11, 9))          # 만기 도과
-    create_promise(invoice, kind: :date_selected, promised_on: Date.new(2026, 11, 20))
     # 약속 당일 + 만기 도과 경계 — 같은 nil 창이다(C-2)
     due_day = create_reminder_invoice(user: users(:gamma), client: clients(:gamma_main),
                                       due_on: Date.new(2026, 11, 9))
-    # 약속은 검증(오늘 이후) 통과를 위해 미래일로 생성하고 — 소급 도과 약속 시나리오는
-    # update_column(검증 우회)으로 당일(11-10)로 되돌린다(시나리오 의도 불변).
-    promise = create_promise(due_day, kind: :date_selected, promised_on: Date.new(2026, 12, 11))
-    promise.update_column(:promised_on, Date.new(2026, 11, 10))
 
+    # 약속 생성도 시나리오 시점(11-10) 안에서 수행한다 — 약속 모델은 "오늘 이후" 검증이라
+    # 블록 밖(실제 오늘)에서 고정 약속일로 만들면 그 날짜가 지나는 순간 생성이 깨진다
+    # (2026-11-23 실측 — 11-20 고정일이 11-21부터 RecordInvalid). 시점 안에서는 미래일(11-20)과
+    # 당일(11-10) 모두 검증을 통과하므로 우회 기록(update_column)이 필요 없다(시나리오 의도 불변).
     travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      create_promise(invoice, kind: :date_selected, promised_on: Date.new(2026, 11, 20))
+      create_promise(due_day, kind: :date_selected, promised_on: Date.new(2026, 11, 10))
+
       with_solapi_client(@fake) do
         post remind_app_invoice_path(invoice)
         post remind_app_invoice_path(due_day)
@@ -262,9 +264,11 @@ class App::InvoicesRemindersTest < ActionDispatch::IntegrationTest
     sign_in_as users(:delta)                                                    # 자동 스캔 자격 필요(REM-8)
     invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
                                       due_on: Date.new(2026, 11, 11))
-    create_promise(invoice, kind: :date_selected, promised_on: Date.new(2026, 11, 27))
 
+    # 약속은 시나리오 시점(11-10) 안에서 만든다 — 약속 모델의 "오늘 이후" 검증 때문에 블록 밖
+    # 실제 오늘 기준 고정 약속일(11-27)은 그 날짜가 지난 뒤 생성이 깨진다(같은 파일 C-2 선례).
     travel_to(Time.zone.parse("2026-11-10 10:00")) do                           # 만기 전 + 약속 원격 — issue_notice
+      create_promise(invoice, kind: :date_selected, promised_on: Date.new(2026, 11, 27))
       with_solapi_client(@fake) do
         post remind_app_invoice_path(invoice)
       end
