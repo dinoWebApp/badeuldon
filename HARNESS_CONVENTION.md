@@ -1,9 +1,9 @@
 # Harness Convention — ZCode Desktop 범용 개발 자동화 하네스 구성 규약
 
-**버전**: 4.2.0
-**최종 수정일**: 2026-11-11
+**버전**: 4.2.1
+**최종 수정일**: 2026-11-23
 
-> v4.2.0: 승인 게이트를 `AskUserQuestion` 선택 질의 방식으로 변경(§6.13) — 자유 텍스트 승인은 폴백으로 유지.
+> v4.2.1: 일반 모드 Reviewer 모델을 GLM-5.3 → GLM-5.4로 상향(§1.4·§9.2 6단계) — 메인·Developer·Tester와 절약 모드 프로필은 기존 그대로다.
 
 ---
 
@@ -139,13 +139,13 @@ OMP의 `modelRoles`와 달리 ZCode는 명령어 frontmatter에 메인 모델을
 |:---|:---|:---|
 | 메인 Agent / Planner | GLM-5.3 | GLM-5.3-Flash |
 | Developer | GLM-5.3-Flash · High | GLM-5.3-Flash · Low |
-| Reviewer | GLM-5.3 · High | GLM-5.3-Flash · High |
+| Reviewer | GLM-5.4 · High | GLM-5.3-Flash · High |
 | Tester | GLM-5.3-Flash · High | GLM-5.3-Flash · Low |
 
 **중요한 설정 제약**:
 
 1. ZCode 명령어 frontmatter의 공식 문서상 `model`은 지원되지만 명령어별 `thoughtLevel` 지정은 문서화되어 있지 않다. 따라서 명령어는 메인 모델을 선택하고, 메인 Agent의 추론 수준은 ZCode UI의 모델/추론 수준 선택에서 확인한다. 사용자 스크린샷에서는 GLM-5.3이 선택되어 있고 Effort가 `Max`로 표시된다. 이 화면은 현재 선택 상태를 증명하지만 명령어로 Effort를 자동 변경할 수 있음을 증명하지는 않는다.
-2. 서브에이전트는 `model`과 `thoughtLevel`을 각 정의에 지정할 수 있다. `thoughtLevel`은 특정 모델을 명시했을 때만 적용된다. ZCode 공식 문서는 GLM-5.3에 `low`, `high`, `max` 수준을 명시한다. Flash에서 사용할 수 있는 수준은 Flash를 선택한 뒤 UI/실행에서 확인한다.
+2. 서브에이전트는 `model`과 `thoughtLevel`을 각 정의에 지정할 수 있다. `thoughtLevel`은 특정 모델을 명시했을 때만 적용된다. ZCode 공식 문서는 GLM-5.3에 `low`, `high`, `max` 수준을 명시한다. GLM-5.4는 세션의 모델 목록 기준으로 같은 세 수준을 지원한다(2026-11-23 확인). Flash에서 사용할 수 있는 수준은 Flash를 선택한 뒤 UI/실행에서 확인한다.
 3. **`model` 값은 `providerId/modelId` 슬래시 형식 필수다(2026-10-29 실측).** 명령어·서브에이전트 frontmatter의 `model`에 슬래시 없는 bare 이름(예: `glm-5.3-flash`)을 쓰면 파서가 조용히 거절해 `model`과 `thoughtLevel`이 **오류 없이 함께 탈락**하고, 서브에이전트는 부모 세션의 현재 모델·추론 수준을 상속한다(겉으로 드러나지 않는 결함 — 실측: `thoughtLevel: high` 지정에도 서브에이전트 요청 12건 전부 `effort=max`). 실제 값은 세션의 모델 목록에서 확인한다(예: `account:zai-individual-coding-plan/GLM-5.3-Flash`). 프로바이더 prefix는 요금제·계정별로 다르므로 다른 PC에서는 해당 계정의 실제 ID로 수정한다. 적용 여부는 §9.2 7단계의 실측 명령으로 검증한다.
 4. ZCode 명령어의 모델 변경만으로 명시적 모델을 가진 서브에이전트가 자동 전환되지는 않는다. 일반/절약 모드마다 다른 서브에이전트 프로필을 호출한다.
 5. 일반 모드 명령어는 `*-developer`, `*-reviewer`, `*-tester`만 호출한다. 절약 모드 명령어는 `*-developer-lite`, `*-reviewer-lite`, `*-tester-lite`만 호출한다.
@@ -1329,7 +1329,7 @@ ZCode의 실행 모드는 파일 편집과 명령 실행 권한을 제어한다.
 - Git 저장소가 초기화되어 있을 것
 - 프로젝트 루트와 핵심 소스가 준비되어 있을 것(신규 프로젝트면 기본 골격부터 생성)
 - `~/.zcode/skills/harness/SKILL.md`와 같은 디렉터리의 `HARNESS_CONVENTION.md`가 설치되어 있을 것
-- ZCode 모델 선택기에서 GLM-5.3과 GLM-5.3-Flash를 실제 선택할 수 있는지 확인할 것
+- ZCode 모델 선택기에서 GLM-5.4, GLM-5.3, GLM-5.3-Flash를 실제 선택할 수 있는지 확인할 것(GLM-5.4는 일반 모드 Reviewer용이다. 요금제에 따라 없을 수 있으므로 6단계의 예외 처리를 따른다)
 
 ### 9.2 단계별 설정 — ZCode Desktop
 
@@ -1363,7 +1363,7 @@ $harness
 일반용과 절약용 오케스트레이터 명령어 2개가 같은 오케스트레이터
 워크플로우 스킬을 사용하도록 구성해줘.
 일반/절약 모드별 Developer·Reviewer·Tester 프로필 6개를 만들고,
-사용자 스크린샷의 모델 표시명은 GLM-5.3 / GLM-5.3-Flash다. 모델 값은 반드시 providerId/modelId 슬래시 형식(예: account:zai-individual-coding-plan/GLM-5.3-Flash)으로 설정해 — bare 이름(glm-5.3-flash)은 model·thoughtLevel이 조용히 탈락하므로 금지다. 실제 providerId는 세션의 모델 목록에서 확인하고, 최초 실행 시 모델 I/O 로그로 effort 적용 여부를 실측해.
+사용자 스크린샷의 모델 표시명은 GLM-5.4 / GLM-5.3 / GLM-5.3-Flash다. 모델 값은 반드시 providerId/modelId 슬래시 형식(예: account:zai-individual-coding-plan/GLM-5.3-Flash)으로 설정해 — bare 이름(glm-5.3-flash)은 model·thoughtLevel이 조용히 탈락하므로 금지다. 실제 providerId는 세션의 모델 목록에서 확인하고, 최초 실행 시 모델 I/O 로그로 effort 적용 여부를 실측해.
 Phase 승인 게이트, .zcode/progress.json, _workspace 산출물 규칙을 검증해.
 파일 작성 전에 생성 계획을 먼저 보고하고 내 승인을 기다려.
 ```
@@ -1410,13 +1410,15 @@ Phase 승인 게이트, .zcode/progress.json, _workspace 산출물 규칙을 검
 | `{project_command_prefix}_orchestrator.md` | 메인 Agent: GLM-5.3 (`account:zai-individual-coding-plan/GLM-5.3`) |
 | `{project_command_prefix}_orchestrator_lite.md` | 메인 Agent: GLM-5.3-Flash (`account:zai-individual-coding-plan/GLM-5.3-Flash`) |
 | `{project}-developer.md` | GLM-5.3-Flash / `thoughtLevel: high` |
-| `{project}-reviewer.md` | GLM-5.3 / `thoughtLevel: high` |
+| `{project}-reviewer.md` | GLM-5.4 / `thoughtLevel: high` |
 | `{project}-tester.md` | GLM-5.3-Flash / `thoughtLevel: high` |
 | `{project}-developer-lite.md` | GLM-5.3-Flash / `thoughtLevel: low` |
 | `{project}-reviewer-lite.md` | GLM-5.3-Flash / `thoughtLevel: high` |
 | `{project}-tester-lite.md` | GLM-5.3-Flash / `thoughtLevel: low` |
 
 명령어 frontmatter에서 명시적으로 보장되는 것은 메인 `model` 오버라이드다. 메인 Agent의 추론 수준은 UI에서 확인한다. 서브에이전트 정의에서 지정한 `thoughtLevel`은 해당 모델이 지원하는 값이어야 한다.
+
+GLM-5.4는 요금제·계정별로 제공되지 않을 수 있다(2026-11-23 — 5.3 계열만 노출되는 계정이 확인됐다). 대상 계정의 모델 목록에 GLM-5.4가 없으면 `{project}-reviewer.md`는 GLM-5.3으로 구성하고 루트 `AGENTS.md`에 예외 사유를 명시한다. 목록에 없는 모델 ID는 지정하지 않는다 — 적용된다는 보장이 없고, bare 이름처럼 조용히 탈락할 우려가 있다(§1.4 제약 3).
 
 #### 7단계: 최초 엔드-투-엔드 검증
 
@@ -1683,3 +1685,5 @@ HARNESS_CONVENTION §6.14 병렬 배치 파이프라인 규칙을 따른다.
 > | 2026-10-29 | 4.0.5 | **위임 실측 운영 규칙 정식화** — Phase 3·5·7 서브에이전트 스폰 직후 모델 I/O 로그로 프로필·모델·effort를 실측해 `_workspace/00_delegation_log.md`에 기록(§4.6 위임 실측 행·§8.1 산출물 표·메타 스킬 §3.5). model-io 로그의 임시 특성(스폰 직후만 존재)과 산출물의 작업 단위 로테이션(§8.2)으로 무한 누적 없음을 명시 |
 > | 2026-11-02 | 4.1.0 | **병렬 배치 파이프라인 선택 확장 신설(§6.14)** — 구현(Phase 3)과 테스트 작성(Phase 7-P)만 fan-out하고 문서·통합·리뷰·게이트 실행은 직렬 배치 처리하는 스테이지 병렬 구조. 병렬 안전 판정 3조건(파일 소유권 분리·의존 없음·공유 파일 비수정), fan-out 위임 제약(소유권 화이트리스트·자체 검증 스코프 제한·repo-wide 명령 금지), 통합 단계 마이그레이션 단일 생성, 테스트 병렬화 7-P/7-S 분리(§6.14.10 — 작성은 태스크별 병렬, 게이트는 통합 코드베이스 1회 실행), progress.json `parallelTasks` 스키마, `_workspace/parallel/<task-id>/` 산출물 규칙 포함. 병렬 전용 진입 명령어 2종(`_parallel`·`_parallel_lite`) 및 관계도·파일 트리·부록 정합 갱신 |
 > | 2026-11-02 | 4.1.1 | **프로젝트 문서의 병렬 후보 힌트 관행 신설(§6.14.11)** — §6.14 채택 프로젝트는 AGENTS.md 로드맵에 후보 조합 블록·PRD에 병렬 분해 후보 기록 규칙 노트를 두고, 각 청크 Phase 2 확정 시 해당 절에 태스크·예상 소유 파일을 기록한다. 힌트는 요청 구성용이며 Phase 1-P 판정이 항상 우선(충돌 시 힌트 갱신). §2.2 AGENTS.md 필수 섹션 로드맵 항목에 언급 추가. 메타 스킬($harness)의 생성(§3.1·§3.2·§3.3·§3.5)·감사(§2) 지침 동기화 |
+> | 2026-11-11 | 4.2.0 | **승인 게이트 선택 질의 전환(§6.13)** — 플랜 보고 후 `AskUserQuestion` 도구로 표준 선택지(승인 — 계속 진행 / 수정 요청 / 중단)를 띄워 승인을 받고, 자유 텍스트 승인은 폴백으로 유지. §6.14 병렬 태스크 선택·확정은 `AskUserQuestion` `multiSelect` 질의로 명시(파이프라인 다이어그램·위험 표·부록 C.4 동기화). 이 행은 4.2.1 작성 시 누락을 발견해 소급 기록했다 |
+> | 2026-11-23 | 4.2.1 | **일반 모드 Reviewer 모델 GLM-5.3 → GLM-5.4 상향(§1.4 모델 프로필 표·§9.2 6단계 프로필 표)** — 메인·Developer·Tester와 절약 모드 프로필은 기존 유지(`GLM-5.4-Flash`는 없음). 사전 조건·최초 구성 요청 템플릿의 모델 표시명에 GLM-5.4 추가, GLM-5.4의 추론 수준(`low`·`high`·`max`) 명시, 요금제에 따라 GLM-5.4가 없을 때의 예외 처리 지침 신설. 메타 스킬($harness) §3.3·§3.4 표 동기화 |

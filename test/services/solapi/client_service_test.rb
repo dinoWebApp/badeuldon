@@ -284,16 +284,16 @@ module Solapi
       assert_predicate error, :retryable?
     end
 
-    # ── 잔액 조회 get_balance(T4 — ADMIN-5·REM-10, 2026-11-20 라이브 실측 스키마) ──
+    # ── 잔액 조회 get_balance(T4 — ADMIN-5·REM-10, 2026-11-20 실측·2026-11-23 원본 재확인 스키마) ──
 
     test "get_balance는 GET /cash/v1/balance에 HMAC 인증으로 조회하고 정수 잔액을 정규화해 돌려준다" do
       transport = FakeSolapiTransport.new(
-        response: http_ok({ balance: 123_456, point: 100 }.to_json)
+        response: http_ok({ balance: 123_456, point: 100, deposit: 135_802 }.to_json)
       )
 
       result = with_http_transport(transport) { @client.get_balance }
 
-      assert_equal({ balance: 123_456, point: 100 }, result)
+      assert_equal({ balance: 123_456, point: 100, deposit: 135_802 }, result)
       request = transport.requests.sole
       assert_instance_of Net::HTTP::Get, request          # GET 전용 — 발송(write) API 무호출
       assert_equal "/cash/v1/balance", request.path
@@ -305,20 +305,45 @@ module Solapi
 
     test "get_balance는 콤마 숫자형 문자열 잔액을 정수로 정규화한다 (방어적 파싱)" do
       transport = FakeSolapiTransport.new(
-        response: http_ok({ balance: "12,345", point: "1,000" }.to_json)
+        response: http_ok({ balance: "12,345", point: "1,000", deposit: "13,717" }.to_json)
       )
 
       result = with_http_transport(transport) { @client.get_balance }
 
-      assert_equal({ balance: 12_345, point: 1_000 }, result)
+      assert_equal({ balance: 12_345, point: 1_000, deposit: 13_717 }, result)
     end
 
-    test "get_balance는 point 누락을 0으로 정규한다 (부여 크레딧 없는 계정)" do
+    test "get_balance는 point 누락은 0, deposit 누락은 nil로 정규한다 (보조값은 관대한 정규화)" do
       transport = FakeSolapiTransport.new(response: http_ok({ balance: 500 }.to_json))
 
       result = with_http_transport(transport) { @client.get_balance }
 
-      assert_equal({ balance: 500, point: 0 }, result)
+      assert_equal({ balance: 500, point: 0, deposit: nil }, result)
+    end
+
+    test "get_balance는 실측 응답(11키·소수 금액)에서 부가세 제외 잔액과 예치금을 버림 정수로 함께 돌려준다" do
+      # 2026-11-23 운영 원본 응답 형태(계정 식별자만 가공) — balance = deposit × 0.9
+      # (예치금에서 부가세 10%를 뺀 값). 한쪽만 쓰면 콘솔(deposit 기준)과 10% 달라 보인다.
+      transport = FakeSolapiTransport.new(response: http_ok({
+        profit: 0, accountId: "account-id-1", autoRecharge: 0,
+        balance: 7682.31, deposit: 8535.9,
+        lowBalanceAlert: { notificationBalance: "0", currentBalance: "190",
+                           balances: [ 200 ], channels: [ "SMS" ], enabled: true },
+        minimumCash: 0, point: 0, rechargeTo: 0, rechargeTryCount: 0, balanceOnly: 0
+      }.to_json))
+
+      result = with_http_transport(transport) { @client.get_balance }
+
+      assert_equal({ balance: 7682, point: 0, deposit: 8535 }, result)
+    end
+
+    test "get_balance는 deposit 비숫자를 nil로 둔다 (balance와 달리 보조값이라 fail-fast하지 않는다)" do
+      transport = FakeSolapiTransport.new(response: http_ok({ balance: 500, deposit: "abc" }.to_json))
+
+      result = with_http_transport(transport) { @client.get_balance }
+
+      assert_equal 500, result[:balance]
+      assert_nil result[:deposit]
     end
 
     test "get_balance 응답 스키마 이탈은 UNEXPECTED_BALANCE_RESPONSE로 fail-fast한다" do

@@ -5,11 +5,19 @@ module Admin::DashboardsHelper
   # 알림톡 건당 과금 기준 여유분으로 선정(운영 판단 — PRD ADMIN-5 "잔액 부족 전 알림").
   LOW_BALANCE_THRESHOLD = 50_000
 
-  # 잔액 카드 값 — 조회 실패(nil)는 "일시 조회 불가", 정상은 원화 통화 표기.
+  # 잔액 카드 값 — 조회 실패(nil)는 "일시 조회 불가". 정상은 두 기준을 함께 적는다: 예치금
+  # (부가세 포함 — 솔라피 콘솔에 보이는 기준)과 부가세 제외 금액. 한쪽만 표시하면 콘솔과
+  # 10% 달라 오해한다(2026-11-23 사용자 지적). 응답에 예치금이 없으면 부가세 제외 금액에
+  # 기준만 명시한다. 경고 판정은 아래 두 메서드에서 부가세 제외 금액(balance) 하나로 한다 —
+  # 발송 단가가 부가세 제외 기준이라 잔여 발송량과 맞닿는 값이다.
   def solapi_balance_text(balance)
     return "일시 조회 불가" if balance.nil?
 
-    number_to_currency(balance[:balance], unit: "₩", precision: 0)
+    net = number_to_currency(balance[:balance], unit: "₩", precision: 0)
+    return "#{net} (부가세 제외)" if balance[:deposit].nil?
+
+    deposit = number_to_currency(balance[:deposit], unit: "₩", precision: 0)
+    "예치금 #{deposit} · 부가세 제외 #{net}"
   end
 
   # 잔액 카드 값 색 — 임계치 미만은 주황 경고, 조회 실패는 중립 회색, 정상은 기본색.

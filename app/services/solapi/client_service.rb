@@ -14,7 +14,7 @@
 # 해소 — 단일 send 전 규격(엔드포인트·바디·variables 키·인증·응답 식별자)은 실측·공식 문서로
 # 확정 상태다.
 # 잔액 조회(ADMIN-5·REM-10 — 선불 크레딧 모니터링)는 읽기 전용 GET으로, 발송과 동일 HMAC
-# Authorization 헤더를 공유한다. 응답 스키마는 2026-11-20 라이브 실측으로 확정(get_balance
+# Authorization 헤더를 공유한다. 응답 스키마는 2026-11-20·11-23 라이브 실측으로 확정(get_balance
 # 주석 참조). 발송(write) 경로와 무관한 조회라 발송 멱등성(SEC-5)·상한(PLAN-3) 적용 대상이
 # 아니다.
 require "net/http"
@@ -120,11 +120,20 @@ module Solapi
     # 잔액 조회(ADMIN-5·REM-10 — 선불 크레딧 소진으로 인한 발송 중단 예방). GET
     # /cash/v1/balance로 단일 발송과 동일 HMAC-SHA256 Authorization 헤더를 쓴다(인증 체계는
     # 엔드포인트 무관 공통 — 공식 문서 authentication 규격). 읽기 전용이라 부작용이 없어
-    # dry_run 개념이 필요 없다. 응답은 { balance: 정수(원), point: 정수 }로 정규해 돌려준다.
-    # 스키마 확정(2026-11-20 라이브 실측 — [INFERENCE] 해소): GET /cash/v1/balance에 동일
-    # HMAC Authorization 헤더로 200을 받고, 본문은 {"balance": <정수(원)>, "point": <정수>}
-    # 단일 객체였다(point는 부여 크레딧 없는 계정 기준 0). balance·point 모두 정수 원 단위 —
-    # [INFERENCE] 항목은 이 실측으로 전부 확정되어 더 이상 추정이 아니다.
+    # dry_run 개념이 필요 없다.
+    #
+    # 스키마(2026-11-20 첫 실측·2026-11-23 원본 응답으로 재확인 — 공식 문서 getBalance 일치):
+    # 응답은 profit·accountId·autoRecharge·balance·deposit·lowBalanceAlert·minimumCash·point·
+    # rechargeTo·rechargeTryCount·balanceOnly 11키이고, 금액은 원 단위 소수다(정수가 아니다 —
+    # 11-20 기록의 "정수"는 to_i 정규화 뒤 값이다). 쓰는 키는 3개다.
+    #   balance  잔액 + 예치금. 예치금은 부가세 10%를 뺀 금액으로 합산된다(공급가액 기준 —
+    #            실측 deposit 8535.9에 balance 7682.31 = deposit × 0.9)
+    #   deposit  예치금 그대로(부가세 포함 — 솔라피 콘솔에 보이는 기준)
+    #   point    포인트
+    # 두 기준을 모두 돌려준다 — 발송 단가가 "차감 단가(VAT미포함)"이라 잔여 발송량·경고 판정은
+    # balance가 맞고 콘솔 대조는 deposit이 맞다. 한쪽만 표시하면 10% 차이로 콘솔과 다르게
+    # 보인다(2026-11-23 사용자 지적). 반환형 { balance:, point:, deposit: } — 정수 원(소수 원은
+    # 버림), deposit은 응답에 없으면 nil.
     def get_balance
       ensure_credentials!(require_pf_id: false)
       parse_balance(request(method: :get, path: BALANCE_PATH))
@@ -163,6 +172,8 @@ module Solapi
     # 잔액 응답 정규화 — 방어적 파싱(스키마 이탈은 ApiError로 분류). balance 키 누락·null·
     # 비숫자는 fail-fast해 관리자 대시보드가 잘못된 잔액을 정상처럼 표시하는 것을 막는다.
     # point는 부여 크레딧이 없는 계정에서 0으로 관측될 수 있어 기본 0으로 관대하게 정규한다.
+    # deposit(예치금 — 콘솔 표시 기준)은 보조값이라 누락·비숫자면 nil로 두고, 표시층이 부가세
+    # 제외 금액에 기준을 명시해 그린다(경고 판정은 balance 하나로 한다).
     def parse_balance(payload)
       balance = parse_amount(payload[:balance])
       if balance.nil?
@@ -170,11 +181,12 @@ module Solapi
                            message: "솔라피 잔액 응답 스키마가 예상과 다릅니다: #{payload.inspect}")
       end
 
-      { balance: balance, point: parse_amount(payload[:point]) || 0 }
+      { balance: balance, point: parse_amount(payload[:point]) || 0,
+        deposit: parse_amount(payload[:deposit]) }
     end
 
-    # 금액 정규화 — Numeric은 정수화, "12,345" 같은 콤마 숫자형 문자열은 제거 후 정수화.
-    # 그 외(키 누락·null·비숫자 문자열)는 nil(스키마 이탈 신호).
+    # 금액 정규화 — Numeric은 정수화(소수 원은 버림 — 7682.31 → 7682), "12,345" 같은 콤마
+    # 숫자형 문자열은 제거 후 정수화. 그 외(키 누락·null·비숫자 문자열)는 nil(스키마 이탈 신호).
     def parse_amount(value)
       if value.is_a?(Numeric)
         value.to_i

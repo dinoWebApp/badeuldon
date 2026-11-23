@@ -126,6 +126,19 @@ class Admin::DashboardsControllerTest < ActionDispatch::IntegrationTest
     assert_match "text-orange-600", response.body
   end
 
+  test "응답에 예치금이 있으면 콘솔 기준 예치금과 부가세 제외 금액을 함께 렌더한다 (ADMIN-5 — 2026-11-23 정정)" do
+    admin_login(admins(:ops))
+    with_solapi_balance(FakeSolapiBalanceClient.new(balance: { balance: 7_682, point: 0, deposit: 8_535 })) do
+      get admin_root_path
+    end
+
+    assert_response :success
+    # 한쪽만 표시하면 솔라피 콘솔(예치금 기준)과 10% 달라 보였다 — 두 기준을 한 칸에 병기
+    assert_select "strong.tabular-nums.text-orange-600",
+                  text: "예치금 8,535₩ · 부가세 제외 7,682₩" # ko locale — 통화 기호 접미사
+    assert_match "충전 필요", response.body, "경고는 부가세 제외 금액 기준"
+  end
+
   test "잔액 조회 실패는 '일시 조회 불가'로 폴백하고 대시보드 500이 아니다 (ADMIN-5)" do
     admin_login(admins(:ops))
     error = Solapi::ApiError.new(status: nil, code: "TIMEOUT", message: "read timeout")
