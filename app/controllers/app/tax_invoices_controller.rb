@@ -3,41 +3,46 @@
 # 콜백·웹훅 확정(FulfillTaxInvoiceService → IssueService — 결제 완료 후에만 발행). 주문과 청구의
 # 결합은 orders.metadata(invoice_id)다. 발행 이력·취소는 show에서 제공한다(TAX-2·1건 1발행).
 class App::TaxInvoicesController < App::BaseController
+  include TaxInvoiceGate
+
   before_action :set_order, only: %i[ show cancel ]
   before_action :set_portone_context, only: :show
+  # TAX-4 — 운영 준비 게이트(기본 꺼짐): new·create 직접 URL 접속을 대시보드로 되돌린다.
+  # show·cancel은 유지한다 — 이미 결제·발행한 사용자의 상태 조회·취소 경로는 끊지 않는다(Q26).
+  before_action :require_tax_invoice_feature, only: %i[ new create ]
+  # TAX-3 ② — 발행 화면 진입(new·create 공용) 가드(리뷰 C-1). 기능 게이트 다음에 대상
+  # 청구 로드 → 자격·전제 판정으로 막히면 청구서 상세로 되돌린다 — 패널이 같은 사유를
+  # 안내하고, 발행 화면(결제 버튼이 남은 화면)으로 되돌리면 막다른 길이 된다.
+  before_action :load_issue_invoice, only: %i[ new create ]
+  before_action :guard_issue_entry, only: %i[ new create ]
 
-  # 발행 전 확인 미리보기(공급자/공급받는자/품목/금액) — 대상은 paid 청구 한정.
-  def new
-    @invoice = scoped_invoice(params[:invoice_id])
-    if @invoice.nil? || !@invoice.paid?
-      redirect_to app_invoices_path, status: :see_other,
-                  alert: "수금이 마감된 청구서만 발행할 수 있습니다." and return
-    end
-  end
+  # 발행 전 확인 미리보기(공급자/공급받는자/품목/금액) — 대상 로드·가드는 before_action이 담당한다.
+  def new; end
 
   # Q21 — 300원 단건 주문 생성(위젯 체크아웃으로 전환). 결제는 create에서 하지 않고 주문만
   # 만든다(발행 자체는 결제 완료 후 웹훅·콜백 확정점에서만 수행 — 이중 발행 차단 1차 가드).
   # Phase 6 C-2 — paid 주문 가드로 이중 결제 차단(SOAP 실패로 발행 레코드가 미생성된 청구의
   # 재결제 방지 — LEGAL find_paid_legal_order 선례). W-2 — 생성 책임은 CreateOrderService로.
+  # TAX-3 — 대상 로드·자격 가드는 before_action이 담당하고, IneligibleUser 서비스 예외는
+  # 이중 방어로 유지한다(결제 전 차단).
   def create
-    @invoice = scoped_invoice(params[:invoice_id])
-    return redirect_unpaid_invoice unless @invoice&.paid?
-
     paid_order = Order.tax_invoice_order_for(@invoice, paid: true)
     return redirect_existing_paid_order(paid_order) if paid_order
-
-    guard_message = issue_guard_message(@invoice)
-    return redirect_guard_message(guard_message) if guard_message
 
     @order = TaxInvoices::CreateOrderService.call(user: Current.user, invoice: @invoice)
     redirect_to app_tax_invoice_path(@order), status: :see_other,
                 notice: "주문이 생성되었습니다. 결제를 진행해 주세요."
+  rescue TaxInvoices::CreateOrderService::IneligibleUser => e
+    redirect_guard_message(e.message)
   end
 
   # 결제 상태 + 발행 상태(TAX-2) + 체크아웃 위젯(pending) 표시.
   def show
     @invoice = order_invoice(@order)
     @tax_invoice = @invoice&.tax_invoice
+    # TAX-3/4(리뷰 C-2) — pending 주문의 상세는 결제 화면이기도 하다. 꺼짐·부적격이면 결제
+    # 진입을 막고 안내를 넘긴다(뷰가 체크아웃 대신 안내 카드 — 조회는 200 유지, paid는 ④ 허용).
+    @tax_invoice_blocked_notice = tax_invoice_payment_block_notice if @order.pending?
     flash.now[:alert] = "결제가 승인되지 않았습니다. 다시 시도해 주세요." if params[:payment_failed].present?
   end
 
@@ -69,8 +74,31 @@ class App::TaxInvoicesController < App::BaseController
     Current.user.invoices.find_by(id: invoice_id)
   end
 
+  # TAX-3 ② — 발행 대상 청구 로드(new·create 공용). 미마감 청구는 목록으로 되돌린다
+  # (기존 new·create의 동작을 그대로 이동 — 소유권 격리는 scoped_invoice(Current.user
+  # 스코프)로 담보한다).
+  def load_issue_invoice
+    @invoice = scoped_invoice(params[:invoice_id])
+    return if @invoice&.paid?
+
+    redirect_to app_invoices_path, status: :see_other,
+                alert: "수금이 마감된 청구서만 발행할 수 있습니다."
+  end
+
+  # TAX-3 ② — 발행 진입 가드(리뷰 C-1 — new·create 공용). 막힌 사유는 issue_guard_message
+  # (IssueService.verify_guards!와 동일 기준을 U1 문구로 표현)로 판정해 청구서 상세로
+  # 되돌린다 — 청구 상세 패널이 같은 사유를 안내한다.
+  def guard_issue_entry
+    guard_message = issue_guard_message(@invoice)
+    return if guard_message.blank?
+
+    redirect_to app_invoice_path(@invoice), status: :see_other, alert: guard_message
+  end
+
   # 발행 가드(순서 안내 — IssueService.verify_guards!와 동일 기준을 U1 문구로 표현).
+  # TAX-3 — 발급 자격(간이과세·면세사업자)을 맨 앞에서 판정한다(문구는 User 단일 출처).
   def issue_guard_message(invoice)
+    return Current.user.tax_invoice_ineligibility_notice unless Current.user.tax_invoice_eligible?
     return "전자세금계산서 발행 설정을 먼저 완료해 주세요." unless Current.user.tax_invoice_ready?
     return "거래처 사업자번호가 없어 발행할 수 없습니다(개인 거래처는 비대상입니다)." if invoice.client.corp_num.blank?
     return "이미 발행 요청된 청구서입니다." if TaxInvoice.for_invoice(invoice).exists?
@@ -79,18 +107,16 @@ class App::TaxInvoicesController < App::BaseController
   end
 
   # Phase 6 C-2/W-2 — create 분기 수렴용 리다이렉트 헬퍼들.
-  def redirect_unpaid_invoice
-    redirect_to app_invoices_path, status: :see_other,
-                alert: "수금이 마감된 청구서만 발행할 수 있습니다."
-  end
-
   def redirect_existing_paid_order(order)
     redirect_to app_tax_invoice_path(order), status: :see_other,
                 notice: "이 청구는 이미 결제가 완료되었습니다. 기존 주문에서 발행 상태를 확인해 주세요."
   end
 
+  # TAX-3 — 가드 안내 수렴점(리뷰 C-1 — 대상을 청구서 상세로 통일). new로 되돌리면 결제
+  # 버튼이 남은 막다른 길이 되며, 무한 리다이렉트가 생긴다. create의 IneligibleUser
+  # rescue도 같은 경로로 수렴한다(이중 방어 — 컨트롤러 가드가 먼저 걸린다).
   def redirect_guard_message(message)
-    redirect_to new_app_tax_invoice_path(invoice_id: @invoice.id), status: :see_other, alert: message
+    redirect_to app_invoice_path(@invoice), status: :see_other, alert: message
   end
 
   def order_invoice(order)

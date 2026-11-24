@@ -222,23 +222,34 @@ class App::InvoicesController < App::BaseController
   # LEGAL-1 — 내용증명 배너 노출 판정. 조건은 ContentProofPdfService.legal_target?(단일 출처)과
   # 동일하다(뷰의 쿼리 금지 규칙에 따라 컨트롤러가 산출해 @변수로 넘긴다).
   # TAX-1/2 — paid 청구의 발행 컨텍스트. tax_invoice(기존 발행 기록)와 guard(U1이 지금 발행
-  # 가능한지의 분기)를 산출한다: settings_missing(발행 설정·인증서 미완료)·client_missing
+  # 가능한지의 분기)를 산출한다: feature_disabled(TAX-4 — 기능 스위치 꺼짐)·tax_type_ineligible
+  # (TAX-3 — 간이과세·면세사업자)·settings_missing(발행 설정·인증서 미완료)·client_missing
   # (거래처 사업자번호 없음)·ready(발행 가능)·none(paid 이외 — 버튼 비노출).
   # Phase 6 C-2 — 발행 레코드가 없어도 paid 주문이 있으면(결제 후 SOAP 실패) :paid_pending
   # 분기로 재결제 버튼을 노출하지 않고 기존 주문 상태 확인으로 유도한다.
+  # TAX-3/4 판정 우선순위(리뷰 W-1) — 기존 발행 기록(있으면 그대로 표시) > paid_pending
+  # (결제 완료·발행 기록 없음) > 꺼짐 > 자격 없음 > settings_missing > client_missing >
+  # ready. 돈을 낸 사용자(paid_pending)는 꺼짐·자격 안내에 가려지지 않고 주문 확인 링크를
+  # 잃지 않는다(paid_pending 카드에는 발행 버튼이 없어 두 게이트가 약해지지 않는다).
   def set_tax_invoice_context
     @tax_invoice = @invoice.tax_invoice
     @tax_invoice_guard = nil
     @tax_invoice_order = nil
+    @tax_invoice_guard_notice = nil
     return unless @invoice.paid?
     return if @tax_invoice
 
-    @tax_invoice_guard = if !Current.user.tax_invoice_ready?
+    @tax_invoice_guard = if (@tax_invoice_order = Order.tax_invoice_order_for(@invoice, paid: true))
+      :paid_pending
+    elsif !TaxInvoice.feature_enabled?
+      :feature_disabled
+    elsif !Current.user.tax_invoice_eligible?
+      @tax_invoice_guard_notice = Current.user.tax_invoice_ineligibility_notice
+      :tax_type_ineligible
+    elsif !Current.user.tax_invoice_ready?
       :settings_missing
     elsif @invoice.client.corp_num.blank?
       :client_missing
-    elsif (@tax_invoice_order = Order.tax_invoice_order_for(@invoice, paid: true))
-      :paid_pending
     else
       :ready
     end

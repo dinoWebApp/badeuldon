@@ -1,24 +1,36 @@
-# 01_plan — 정책 문서 갱신·인프라·기술 부채 병렬 배치 (2026-11-20, §6.14 · 일반 모드)
+# 01_plan — 랜딩페이지 전면 재구성 (2026-11-19, Standard+ · 일반 모드 · Sequential)
 
-## Phase 0 조사 결과
+## 배경·목표
 
-- 약관 3종(/terms·/privacy·/refund)은 **기 구현**(2026-10-15 시행본·F-PLAN 시대) → 태스크는 신기능 반영 **갱신**
-- payments.note·message_logs 인덱스·routes destroy 등 기술 부채 4건 확인
+현 랜딩은 11개 파셜(626줄)로 핵심 3기능(열람 추적·리마인더·약속 수집) 중심. **F-SALES·반복 청구·세금계산서·dunning·주간 다이제스트 등 신기능 전반이 미노출** — "모든 기능 어필" 목표로 재구성. **uibowl mcp로 국내 SaaS 랜딩 레퍼런스 조회 후 벤치마킹**(사용자 지정 도구).
 
-## 태스크 분해 (§6.14 3조건 판정)
+## 재구성 방향 (uibowl 관찰 반영 예정)
 
-| 태스크 | 내용 | 소유 파일 | 판정 |
-|---|---|---|---|
-| **T1 정책 문서 갱신** | ① 개인정보처리방침: **수집 항목 표 갱신** — 휴대폰번호(필수·AUTH-9 인증)·이메일(재설정)·추천 코드 어트리뷰션·**바로빌 제3자 제공**(회원사 가입 정보·공동인증서 등록 안내·발행 이력) ② 이용약관: 유료 부가서비스 조항 갱신 — 내용증명 건당 5,000원(LEGAL-2)·전자세금계산서 건당 300원(Q21)·추천 코드 할인 20%(Q24)·세금계산서는 세무 자문 아님(TAX 고지) ③ 환불: 유지(월 구독 특성) — 수정일 갱신 | `app/views/pages/{terms,privacy,refund}.html.erb` | ✓ 독립 |
-| **T2 운영 인프라(오케스트레이터 직접)** | ① **SQLite 백업 자동화**: 서버 systemd timer + `.backup` 스크립트(일 1회·30일 보존·/home/kgj/backups) 설치·실측 ② CF 터널 토큰 로테이션·HSTS 절차 문서화(사용자 수동 — CF 대시보드) | 서버 파일(저장소 비침범) | ✓ 파일 무충돌 |
-| **T3 기술 부채-DB** | ① `payments.note`(Q22 — 과다입금 초과분 비고 구조화·RecordService 저장·감사 기록 병행) ② `message_logs` digest 멱등 부분 유니크 인덱스(리뷰 W-1) ③ routes `except: :destroy`(sales_reps — 관찰⑤) | `db/migrate/*(1건 통합)`·`app/models/payment.rb`·`app/services/payments/record_service.rb`·과다입금 뷰·`config/routes.rb` | ✓ (routes는 T3 단독) |
-| **T4 솔라피 잔액 모니터링** | 래퍼 `get_balance`(Cash API — 잔액· Points) + ADMIN-5 대시보드 표시·임계치(예: 5만원 미만 주황) — **라이브 읽기 전용 실측 포함**(무료·안전) | `app/services/solapi/client_service.rb`·`app/controllers/admin/dashboards_controller.rb`·admin 대시보드 뷰 | ✓ |
+1. **신기능 커버리지 확대**: 반복 청구(INV-7)·전자세금계산서(TAX-1/2)·영업 추천(SALES)·dunning(PLAN-5)·이메일(AUTH-8)·주간 다이제스트(NOTI-2) — 기존 features 3카드 → 전 기능 커버 섹션으로 확대
+2. **마케팅 강화**: 수치 배지·비포/애프터·소셜 프루프 슬롯(후기 미보유 → 계정 유치 CTA로 대체)·FAQ 확대·최종 CTA 반복
+3. **기존 강점 유지**: hero·pain·how_it_works(5단계)·scenarios·message_samples·control(REM-15 안전장치)·pricing·LP-14 커버
+4. **구현 방식**: 기존 파셜 수정 + 신규 파셜 추가(`_all_features`·`_sales_program` 등) — index.html.erb 재구성
 
-- Phase 2(오케스트레이터): PRD v0.44 — NOTI-2 집계 기간 문언 확정(구현=직전 7일 기준·W-2 해소)·정책 문서 갱신 명시·Q 신규 없음
-- 파이프라인: 0✓→1-P✓→✋multiSelect→2→3-P(상한 3·T1/T3/T4 → T2는 오케스트레이터 병행)→3-S(마이그레이션 T3 단독 확정)→4→5→6?→7→8→9
+## 태스크 분해 (Sequential — landing 파셜 다수 공유·index 재구성 단일 파일)
+
+| 단계 | 내용 |
+|---|---|
+| 1 | uibowl mcp — 국내 SaaS 랜딩 UI 패턴 조회(요금제·기능 소개·CTA 배치) |
+| 2 | Developer — 기존 파셜 보강(features 확대·FAQ 확대) + 신규 파셜(all_features·sales_program) + index 재구성 |
+| 3 | 오케스트레이터 — uibowl 관찰 반영 검증(스크린샷 렌더) |
+
+## 대상 파일
+
+- 수정: `app/views/landing/index.html.erb`·`_features.html.erb`·`_faq.html.erb`·`_hero.html.erb`(CTA 문구)·`landing.html.erb`(헤더)
+- 신규: `app/views/landing/_all_features.html.erb`·`_sales_program.html.erb`(추천 프로그램 어필)
+- 테스트: 기존 landing 테스트 갱신(신규 섹션·문구 단정)
+
+## Rule ID
+
+LP-1~15(구조)·DESIGN-8(섹션 배경 리듬·인터랙션)·LP-12(금지 표현)·SURF-4(CTA 단일)·LP-11(블로그 연결)
 
 ## 리스크
 
-1. T1 법률 검토 — 그룹 리소스가 아닌 **법무 검토는 사용자 별도 확인 필요**(안내 문구 유지·기존 양식 수준에서 갱신)
-2. T4 라이브 잔액 API 스펙 [INFERENCE] — 실측 실패 시 표시 숨김 처리로 방어
-3. T2 백업 — 서버 직접 조작(SSH)·타이머 상태 실측까지 검증
+1. 신규 섹션 추가로 페이지 길이 과다 — uibowl 관찰로 절제
+2. 미보유 수치(사용자 수 등) 과장 금지 — LP-12 준수·실측 가능 수치만
+3. 기존 landing 테스트 회귀 — 섹션 문구 변경 시 단정 갱신

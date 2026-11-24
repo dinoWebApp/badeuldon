@@ -1,8 +1,8 @@
-# 00_delegation_log — 랜딩페이지 전면 재구성 (2026-11-19, 일반 모드)
+# 00_delegation_log — 세금계산서 발급 자격 차단·운영 준비 게이트 (2026-11-24, 일반 모드)
 
-- Phase 3·5·7 위임 실측 기록 예정 (규약 §4.6)
-- Phase 3 Developer(일반, 2026-11-19): 랜딩 재구성 — 신규 2(_all_features 12카드·_sales_program)+수정 4(index 13섹션·features 앵커·FAQ 8→12·hero 배지). 판정 4건(REM-15 미존재→VIEW-7·/sales 공개 경로 부재→앵커 텍스트·알림톡 19종→18종 정정·helper 불변). Phase 7 인계: 깨질 단정 3건 목록화.
-- Phase 5 Reviewer(일반, 2026-11-19): APPROVED(B0·C0·W2) — W-1 헤드라인 완화("전부입니다"→"한눈에")·W-2 운영 전제(템플릿 등록)는 02 문서에 명시. Tester 3건 갱신+10건 신규 지시 위임.
-- Phase 7 Tester(일반, 2026-11-19): 기존 갱신 3건+신규 10건·landing 41 runs 0실패·전체 1,477 runs 0 failures(+10)·LP-12 금지 표현 스캔 0건. Phase 8: 부트·13섹션 렌더 확인.
-- Phase 9: AGENTS 완료 항목·progress 리셋·메모리 — 커밋 대기.
-- Phase 9(오케스트레이터): AGENTS 완료 항목(랜딩 재구성) 추가·progress 리셋 — 커밋 대기.
+- Phase 0~2 (오케스트레이터): 승인 게이트 통과(임시 스위치 포함·미커밋 3파일 그대로) → PRD v0.46 문서 현행화.
+- Phase 3 Developer(일반, 2026-11-24): 모델 I/O 로그 실측 — 프로필 Developer(시스템 프롬프트 흔적)·**모델 GLM-5.3-Flash(요청 7건 전부)·effort high(7건 전부)** → 프로필 정의(developer 일반=GLM-5.3-Flash/high)와 **일치**. 구현 범위: TAX-3 발급 자격 차단 4지점 + TAX-4 운영 준비 게이트. 종료 후 재실측(로그 40줄): GLM-5.3-Flash/high 유지.
+- Phase 5 Reviewer(일반, 2026-11-24): 모델 I/O 로그 실측(스폰 직후) — 프로필 Reviewer(시스템 프롬프트 흔적)·**모델 GLM-5.4(요청 4건 전부)·effort high(4건 전부)** → 프로필 정의(reviewer 일반=GLM-5.4/high)와 **일치**. **2026-11-23 모델 상향(GLM-5.3→5.4) 뒤 첫 실제 스폰 — 적용 확인됨.**
+- Phase 6 Developer 재위임(일반, 2026-11-24): 모델 I/O 로그 실측(스폰 직후) — 프로필 Developer(시스템 프롬프트 흔적)·**모델 GLM-5.3-Flash(요청 2건 전부)·effort high(2건 전부)** → 프로필 정의와 **일치**. 범위: 리뷰 C-1·C-2·W-1~W-5 + 채택한 경과 관찰 3건.
+- Phase 7 Tester(일반, 2026-11-24): 모델 I/O 로그 실측(스폰 직후) — 프로필 Tester(시스템 프롬프트 흔적)·**모델 GLM-5.3-Flash(요청 1건)·effort high(1건)** → 프로필 정의(tester 일반=GLM-5.3-Flash/high)와 **일치**. 범위: 테스트 환경 기본 켬 헬퍼·기존 테스트 갱신(21건)·TAX-3/4 시나리오 신규 작성·전체 실행.
+- **요약**: Phase 3·6 Developer, Phase 5 Reviewer, Phase 7 Tester — 4회 스폰 전부 프로필 정의와 일치(불일치 0건).

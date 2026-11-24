@@ -5,6 +5,8 @@ require_relative "../../test_helpers/fake_baro_bill_client"
 # 전자세금계산서 발행 컨트롤러(/app/tax_invoices — TAX-1/2·Q21·C-1·C-2) HTTP 통합 테스트.
 # AUTH-1 비인증 가드·발행 가드 사슬 안내·C-2 이중 결제 차단·취소 경계·소유권 격리·
 # SURF-3 noindex·청구 상세 패널 4분기를 검증한다. 바로빌 SOAP는 스텁(실호출 금지).
+# TAX-4 — 이 파일은 스위치 켜짐을 전제로 한다(test_helper 기본 켬 — 꺼짐 케이스는
+# tax_invoice_gate_test.rb가 with_tax_invoice_feature(false)로 격리해 검증한다).
 class App::TaxInvoicesControllerTest < ActionDispatch::IntegrationTest
   include BaroBillStubbing
 
@@ -94,7 +96,9 @@ class App::TaxInvoicesControllerTest < ActionDispatch::IntegrationTest
       post app_tax_invoices_path, params: { invoice_id: @invoice.id }
     end
 
-    assert_redirected_to new_app_tax_invoice_path(invoice_id: @invoice.id)
+    # TAX-3 ②(리뷰 C-1) — 가드에 막히면 발행 화면(결제 버튼이 남은 막다른 길)이 아니라
+    # 청구서 상세로 되돌린다 — 패널이 같은 사유를 안내한다.
+    assert_redirected_to app_invoice_path(@invoice)
     assert_match(/발행 설정을 먼저 완료/, flash[:alert])
   end
 

@@ -4,9 +4,11 @@ module App
     # 사이드바 메뉴 — 대시보드·청구서(INV)·거래처(CLIENT-1)·품목(CLIENT-2)·요금제(F-PLAN)·설정 활성.
     # 활성 판정은 요청 경로 기준. 미구현 메뉴는 링크 없이 구조만 안내한다(플랜 결정 #2).
     # locked: 프로필 미완료(AUTH-1.3) 동안 잠금 표시 — 클릭은 가능하되 가드가 플래시와 함께 안내한다.
+    # TAX-4 — 운영 준비 게이트(기본 꺼짐): 스위치가 꺼진 동안 "전자세금계산서" 메뉴를 비노출한다
+    # (발행·설정 화면 직접 URL 접속은 각 컨트롤러의 require_tax_invoice_feature가 차단).
     def app_nav_items
       locked = Current.user.display_name.blank?
-      [
+      items = [
         { label: "대시보드", path: app_root_path, active: request.path == app_root_path,
           disabled: false, locked: },
         { label: "청구서", path: app_invoices_path, active: request.path.start_with?(app_invoices_path),
@@ -24,11 +26,15 @@ module App
         { label: "내용증명", path: app_legal_documents_path, active: request.path.start_with?(app_legal_documents_path),
           disabled: false, locked: },  # LEGAL-1~4 — 내용증명 양식 발급(건당 과금·포트원 단건 재사용)
         { label: "추심 안내", path: app_referrals_path, active: request.path.start_with?(app_referrals_path),
-          disabled: false, locked: },  # REF-1~4 — 추심 상담 소개 화면(P5 고지)
-        { label: "전자세금계산서", path: app_tax_invoice_setting_path,
-          active: request.path.start_with?(app_tax_invoice_setting_path) ||
-                  request.path.start_with?(app_tax_invoices_path),
-          disabled: false, locked: },  # TAX-1/2 — 발행 설정·발행 내역(건당 과금·Q21)
+          disabled: false, locked: }  # REF-1~4 — 추심 상담 소개 화면(P5 고지)
+      ]
+      if TaxInvoice.feature_enabled?
+        items << { label: "전자세금계산서", path: app_tax_invoice_setting_path,
+                   active: request.path.start_with?(app_tax_invoice_setting_path) ||
+                           request.path.start_with?(app_tax_invoices_path),
+                   disabled: false, locked: }  # TAX-1/2 — 발행 설정·발행 내역(건당 과금·Q21)
+      end
+      items + [
         { label: "공지", path: app_notices_path, active: request.path.start_with?(app_notices_path),
           disabled: false, locked: },  # ADMIN-7 — 운영 공지 목록(/app/notice)
         { label: "문의", path: app_tickets_path, active: request.path.start_with?(app_tickets_path),

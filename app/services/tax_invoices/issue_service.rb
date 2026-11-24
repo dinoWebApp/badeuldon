@@ -44,9 +44,11 @@ module TaxInvoices
 
     private
 
-    # 검증 사알 — 순서: ① U1 발행 설정 완료(공동인증서 포함) ② 거래처 사업자번호 ③ 결제 완료
-    # ④ 1청구 1발행(tax_invoices 기존 레코드 없음 — canceled 포함).
+    # 검증 사항 — 순서: ① TAX-3 발급 자격(간이과세·면세사업자 미발급 — 결제 완료 뒤 경로의
+    # 최종 방어선) ② U1 발행 설정 완료(공동인증서 포함) ③ 거래처 사업자번호 ④ 결제 완료
+    # ⑤ 1청구 1발행(tax_invoices 기존 레코드 없음 — canceled 포함).
     def verify_guards!
+      raise GuardFailed, @invoice.user.tax_invoice_ineligibility_notice unless @invoice.user.tax_invoice_eligible?
       raise GuardFailed, "전자세금계산서 발행 설정을 먼저 완료해 주세요." unless @invoice.user.tax_invoice_ready?
       raise GuardFailed, "거래처 사업자번호가 없어 발행할 수 없습니다(개인 거래처는 비대상입니다)." if @invoice.client.corp_num.blank?
       raise GuardFailed, "발행 수수료 결제가 완료되지 않았습니다." unless @order&.paid?
@@ -87,7 +89,10 @@ module TaxInvoices
       }
     end
 
-    TAX_TYPE_BY_USER = { "general" => 1, "simplified" => 2, "exempt" => 3 }.freeze
+    # TAX-3 — 일반과세만 발급된다(간이과세→영세(2)·면세→면세(3) 매핑은 폐기 — 리뷰 경과
+    # 관찰 채택). 컨트롤러·서비스 가드를 실수로 건너뛰어도 fetch(KeyError)가 실패해 발행
+    # 레코드가 만들어지지 않는 구조로 둔다.
+    TAX_TYPE_BY_USER = { "general" => 1 }.freeze
 
     # 품목 — invoice items 스냅샷(최대 99개 규격). 수량은 정수 저장 컬럼이라 "1" 고정 스케일.
     # Phase 6 C-3 — 행 금액은 정수 연산만 하고(부동소수 배제) Σ품목.Amount=AmountTotal·

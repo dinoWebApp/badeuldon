@@ -88,4 +88,37 @@ class Webhooks::TaxInvoiceSettleTest < ActionDispatch::IntegrationTest
     assert_equal 0, TaxInvoice.count                           # 발행 기록 미생성 — C-2 가드 대상 상태
     assert_equal 1, @user.payment_passes.count                  # 패스 발급 없음
   end
+
+  # TAX-3 ④(2026-11-24·Q25) — 부적격 사용자의 결제 완료 뒤 경로 최종 방어선. 결제는
+  # 성립하되(되돌리지 않음) 발행 기록·바로빌 전송은 없다(GuardFailed 흡수).
+  test "TAX-3: 부적격(간이과세) 사용자의 웹훅 확정은 결제만 수행하고 발행은 막는다" do
+    @user.update!(tax_type: :simplified)
+    client = FakeBaroBillClient.new
+
+    with_baro_bill_client(client) do
+      assert_nothing_raised { post_paid_event }
+    end
+
+    assert_predicate @order.reload, :paid?                     # 결제 성립은 유지
+    assert_equal 0, TaxInvoice.count                           # 발행 기록 미생성
+    assert_empty client.calls[:regist_and_issue_tax_invoice]   # 바로빌 전송 미수행
+  end
+
+  # TAX-4 회귀 — settle 경로는 운영 준비 게이트 스위치와 무관하게 동작한다(리뷰 중점 9).
+  # 꺼짐이어도 이미 열려 있는 결제의 확정·발행이 끊기지 않는다(4 문언의 취지).
+  test "TAX-4: 스위치가 꺼져 있어도 웹훅 확정·발행은 정상 수행된다" do
+    client = FakeBaroBillClient.new
+
+    with_tax_invoice_feature(false) do
+      with_baro_bill_client(client) do
+        assert_enqueued_with job: TaxInvoices::PollStateJob do
+          post_paid_event
+        end
+      end
+    end
+
+    assert_predicate @order.reload, :paid?
+    assert_equal 1, TaxInvoice.where(invoice_id: @invoice.id).count
+    assert_equal 1, client.calls[:regist_and_issue_tax_invoice].count
+  end
 end

@@ -1,24 +1,64 @@
 {
-  "domain": null,
+  "domain": "TAX",
   "currentPhase": null,
-  "pipelineType": null,
+  "pipelineType": "Full",
   "parallelTasks": [],
   "phaseHistory": [
     {
+      "phase": 0,
+      "status": "done",
+      "note": "새 작업 — 세금계산서 발급 자격 차단·운영 준비 게이트. 미커밋 3파일(보안 gem·Chrome 호환) 공존 — 처리 방식 승인 질의에 포함"
+    },
+    {
+      "phase": 1,
+      "status": "done",
+      "note": "01_plan.md — TAX-3(발급 자격)·TAX-4(운영 준비 게이트)·Q25·Q26 설계"
+    },
+    {
+      "phase": 1.5,
+      "status": "done",
+      "note": "승인 — 계속 진행 (임시 스위치 포함·미커밋 3파일 그대로 두기)"
+    },
+    {
+      "phase": 2,
+      "status": "done",
+      "note": "PRD v0.46 — TAX-3·TAX-4·Q25·Q26 신설, AGENTS 진행 중 항목, 02_prd_update.md"
+    },
+    {
+      "phase": 3,
+      "status": "done",
+      "note": "Developer 구현 — 12파일(생성 1·수정 11). 켜짐 상태 기존 테스트 98 runs 0실패. 실측 GLM-5.3-Flash/high 일치. 리스크: paid_pending 건이 꺼짐 카드에 가려짐(리뷰 검증 항목)"
+    },
+    {
+      "phase": 4,
+      "status": "done",
+      "note": "rubocop 414파일 위반 0·zeitwerk 이상 없음·새 정의 5종 모두 호출됨. 사전 관찰 2건을 리뷰 검증 항목으로 전달(new 진입 미차단·paid_pending이 꺼짐에 가려짐)"
+    },
+    {
+      "phase": 5,
+      "status": "done",
+      "note": "Reviewer CHANGES_REQUESTED — B0·C2(new 미차단·pending 주문 show가 게이트 밖 결제 진입점)·W5·확인요청 3. 실측 GLM-5.4/high 일치(첫 실제 스폰)"
+    },
+    {
+      "phase": 6,
+      "status": "done",
+      "note": "Developer 재위임 — 리뷰 C-1·C-2·W-1~W-5·경과 관찰 3건 전부 수정. concern TaxInvoiceGate 신설. 켜짐 상태 118 runs 중 1건 실패(리다이렉트 대상 변경 — Tester 갱신 대상). 실측 GLM-5.3-Flash/high 일치"
+    },
+    {
       "phase": 7,
       "status": "done",
-      "note": "landing 41 runs 0실패·전체 1,477 runs 0 failures(+10)"
+      "note": "Tester — 신규 5파일·기존 갱신. 세금계산서 관련 158 runs 0실패, 전체 1,529 runs(+52) 0실패, 시스템 13 runs 0실패, 코드 버그 0건. 실측 GLM-5.3-Flash/high 일치"
     },
     {
       "phase": 8,
       "status": "done",
-      "note": "13섹션 렌더 확인"
+      "note": "꺼짐·켜짐 부트 정상(에러·경고 0)·스위치 값 실측(fail-closed)·bin/ci 그린(1,529 runs 0실패)·시스템 13건 0실패"
     },
     {
       "phase": 9,
       "status": "done",
-      "note": "AGENTS 갱신·progress 리셋 — 커밋 대기"
+      "note": "AGENTS 갱신(완료 항목·운영 노트)·08_run_report·progress 리셋 — 커밋은 사용자 요청 시"
     }
   ],
-  "lastUpdated": "2026-11-19T00:00:00+09:00"
+  "lastUpdated": "2026-11-24T12:00:00+09:00"
 }

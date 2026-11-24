@@ -1,73 +1,66 @@
-# 병렬 배치 T1·T3·T4 — 통합 테스트 리포트 (07_test_report)
+# 07_test_report — LP-16 랜딩 재구성 Phase 7 (2026-11-20 · 일반 모드)
 
-일자: 2026-11-20 · Tester: badeuldon-reviewer (리뷰+테스트 통합 런 — 일반 모드 기준)
+대상: `test/controllers/landing_controller_test.rb`(기존 갱신 3건 + 신규 10건) · `test/controllers/pages_policy_test.rb`(T1 법무 검토 정합 갱신). 근거: `_workspace/05_review.md`(APPROVED·Tester 지시 A·B) · `_workspace/03_implementation.md`(§6 인계 3건) · PRD LP-16·LP-12·SURF-4.
 
-## 게이트 결과
+## 최종 결과
 
 | 게이트 | 결과 |
-|:---|:---|
-| 개별 파일 실행 | 전부 통과 (아래 표) |
-| **전체 `bin/rails test`** | **1,466 runs · 9,068 assertions · 0 failures · 0 errors · 0 skips** (36.96s) — 기존 회귀 0 |
-| **전체 `bin/rubocop`** | **412 files · 0 offenses** |
-| 외부 실호출 | **0** — 솔라피 get_balance는 전부 stub(FakeSolapiBalanceClient·FakeSolapiTransport·생성자 대역), 포트원·바로빌 기존 stub 체계 불변 |
+|---|---|
+| `bin/rails test test/controllers/landing_controller_test.rb` | **41 runs, 561 assertions, 0 failures, 0 errors** (갱신 전 31 runs, 3 failures → 전부 예측된 단정 갱신 대상) |
+| `bin/rails test test/controllers/pages_policy_test.rb` | **6 runs, 86 assertions, 0 failures, 0 errors** (T1 갱신 — 5→6 runs) |
+| `bin/rails test` 전체 회귀 | **1,477 runs, 9,287 assertions, 0 failures, 0 errors, 0 skips** |
+| `bin/rubocop` | 412 files inspected, **no offenses** |
+| 코드 버그 | **0건** — 실패 3건 전부 테스트 오류(기존 단정 미갱신)로 분류, 소스 수정 0건 |
 
-## 신규/갱신 테스트 (11파일 — 신규 4·갱신 7 · 신규 테스트 28건)
+## 1. 기존 갱신 3건 (03 문서 §6 인계 = 05_review §A)
 
-### T3 — payments.note·digest 인덱스·routes·비고 표시
+| # | 테스트(갱신 후 이름) | 갱신 내용 | 원인 분류 |
+|---|---|---|---|
+| 1 | `주 CTA는 히어로·all_features·sales_program·LP-10 최종에서 가입 화면 실링크다 (SURF-4, AUTH-1 반전, LP-16)` | `new_registration_path` 링크 `count: 2 → 4`, 문구 단정 `/무료로 시작하기/` `count: 2 → 4` — all_features 끝 "이 모든 기능, 무료로 시작하기"·sales_program 끝 CTA 반영(LP-16 "CTA 반복 배치") | 테스트 오류(단정 미갱신) |
+| 2 | `표면 ①의 a 요소는 가입 CTA·헤더 로그인·법적 고지·인페이지 앵커만 사용한다 (SURF-4 개정 — LP-16 앵커 허용)` | 허용 href 조건에 **인페이지 앵커(`#` 접두 — ② 진입 아님)** 추가 + `a[href^='#'] count: 1`(#all-features 단일) 단정. 가입·로그인·법적 고지 3종·블로그·root·비밀번호 재설정 count 0 기존 단정 유지 | 테스트 오류(화이트리스트 미갱신) |
+| 3 | `LP-8 FAQ 12항목의 질문이 모두 노출된다 (LP-8, LP-16 확대)` | `summary` `count: 8 → 12` + 신규 4질문(전자세금계산서·정기 청구·추천 코드·휴대폰 인증) 단정 추가. 기존 8질문 목록 유지 | 테스트 오류(단정 미갱신) |
 
-| 파일 | 신규/갱신 | 케이스 | 커버 Rule |
-|:---|:---|:---|:---|
-| `test/services/payments/record_service_test.rb` | 신규(4) | ① 과다입금 note 저장(문구 "남은 잔액을 30,000원 초과하여 마감 처리"·"거래처와 직접 협의")+감사 병행 ② 정확한 마감 note nil·감사 0 ③ 부분입금 note nil ④ 마감 후 재입금 note nil·감사 1회(상태 불변) | Q22·P4·PAY-1·PAY-2 |
-| `test/models/message_log_digest_index_test.rb` | 신규(3) | ① 같은 (user·template_key·scheduled_at) digest 2행째 → `ActiveRecord::RecordNotUnique`(DB 방어선) ② scheduled_at 상이 → 복수 행 허용(주 단위 키) ③ 일반(digest=false) 동일 키 2행 → 영향 0(부분 인덱스 범위 밖) | SEC-5 준칙·NOTI-2·W-1(전번 리뷰) |
-| `test/controllers/app/payments_over_policy_test.rb` | 갱신(+1) | 과다입금 비고가 상세 페이지 입금 이력에 1줄 렌더(플래시 문언 "초과해"와 비고 "초과하여 마감 처리"를 구분해 특정) — 마감 후 재입금 추가 후에도 비고 1행 유지 | Q22 구조화·T3 |
-| `test/controllers/admin/sales_reps_controller_test.rb` | 갱신(+1) | DELETE 라우트 부재(recognize_path → RoutingError)·member PATCH 3종 불변 | 관찰⑤·P4 |
+## 2. 신규 10건 (05_review §B 반영 — LP-16 매핑)
 
-### T4 — 솔라피 잔액
+| # | 테스트 | 검증 내용 | Rule ID |
+|---|---|---|---|
+| 1 | LP-16 재구성 13섹션이 지정 순서로 렌더된다 | hero→pain→how_it_works→features→**all_features**→scenarios→message_samples→control→**sales_program**→positioning→pricing→faq→closing — 섹션별 고유 마커 `body.index` 순서 비교, closing은 문구 공유로 `rindex` 판정 | LP-16·DESIGN-8 |
+| 2 | all_features 12카드가 전 기능 커버 그리드를 구성한다 | `section#all-features ul li` count 12 + 12카드 h3 제목 전수 단정 | LP-16 |
+| 3 | 배지는 신규 2종·예정 1종만 표기된다 | `신규` span count 2(반복 청구·전자세금계산서)·`예정` span count 1(데이터 내보내기=SEC-4 미구현) + 카드별 배지 소속 검증(h3 인접 span) | LP-16·LP-12 |
+| 4 | "더 많은 기능 보기" 앵커가 all_features 섹션에 착지한다 | `a[href="#all-features"]` count 1 + `section#all-features` count 1 — 끊어진 앵커 방지 | LP-16·SURF-4 |
+| 5 | sales_program 수치는 SALES 확정 조건 스냅샷과 일치한다 | "Plus 첫 결제 20% 할인(첫 달 7,920원)"·"영업 파트너는 20%(12개월), 지인 추천은 15%(무기한)"·"매주 월요일 자동으로 새 코드로 갱신"·"원천징수(3.3%)" — 수치 변경 시 테스트가 알림 | SALES-1/2/4/5·LP-12 |
+| 6 | sales_program 섹션의 링크는 가입 CTA 1개뿐이다 | 섹션 내 `a` 요소 1개 = `new_registration_path` — 외부 href·mailto 0건(참여 문의는 텍스트 안내) | SURF-4 |
+| 7 | hero 수치 배지 3종이 PRD 확정치로 렌더된다 | "첫 14일 무료 체험"(PLAN-2)·"청구 건당 최대 5통"(PLAN-3)·"4단계 정중한 안내"(REM-2) — 히어로 섹션 내 span 단정 | LP-16·LP-12 |
+| 8 | 신규 섹션 2종은 h2 헤딩을 갖고 h1 1개를 유지한다 | `h1` count 1 + all_features h2 "받을돈이 하는 일, 한눈에"(W-1 반영 문구) + sales_program h2 | LP-16·DESIGN-8 |
+| 9 | FAQ 신규 4항목 답변이 확정 수치·조건과 함께 노출된다 | 세금계산서 "수금 마감(입금 완료) 한해·300원·승인번호·공동인증서"(TAX-1·Q21) / 반복 청구 "발행일(1~28일)·일시중지·재개"(INV-7) / 추천 "7,920원·정상가·매주 새로 발급"(SALES-4) / 휴대폰 인증 "알림톡(SMS 폴백)·5분"(AUTH-9) | LP-8·TAX-1·INV-7·SALES-4·AUTH-9 |
+| 10 | LP-16 신규 섹션 문구도 과장·보장·근거 없는 수치가 없다 | `전부입니다` 부재(W-1 회귀 방지)·`19종` 부재(03 §4-3 미채택 수치)·`완벽`·`회수율`·`실패 없는` 부재 + 완화 헤드라인 "한눈에" 존재 | LP-12 |
 
-| 파일 | 신규/갱신 | 케이스 | 커버 Rule |
-|:---|:---|:---|:---|
-| `test/services/solapi/client_service_test.rb` | 갱신(+4) | ① get_balance GET /cash/v1/balance·무바디·HMAC 인증 헤더·정수 정규형 `{balance, point}` ② 콤마 문자열 "12,345" 정규화 ③ point 누락 → 0 ④ 스키마 이탈(balance 누락·null·비숫자) → `UNEXPECTED_BALANCE_RESPONSE` fail-fast 3종 | ADMIN-5·REM-10 |
-| `test/helpers/admin/dashboards_helper_test.rb` | 신규(5) | ① nil → "일시 조회 불가"·중립 회색·low? false ② 49,999 주황·low? true ③ **경계 50,000 정상**(미만 조건) ④ 120,000 통화 표기(ko locale 접미사 "120,000₩") ⑤ 0원도 충전 필요 | ADMIN-5 |
-| `test/controllers/admin/dashboards_controller_test.rb` | 갱신(+5·기존 5 케이스 stub화) | ① 잔액 렌더("솔라피 잔액"·"120,000₩"·경고 배지 부재) ② 임계 미만 주황+"충전 필요" 배지 ③ 조회 실패 → "일시 조회 불가" 폴백·200 유지 ④ 성공 5분 캐시 — 재요청 래퍼 1회만 호출(MemoryStore 스왑) ⑤ 실패 1분 센티널 — 재요청 재호출 없음 | ADMIN-5·REM-10·05_review C-1 |
+## 3. T1 정책 문서 테스트 갱신 (법무 검토 7건 정합화 반영)
 
-### C-1 해소 — 대시보드 렌더 실호출 차단 (기존 테스트 stub화)
+파일: `test/controllers/pages_policy_test.rb` — 기존 5테스트 문구 단정에 법무 검토 반영 문구 추가 + 개정일 통일 신규 1테스트(총 6 runs).
 
-| 파일 | 조치 |
-|:---|:---|
-| `test/controllers/admin/sessions_controller_test.rb` | 12h 세션 유지 테스트(렌더 11회)를 `with_solapi_client` 대역으로 교체 — 세션 판정 로직 불변 |
-| `test/controllers/admin/base_guard_test.rb` | 잠금 경계 렌더(200) 1곳 stub화 |
-| `test/controllers/sales/session_isolation_test.rb` | 관리자 세션 유지 렌더 2곳 stub화 — 쿠키 격리 판정 불변 |
-| (`dashboards_controller_test.rb` 위 표) | 기존 5 케이스의 `get admin_root_path` 전부 `with_solapi_balance`로 래핑 |
+| 법무 검토 항목 | 문서 | 추가 단정 |
+|---|---|---|
+| 취소 과금 재고지 | 이용약관 제7조 | "결제 전 안내 및 발행 전 확인 화면에서 재고지" |
+| 휴대폰 인증 가입 절차 | 이용약관 제4조 | "휴대폰 번호를 필수로 제출하며" |
+| 인증서 직접 등록·미보관 | 이용약관 제5조 | "공동인증서는 대행사에 위탁 등록되며 회사가 보관하지 않습니다" |
+| 중복 가입 방지 고지(목적) | 개인정보처리방침 제2조 | "휴대폰 인증을 통한 가입 본인 확인(중복 가입 방지 포함)" |
+| 인증서 미보관(제4조) | 개인정보처리방침 제4조 | "회사는 이를 보관하지 않습니다" |
+| 이용 완료 정의 | 환불 정책 | '"이용 완료"란' + "PDF 다운로드가 가능해진 시점" + "국세청 발행 접수가 완료된 시점" |
+| 개정일 통일 | 3종 전체 | 신규 테스트 — 헤더·부칙·공고일자 2026-11-20 통일 + 구 문구 "2026년 10월 15일부터 시행합니다" 잔존 0 (제정일 이력 표기는 허용) |
 
-### T1 — 정책 문서
+## 4. 금지 표현 스캔 결과 (LP-12)
 
-| 파일 | 신규/갱신 | 케이스 | 커버 Rule |
-|:---|:---|:---|:---|
-| `test/controllers/pages_policy_test.rb` | 신규(5) | ① 3문서 비로그인 200·제목 렌더 ② noindex 메타 0 — 색인 허용(SURF-3 공개 법적 고지 확인) ③ terms 핵심 문구(건당 300원·건당 5,000원·20% 할인·취소 과금·미리보기·세무 자문 아님·바로빌·청구 건당 1회·개인 비대상) ④ privacy(휴대폰 번호 필수·유일성 검증·5분 1회용·바로빌((주)케이넷)·공동인증서 바로빌 보관·인증번호 발송 포함·발행 대행) ⑤ refund(환불 불가·건당 5,000원·300원·취소 과금) | TAX-1·Q21·LEGAL-2·Q24·AUTH-9·SURF-3·LP-12(존재 기준) |
+전체 페이지 대상 기존 단정 + 신규 10-# 테스트 이중 커버 — **검출 0건**:
 
-## 개별 파일 실행 결과 (전체 실행 전 검증)
+- `100%`·`보장`·`마지막 알림` — 기존 LP-12 테스트 통과(신규 카드·sales_program 포함 전체 응답 대상)
+- `추심` — 문맥 필터 테스트 통과(부정·의문 문맥만: VIEW-5 고지문·FAQ·positioning)
+- 신규 확장 — `전부입니다`(W-1)·`19종`·`완벽`·`회수율`·`실패 없는` 부재 확인
+- SALES 수치는 전부 PRD 확정치(SALES-1/2/4/5) — LP-12 "측정 근거 수반" 준수, 테스트가 수치 스냅샷 고정(#5)
 
-| 파일 | runs | failures |
-|:---|---:|---:|
-| test/services/payments/record_service_test.rb | 4 | 0 |
-| test/models/message_log_digest_index_test.rb | 3 | 0 |
-| test/controllers/app/payments_over_policy_test.rb | 10 | 0 |
-| test/controllers/admin/sales_reps_controller_test.rb | 13 | 0 |
-| test/services/solapi/client_service_test.rb | 22 | 0 |
-| test/helpers/admin/dashboards_helper_test.rb | 5 | 0 |
-| test/controllers/admin/dashboards_controller_test.rb | 10 | 0 |
-| test/controllers/pages_policy_test.rb | 5 | 0 |
-| test/controllers/admin/sessions_controller_test.rb | 16 | 0 |
-| test/controllers/admin/base_guard_test.rb + sales/session_isolation_test.rb | 12 | 0 |
+## 5. 유의 사항
 
-## 테스트 중 발견·수정 사항 (코드 버그 아님 — 테스트 자체 조정)
-
-1. **C-1 (05_review)** — 대시보드 렌더의 솔라피 실호출을 4개 기존 테스트 파일에서 stub화로 해소. 실행 중 `base_guard`(잠금 경계 렌더)·`sales/session_isolation`(2곳)의 추가 200 렌더 지점을 발견해 함께 처리했다. **소스 코드 버그 아님** — 컨트롤러 직접 생성은 기존 컨벤션(PortOne 계열과 동일)이나, 후속으로 래퍼 주입점 도입을 기술 부채 후보로 기록(05_review C-1).
-2. **ko locale 통화 접미사** — `number_to_currency(unit: "₩")`가 "₩120,000"이 아니라 "120,000₩"로 렌더된다(대시보드 기존 매출 카드 "9,900₩"와 동일 규격 — 일관성 유지). 테스트를 실측 형식으로 고정했다. 표기 변경이 필요하면 별도 UI 결정 사항.
-3. 테스트 수정 과행(괄호 누락·hash literal 문법 2건)은 작성 중 즉시 정정 — 산출물에는 반영 완료.
-
-## Tester 결론
-
-- 지시 항목 전 커버: T3(note·digest 인덱스·비고 표시·routes 404)·T4(get_balance stub 정상/콤마/이탈·헬퍼 경계·캐시 히트·fallback·대시보드 렌더)·T1(라우트 200·noindex 허용·핵심 문구).
-- 외부 실호출 0·전체 스위트 0 failures·RuboCop 0 — 게이트 통과.
-- 운영 액션(테스트 범위 밖 — 05_review·T4 문서 인계): 운영 솔라피 잔액이 임계(50,000원) 미만(4자리 관측) — **충전 필요**(REM-10 발송 중단 방지).
+- 소스(app/) 수정 0건 — 3건 실패는 전부 기존 단정 미갱신(테스트 오류)으로, Phase 7 인계 목록(03 §6)과 1:1 일치해 **코드 버그 0건** 확정.
+- `sections#all-features` 배지 검증은 `h3 + span` 인접 선택자로 배지 소속 카드까지 검증 — '예정' 배지가 SEC-4(미구현) 1건뿐임을 데이터 수준에서 고정.
+- 전체 스위트 1,477 runs에는 병렬 배치 타 태스크(T1 정책 문서 소스·기술 부채 등) 반영분이 포함 — 타 태스크 테스트 수정은 하지 않았음.
+- 시스템 테스트(05_review §C — 모바일 뷰포트 13섹션 스크롤·반응형)는 선택 항목으로 미작성 — 정적 마크업이며 컨트롤러 통합 테스트로 구조·문구·링크 무결성 전수 커버.

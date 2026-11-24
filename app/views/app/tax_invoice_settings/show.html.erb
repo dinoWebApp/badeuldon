@@ -86,7 +86,14 @@
         <%= form.select :tax_type,
               [["일반과세", "general"], ["간이과세", "simplified"], ["면세사업자", "exempt"]],
               class: form_input_classes(Current.user, :tax_type) %>
-        <p class="mt-1.5 text-xs text-stone-500">세금계산서의 과세형태 표기에 사용됩니다.</p>
+        <p class="mt-1.5 text-xs text-stone-500">사업자 유형에 따라 전자세금계산서 발급 가능 여부가 결정됩니다.</p>
+        <%# TAX-3 — 간이과세·면세사업자는 발급 대상이 아니다(발행만 차단 — 저장은 허용, 바로빌
+            회원 등록에 쓰는 실제 사업자 정보). 문구는 User 단일 출처를 컨트롤러가 @변수로 공급한다. %>
+        <% if @tax_type_ineligible %>
+          <p class="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900" role="note">
+            <%= @tax_type_notice %>
+          </p>
+        <% end %>
       </div>
       <%= form.submit "사업자 정보 저장",
             class: "inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-xl bg-emerald-800 px-6 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
@@ -101,19 +108,28 @@
         <%= Current.user.barobill_cert_registered? ? "등록 완료" : "미등록" %>
       </span>
     </div>
-    <p class="mt-1.5 text-xs leading-relaxed text-stone-500">
-      전자세금계산서 발행에는 사업자 공동인증서가 필요합니다. 팝업에서 인증서를 등록한 뒤
-      "등록 완료 확인"을 눌러 주세요. 인증서가 등록되기 전까지 발행 버튼은 비활성화됩니다.
-    </p>
-    <div class="mt-4 flex flex-wrap gap-2">
-      <%= button_to "인증서 등록 팝업 열기", register_certificate_app_tax_invoice_setting_path,
-            method: :post, target: "_blank",
-            class: "inline-flex min-h-11 items-center justify-center rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-bold text-stone-700 transition hover:bg-stone-50",
-            form: { target: "_blank" } %>
-      <%= button_to "등록 완료 확인", confirm_certificate_app_tax_invoice_setting_path,
-            method: :post,
-            class: "inline-flex min-h-11 items-center justify-center rounded-xl bg-emerald-800 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900" %>
-    </div>
+    <% if @tax_type_ineligible %>
+      <%# TAX-3(리뷰 W-3) — 부적격 사용자에게는 등록 다음 단계로 이끌지 않는다 — 등록해도
+          발행되지 않으므로 2단계 안내·버튼을 숨기고 발급 불가 안내(User 단일 출처 —
+          컨트롤러 @tax_type_notice)를 대신 보인다. %>
+      <p class="mt-1.5 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900" role="note">
+        <%= @tax_type_notice %>
+      </p>
+    <% else %>
+      <p class="mt-1.5 text-xs leading-relaxed text-stone-500">
+        전자세금계산서 발행에는 사업자 공동인증서가 필요합니다. 팝업에서 인증서를 등록한 뒤
+        "등록 완료 확인"을 눌러 주세요. 인증서가 등록되기 전까지 발행 버튼은 비활성화됩니다.
+      </p>
+      <div class="mt-4 flex flex-wrap gap-2">
+        <%= button_to "인증서 등록 팝업 열기", register_certificate_app_tax_invoice_setting_path,
+              method: :post, target: "_blank",
+              class: "inline-flex min-h-11 items-center justify-center rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-bold text-stone-700 transition hover:bg-stone-50",
+              form: { target: "_blank" } %>
+        <%= button_to "등록 완료 확인", confirm_certificate_app_tax_invoice_setting_path,
+              method: :post,
+              class: "inline-flex min-h-11 items-center justify-center rounded-xl bg-emerald-800 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900" %>
+      </div>
+    <% end %>
   </section>
 
   <%# ── 고지(P5 — 세무 자문 아님 + 위탁 동의) ── %>

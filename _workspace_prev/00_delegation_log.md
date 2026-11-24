@@ -1,7 +1,8 @@
-# 00_delegation_log — 정책 문서·인프라·기술 부채 병렬 배치 (2026-11-20, 일반 모드)
+# 00_delegation_log — 랜딩페이지 전면 재구성 (2026-11-19, 일반 모드)
 
-- Phase 3-P fan-out 위임 실측 기록 예정
-- Phase 3-P(2026-11-20): T1(정책 문서 3종 갱신 — 법무 검토 7건·범위 외 관찰 2건)·T3(payments.note+digest 인덱스+routes — 통합 마이그레이션 1건·routes 실수 2회 즉시 복구)·T4(솔라피 잔액 — 라이브 실측 200·[INFERENCE] 해소·**실측 잔액 1천원대로 임계 미만 주황 경고 상태**) 병렬 완료.
-- Phase 5/7(2026-11-20): 리뷰 APPROVED(B0·C1 해소[테스트 실호출 위반 → stub 감싸기]·W3)·테스트 1,466 runs 9,068 assertions 0 failures(+28). W-1/W-2 주석 오케스트레이터 교정.
-- 법무 검토 7건+terms 제4조 AUTH-9(2026-11-20 후속): Developer — 8건 전부 문구 확정 반영(표준 관행 정합화)·ERB 스크립틀릿 불변·grep 검증 통과.
-- 법무 검토 후속 테스트 정합(2026-11-20): 3건 단정 갱신(취소 과금 신문구·중복 가입 방지·인증서 직접 등록 문구) — 전체 1,466 runs 0 failures.
+- Phase 3·5·7 위임 실측 기록 예정 (규약 §4.6)
+- Phase 3 Developer(일반, 2026-11-19): 랜딩 재구성 — 신규 2(_all_features 12카드·_sales_program)+수정 4(index 13섹션·features 앵커·FAQ 8→12·hero 배지). 판정 4건(REM-15 미존재→VIEW-7·/sales 공개 경로 부재→앵커 텍스트·알림톡 19종→18종 정정·helper 불변). Phase 7 인계: 깨질 단정 3건 목록화.
+- Phase 5 Reviewer(일반, 2026-11-19): APPROVED(B0·C0·W2) — W-1 헤드라인 완화("전부입니다"→"한눈에")·W-2 운영 전제(템플릿 등록)는 02 문서에 명시. Tester 3건 갱신+10건 신규 지시 위임.
+- Phase 7 Tester(일반, 2026-11-19): 기존 갱신 3건+신규 10건·landing 41 runs 0실패·전체 1,477 runs 0 failures(+10)·LP-12 금지 표현 스캔 0건. Phase 8: 부트·13섹션 렌더 확인.
+- Phase 9: AGENTS 완료 항목·progress 리셋·메모리 — 커밋 대기.
+- Phase 9(오케스트레이터): AGENTS 완료 항목(랜딩 재구성) 추가·progress 리셋 — 커밋 대기.

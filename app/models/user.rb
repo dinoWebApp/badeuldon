@@ -34,8 +34,10 @@ class User < ApplicationRecord
   # 미선택 허용: 가입 시점엔 결정하지 않고, 프로필 설정(:profile 컨텍스트)에서 필수가 된다.
   enum :business_type, { business: 0, freelancer: 1 }
 
-  # TAX-1 — 과세유형(세금계산서 TaxType 매핑: 일반과세→과세(1)·간이과세→영세(2)·면세→면세(3)).
-  # 기본값 일반과세(general) — 발행 설정 저장 시 U1이 명시 선택한다.
+  # TAX-1/3 — 과세유형. 기본값 일반과세(general) — 발행 설정 저장 시 U1이 명시 선택한다.
+  # TAX-3(2026-11-24 확정·영구)으로 간이과세·면세사업자는 발급 대상이 아니므로 이 enum은
+  # 발급 자격 판정(User#tax_invoice_eligible?)의 근거이며, 바로빌 TaxType 매핑은 general만
+  # 사용한다(IssueService::TAX_TYPE_BY_USER — 과거 간이과세→영세·면세→면세 매핑은 폐기).
   enum :tax_type, { general: 0, simplified: 1, exempt: 2 }, default: :general
 
   # ADMIN-3(Run B 확정) — 계정 상태. suspended면 로그인 차단(SessionsController)이며
@@ -143,6 +145,28 @@ class User < ApplicationRecord
     corp_num.present? && corp_name.present? && ceo_name.present? &&
       corp_addr.present? && contact_name.present? && barobill_id.present? &&
       barobill_cert_registered?
+  end
+
+  # TAX-3 — 전자세금계산서 발급 자격 단일 판정(2026-11-24 사용자 확정 — 영구, Q25).
+  # 세법상 간이과세자·면세사업자는 세금계산서 발급 대상이 아니므로(시행령 §70) 일반과세만
+  # 발급한다. 발행만 차단하며 과세 유형 선택·사업자 정보 저장(바로빌 회원 등록)·기존 발행
+  # 내역 조회·취소는 자격과 무관하게 허용한다. 법적 예외(부가가치세법 §64조의2 — 매출 규모가
+  # 큰 간이과세자의 발급 의무)는 지원하지 않는다(안내로만 고지 — 아래 문구 참조).
+  def tax_invoice_eligible?
+    general?
+  end
+
+  # TAX-3 — 발급 불가 사유 안내 문구의 단일 출처(패널·플래시·설정 화면·서비스 예외가 같은
+  # 문구를 쓴다). 부적격(간이과세·면세사업자)일 때만 호출한다. 리뷰 W-4 — 법령 원문 대조 전이므로
+  # 법적 단정을 피해 "받을돈에서는 … 지원하지 않습니다"로 서비스 기준으로 한정한다(LP-12 —
+  # 과장·단정 금지, 예외 확인은 세무사 몫으로 안내).
+  def tax_invoice_ineligibility_notice
+    if simplified?
+      "받을돈에서는 간이과세자의 전자세금계산서 발급을 지원하지 않습니다. 거래처에는 계산서나 영수증을 발급해 주세요. " \
+        "매출 규모에 따라 세금계산서 발급이 필요할 수 있으니 세무사에게 확인해 주세요."
+    else
+      "받을돈에서는 면세사업자의 전자세금계산서 발급을 지원하지 않습니다. 거래처에는 계산서나 영수증을 발급해 주세요."
+    end
   end
 
   # 다음 발송 가능 슬롯 — 허용 창 안이면 그대로, 밖이면 다음 허용 슬롯으로 이월.

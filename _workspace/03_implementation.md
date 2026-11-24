@@ -1,94 +1,139 @@
-# 03_implementation — 랜딩 전면 재구성 (2026-11-20 · 일반 모드 · Standard)
+# 03_implementation — 세금계산서 발급 자격 차단·운영 준비 게이트 (2026-11-24, Developer)
 
-구현 지시(오케스트레이터) 기준 수행 결과. 근거: `_workspace/01_plan.md` · PRD LP-16(신설)·LP-1~15·DESIGN-8·LP-12.
+플랜(01_plan.md) 설계 확정 사항을 그대로 구현했다. 라우트·마이그레이션 변경 없음.
+결제 로직·바로빌 API 호출·과금 금액(300원) 변경 없음. 소유권 제한 3파일
+(`Gemfile.lock`·`test/application_system_test_case.rb`·`test/test_helpers/capybara_chrome_compat.rb`)
+미접촉 확인(git status 대조).
 
-## 1. 변경 파일 전수
+## 변경 파일 목록
 
-| 파일 | 구분 | 변경 요약 |
-|---|---|---|
-| `app/views/landing/_all_features.html.erb` | **신규** | LP-16 전 기능 커버 섹션 — 12카드 그리드(sm:2/lg:3)·아이콘+혜택 체크리스트·신규/예정 배지·섹션 끝 가입 CTA |
-| `app/views/landing/_sales_program.html.erb` | **신규** | LP-16 영업 추천 프로그램 섹션 — 3스텝 카드·정산 조건 스트립·참여 문의(텍스트)·가입 CTA |
-| `app/views/landing/index.html.erb` | 수정 | 섹션 순서 재구성(13섹션)·신규 파셜 2종 편성·헤더 주석 갱신(LP-16·CTA 4곳·배경 리듬 명시) |
-| `app/views/landing/_features.html.erb` | 수정 | 말미에 "더 많은 기능 보기" 인페이지 앵커 링크(`#all-features`) 추가 — 3카드·PRD 이점 문구 원문 불변 |
-| `app/views/landing/_faq.html.erb` | 수정 | 항목 4개 추가(전자세금계산서·반복 청구·추천 코드·휴대폰 인증) — 8→12. 기존 8항목 원문 불변 |
-| `app/views/landing/_hero.html.erb` | 수정 | CTA 하단 수치 배지 스트립 3종 추가(첫 14일 무료 체험·청구 건당 최대 5통·4단계 정중한 안내) — 헤드라인·CTA·보조 버튼·목업 불변 |
+| 구분 | 파일 | 요약 |
+|:---|:---|:---|
+| **생성** | `config/initializers/tax_invoice.rb` | TAX-4 — 부팅 시 `ENV["TAX_INVOICE_ENABLED"]`를 한 번 읽어 `Rails.application.config.x.tax_invoice_enabled`에 고정. `"true"`만 true(fail-closed). ENV 직접 읽기는 이 파일 한 곳 |
+| 수정 | `app/models/tax_invoice.rb` | TAX-4 — `TaxInvoice.feature_enabled?` 클래스 메서드(단일 판정점, config.x만 읽음) |
+| 수정 | `app/models/user.rb` | TAX-3 — `tax_invoice_eligible?`(general만 true)·`tax_invoice_ineligibility_notice`(간이과세·면세 문구 단일 출처). `tax_invoice_ready?` 바로 아래 배치 |
+| 수정 | `app/services/tax_invoices/create_order_service.rb` | TAX-3 — `IneligibleUser` 예외 신설 + `call` 맨 앞 가드(주문 미생성 — 300원 결제 전 차단 핵심 지점) |
+| 수정 | `app/services/tax_invoices/issue_service.rb` | TAX-3 — `verify_guards!` 맨 앞에 자격 가드(GuardFailed, 메시지는 User 단일 출처) |
+| 수정 | `app/controllers/app/invoices_controller.rb` | TAX-3/4 — `set_tax_invoice_context` 판정 우선순위 재배열 + `@tax_invoice_guard_notice` 신설(뷰 문구 공급) |
+| 수정 | `app/controllers/app/tax_invoices_controller.rb` | TAX-4 — `require_tax_invoice_feature`(new·create 한정 before_action), TAX-3 — `issue_guard_message` 맨 앞 자격 판정, create에 `IneligibleUser` rescue(안내 리다이렉트 수렴) |
+| 수정 | `app/controllers/app/tax_invoice_settings_controller.rb` | TAX-4 — `require_tax_invoice_feature`(전 액션), TAX-3 — `set_tax_type_context`(show·update — 422 재렌더 대응)·`certificate_confirmed_notice`(완료 안내 조건화) |
+| 수정 | `app/views/app/invoices/_tax_invoice_panel.html.erb` | `:feature_disabled`·`:tax_type_ineligible` 분기 추가(둘 다 버튼 없음 — client_missing 분기의 카드 톤·여백·타이포 동일), 헤더 주석 갱신 |
+| 수정 | `app/views/app/tax_invoice_settings/show.html.erb` | 과세 유형 select 아래 발급 불가 안내(amber note 박스 — 기존 고지 박스와 동일 톤), `@tax_type_ineligible`·`@tax_type_notice` @변수만 사용 |
+| 수정 | `app/helpers/app/base_helper.rb` | TAX-4 — `app_nav_items`를 3분할(앞 배열 + 조건부 전자세금계산서 항목 + 뒤 배열)해 메뉴 순서 유지, 꺼짐 시 비노출 |
+| 수정 | `config/deploy.yml` | TAX-4 — `env.clear`에 `TAX_INVOICE_ENABLED: "false"` + 켜는 조건 주석(바로빌 계약·포인트 충전·법인 등록) |
 
-**변경하지 않은 파일(판정 포함)**
-- `app/views/layouts/landing.html.erb` — 01_plan이 "헤더" 수정 후보로 올렸으나, 헤더는 블로그 링크·로그인 직행을 이미 갖춰 LP-11·SURF-4 충족 → 불변 판정.
-- `app/helpers/landing_helper.rb` — **존재하지 않음**(지시서의 아이콘 경로 헬퍼는 실제로 `application_helper.rb#step_icon_path`). 신규 섹션 아이콘은 파셜 로컬 데이터 배열(`features[:icon]`)로 처리해 **Ruby 파일 변경 0건** — fan-out 제약(뷰 3종만) 준수.
-- 기존 9개 파셜(pain·how_it_works·scenarios·message_samples·message_bubble·control·positioning·pricing·closing) — 불변.
+테스트 파일은 작성·수정하지 않음(Tester 담당 — Phase 7).
 
-## 2. 신규 섹션 목차 (페이지 순서 — DESIGN-8 배경 리듬)
+## Rule ID별 구현 매핑
 
-| # | 섹션 | 배경 | 상태 |
-|---|---|---|---|
-| 1 | hero | cream 그라데이션 | 수치 배지 스트립 추가 |
-| 2 | pain | white | 불변 |
-| 3 | how_it_works | cream | 불변 |
-| 4 | features | white | 앵커 링크 추가 |
-| 5 | **all_features** (`#all-features`) | cream | **신규** |
-| 6 | scenarios | ivory(#f4f2ea) | 불변 |
-| 7 | message_samples | cream | 불변 |
-| 8 | control | white | 불변 |
-| 9 | **sales_program** | ivory(#f4f2ea) | **신규** |
-| 10 | positioning | cream | 불변 |
-| 11 | pricing | white | 불변 |
-| 12 | faq | cream | 항목 +4 |
-| 13 | closing | white | 불변 |
+### TAX-3 — 차단 4지점(이중화)
 
-인접 섹션 동일 배경 없음(cream→white→cream→ivory 교차). 지시서 순서(hero → pain → how_it_works → features → all_features → scenarios → message_samples → control → sales_program → positioning → pricing → faq → closing)와 일치.
+| # | 지점 | 파일·메서드 | 동작 |
+|:--|:---|:---|:---|
+| ① | 청구서 상세 패널 | `App::InvoicesController#set_tax_invoice_context` → `_tax_invoice_panel.html.erb` `:tax_type_ineligible` 분기 | 발급 불가 안내(버튼 없음) — 문구는 `@tax_invoice_guard_notice` @변수로 공급 |
+| ② | 발행 화면 진입 | `App::TaxInvoicesController` before_action `guard_issue_entry`(new·create 공용 — Phase 6 C-1 수정) | 자격 판정을 맨 앞에 두고 안내 문구와 함께 **청구서 상세**로 리다이렉트. ※초기 보고 오류 정정 — 당시 구현은 `issue_guard_message`가 `create` 전용이었고 `new`는 미차단이었다(리뷰 C-1 지적). 이 표는 Phase 6 수정 후 기준 |
+| ③ | 주문 생성(결제 전) | `TaxInvoices::CreateOrderService.call` | 부적격이면 주문을 만들지 않고 `IneligibleUser` 상승 — 컨트롤러 create가 rescue해 `redirect_guard_message`로 수렴(500 아님) |
+| ④ | 발행 서비스 가드 | `TaxInvoices::IssueService#verify_guards!` | 가드 순서 맨 앞(결제 완료 뒤 경로의 최종 방어선) — GuardFailed |
 
-**_all_features 12카드**: ①열람 추적 ②자동 리마인더 4단계 ③입금 약속 수집 ④수금 마감 원클릭 ⑤반복 청구(신규) ⑥전자세금계산서(신규) ⑦내용증명 양식 ⑧수금 패스 ⑨부분입금 잔액 관리 ⑩수신거부·안전장치 ⑪주간 수금 다이제스트 ⑫데이터 내보내기(예정)
+- 판정·문구 단일 출처: `User#tax_invoice_eligible?` / `User#tax_invoice_ineligibility_notice`
+  (패널·컨트롤러·설정 화면·서비스 전부 이 두 메서드만 사용).
+- 허용 유지 확인: 과세 유형 select(저장 허용 — `set_tax_type_context`는 안내만 공급)·사업자 정보
+  저장(RegisterCorpService 무변경)·기존 발행 내역 조회(@tax_invoice 기록 존재 시 기존 분기 그대로)·취소(cancel 무변경).
 
-**_sales_program 구성**: 히어로 문구("지인에게 계정을 주고, 첫 달 20% 할인으로 시작하게 하세요") → 3스텝(코드 주간 갱신 / 첫결제 20% 할인·첫 달 7,920원 / 수수료 20%·12개월 vs 15%·무기한) → 정산 방식 스트립(월 정산·원천징수 3.3%) → 참여 문의(텍스트) + 가입 CTA 패널.
+### TAX-4 — 꺼짐 동작 4종 + 스위치
 
-## 3. LP-16 매핑
+| 동작 | 파일·메서드 |
+|:---|:---|
+| 사이드바 메뉴 비노출 | `App::BaseHelper#app_nav_items` — `TaxInvoice.feature_enabled?` 조건부 |
+| 패널 "준비 중" | `:feature_disabled` 분기 — "전자세금계산서 발행은 현재 준비 중입니다. 준비가 되면 이 화면에서 발행할 수 있습니다." (기존 발행 기록 있는 청구는 기록 표시가 우선 — 우선순위 최상단 유지) |
+| new·create 직접 접속 차단 | `App::TaxInvoicesController#require_tax_invoice_feature` — 대시보드(`app_root_path`) 303 리다이렉트 + 동일 문구 flash |
+| 설정 전 액션 차단 | `App::TaxInvoiceSettingsController#require_tax_invoice_feature` — 동일 |
+| **허용 유지** | `App::TaxInvoicesController`의 `show`·`cancel` — before_action에서 제외(주석 명시) |
 
-| LP-16 요구 | 구현 |
-|---|---|
-| features 3카드 외 전 기능 별도 섹션 노출 | `_all_features` — 아래 Rule ID 매핑 참조 |
-| 영업 추천 프로그램 별도 섹션 | `_sales_program` — SALES-1/2/4/5 |
-| FAQ 확대 | `_faq` +4(전자세금계산서 TAX-1/2·반복 청구 INV-7·추천 코드 SALES-4·휴대폰 인증 AUTH-9) |
-| CTA 반복 배치 | 가입 CTA 4곳 — hero·all_features 끝·sales_program 끝·closing(uibowl 관찰 #3) |
+- 스위치 접근자: `config/initializers/tax_invoice.rb`(ENV 읽기) → `Rails.application.config.x.tax_invoice_enabled`
+  → `TaxInvoice.feature_enabled?`(모델이 ENV을 직접 읽지 않음 — 테스트에서 config 값 교체로 토글 가능).
+- fail-closed: `"true"` 문자열만 true. 미설정·그 외 값·오타 모두 false.
 
-**all_features 카드별 근거 Rule ID**: SHARE-3/4 · REM-2·REM-12·PLAN-3(5통) · PROMISE · PAY-1·PAY-4 · INV-7(1~28일) · TAX-1/2·Q21(건당 300원) · LEGAL-2·PLAN-7(건당 5,000원) · PLAN-4(10건 4,000원·90일) · PAY-2 · VIEW-7 · NOTI-2(직전 7일·월요일) · SEC-4(예정).
+## 새로 만든 이름
 
-**uibowl 관찰 4원칙**: ① 아이콘+혜택 체크리스트(all_features 체크 문장) ② 스텝 가로 스크롤(how_it_works 기존 5열 그리드 유지 — 신규 섹션은 그리드로 잘림 없음) ③ CTA 반복(신규 2섹션 끝 추가 → 총 4) ④ 숫자 배지(히어로 3종·카드 신규/예정·7,920원·20%·15%).
+- `config/initializers/tax_invoice.rb` — `Rails.application.config.x.tax_invoice_enabled`
+- `TaxInvoice.feature_enabled?` — 클래스 메서드
+- `User#tax_invoice_eligible?` / `User#tax_invoice_ineligibility_notice`
+- `TaxInvoices::CreateOrderService::IneligibleUser` — 예외(message = 단일 출처 문구)
+- `require_tax_invoice_feature` — before_action 가드 2개 컨트롤러에 동일 구현
+- `@tax_invoice_guard_notice` / `@tax_type_ineligible` / `@tax_type_notice` — 뷰 공급 @변수
+- `App::TaxInvoiceSettingsController#set_tax_type_context` / `#certificate_confirmed_notice`
 
-## 4. 판정·주의 사항 (Reviewer 집중 검토 대상)
+## 스위치 사용법 (TAX_INVOICE_ENABLED)
 
-1. **REM-15 미존재** — 지시서의 "수신거부·안전장치(VIEW-7·REM-15)"에서 REM-15는 PRD에 없음(REM-13이 최종 번호, 01_plan의 "control(REM-15 안전장치)" 표기와 함께 오표기 추정). 카드는 **VIEW-7** 근거로 구현하고 안전장치 문구는 REM-11·REM-12/PLAN-3의 사실 서술로 대체. PRD Rule ID 신설은 fan-out 제약 밖이므로 오케스트레이터 판단 대상.
-2. **sales_program 참여 CTA를 텍스트로 구현** — 지시서 "관리자 문의(텍스트 링크)"를 SURF-4 하드 제약(② 진입 링크는 가입·로그인·블로그·법적 고지만 — 지시서 하드 제약 항)과 결합해 **앵커 없는 텍스트 안내**(카카오톡 채널 '받을돈' — 푸터 문의 채널과 동일 패턴)로 구현. 근거: `/sales`는 영업 직원 전용 로그인 표면(SALES-6·noindex)이라 공개 참여 경로가 없고, mailto 등 타 href는 SURF-4 위반·테스트 전면 파탄.
-3. **"알림톡 19종" 배지 미채택** — 지시서 예시 수치. PRD NOTI-1은 "18종 승인·운영 반영 + 초안(B-4~B-8)"이며 종수 산정이 모호해 LP-12(측정 근거 수반) 위험. 검증 가능 수치 3종(첫 14일 무료 체험 PLAN-2·청구 건당 최대 5통 PLAN-3·4단계 REM-2)으로 대체.
-4. **배지 '신규'·'예정' 판정** — 반복 청구(2026-11-11)·전자세금계산서(2026-11-16)는 구현 완료 → '신규'. SEC-4 데이터 내보내기는 미구현(app 전역 CSV 내보내기 부재 확인) → 유일한 '예정' 배지 + "준비 중인 기능입니다" 명시.
-5. **NOTI-2 서술 수위** — 다이제스트 알림톡 템플릿(B-7)은 등록 전 초안 상태이나 Job·토글은 구현됨(NOTI-2 확정 2026-11-16). 카드는 기능 총괄 서술로 처리(기존 랜딩의 기능 서술 관례와 동일).
-6. **LP-12·SURF-6·뷰 컨벤션** — 신규 섹션 DB 쿼리·모델 호출 0, `raw`/`html_safe` 0, 이미지 파일 추가 0(인라인 SVG만), 금지 표현(100%·보장·마지막 알림·긍정 문맥 '추심'·발행 후 14일) 미사용 — 테스트 실행으로 검증 통과.
-7. **인페이지 앵커 1건 허용 판단** — `#all-features` 앵커는 지시서가 명시한 요구(“더 많은 기능 보기” 앵커 링크)이며 ② 진입이 아니지만, 기존 SURF-4 테스트가 전 a 요소 href 화이트리스트를 검사해 1건 실패(§6 참조). Phase 7 갱신 대상.
+| 환경 | 켜는 방법 |
+|:---|:---|
+| 로컬 개발 서버 | `TAX_INVOICE_ENABLED=true bin/dev` (미설정 시 꺼짐) |
+| 테스트 | `TAX_INVOICE_ENABLED=true bin/rails test ...` — 또는 Tester가 test_helper에서 `Rails.application.config.x.tax_invoice_enabled = true` 기본 켬 헬퍼 추가(플랜 확정 사항) |
+| 운영(Kamal) | `config/deploy.yml`의 `env.clear.TAX_INVOICE_ENABLED`를 `"true"`로 변경 → 커밋·`bin/kamal deploy` (변경 이력 남는 방식 — 켜기 전제: 바로빌 계약·포인트 충전·법인 등록 스모크) |
 
-## 5. 자가 검증 결과
+## 설계 판정 (플랜 대비 선택·보강)
 
-- `bin/rails test test/controllers/landing_controller_test.rb` — **31 runs, 307 assertions, 3 failures, 0 errors**. 실패 3건은 전부 §6 목록(예측된 갱신 대상)과 일치. 신규 파셜 2종 포함 전체 렌더 에러 없음(0 errors).
-- `bin/rubocop` — 412 files inspected, **no offenses**.
-- ERB 기존 섹션 마커·문구 불변 확인 — 기존 통과 단정 28건 중 LP-1/2/3/4/5/6/7/10/14/15 관련 전부 통과(섹션 순서 변경·신규 섹션 삽입이 기존 문구 단정에 영향 없음).
-- Ruby 파일 변경 0건 → `zeitwerk:check`·`db:migrate` 불요.
+1. **패널 `:feature_disabled` 문구에 한 문장 보강** — 지시 문구("…현재 준비 중입니다.") 뒤에
+   "준비가 되면 이 화면에서 발행할 수 있습니다."를 덧붙였다. 이 분기는 발행 기록이 없는 paid 청구에만
+   나타나므로 "기존 발행 내역은 그대로 확인" 류의 문구는 오히려 오해를 낳는다 — 최소한의 재진입 안내만 추가.
+2. **`issue_guard_message`의 자격 문구는 조건식 내 직접 반환** — `return Current.user.tax_invoice_ineligibility_notice unless ...` 형태로 GuardFailed 문자열 리터럴 패턴과 통일.
+3. **create의 rescue 수렴 경로** — `IneligibleUser`를 `redirect_guard_message(e.message)`로 처리해
+   기존 가드 문구 경로(new 미리보기 + alert)와 동일 UX. feature 꺼짐 시엔 create 자체가 before_action에서
+   차단되므로 이 경로에 도달하지 않는다.
+4. **confirm_certificate 완료 안내** — 부적격 사용자에게는 "공동인증서 등록이 확인되었습니다. " + 단일 출처
+   문구를 이어 붙였다(별도 변형 문구 신설 금지 — 문구 단일 출처 원칙 유지).
+5. **helper에서 `TaxInvoice.feature_enabled?` 호출** — "뷰에서 모델 클래스 메서드 호출 금지"의 취지는
+   DB 쿼리·비즈니스 로직 배제이고, 이 호출은 config 부트값 읽기(쿼리 없음)라 허용 판단. 지시서가
+   이 접근자를 단일 판정점으로 명시했으므로 헬퍼·컨트롤러·서비스가 모두 이를 사용한다.
+6. **`set_tax_invoice_context`에서 notice @변수는 자격 분기에서만 채움** — 다른 분기에서 nil 유지
+   (패널의 tax_type 분기만 소비 — 불필요한 문구 노출 방지).
 
-## 6. Phase 7 인계 — 기존 테스트 갱신 필요 단정 목록 (수정 금지 준수·미수정)
+## 자가 검증 결과
 
-파일: `test/controllers/landing_controller_test.rb` — **3건**. 신규 섹션·문구에 대한 신규 단정 추가도 이번 Phase에서 함께 권장.
+| 명령 | 결과 |
+|:---|:---|
+| `bin/rails zeitwerk:check` | 통과 — "all is good!" |
+| `bin/rubocop` (변경 app/config 파일 9개) | 9 files inspected, **no offenses** |
+| `TAX_INVOICE_ENABLED=true bin/rails test` (tax_invoices·settings·services·invoices 4파일) | **98 runs, 584 assertions, 0 failures, 0 errors, 0 skips** — 기존 테스트 전부 회귀 없음 |
+| 기본값(꺼짐) 동일 4파일 | **20 failures, 0 errors** — `tax_invoices_controller_test.rb` 12건 + `tax_invoice_settings_controller_test.rb` 8건 (전부 리다이렉트 목적지가 `/app`으로 바뀐 것 — 의도된 fail-closed 동작). `invoices_controller_test`·`test/services/tax_invoices/`는 꺼짐 상태에서도 통과 |
+| `bin/rails runner` 판정 검증 | 꺼짐 기본값 false / config true 토글 true · general eligible=true, simplified·exempt=false · 문구 2종 단일 출처 출력 확인 · CreateOrderService `IneligibleUser`(주문 생성 전) · IssueService `GuardFailed` 확인 |
 
-1. **`test_표면_①의_a_요소는_가입_CTA와_헤더_로그인만_②에_진입한다_(SURF-4_개정_—_법적_고지_링크_제외)`** (:40, 실패 지점 :47)
-   - 원인: features 말미 인페이지 앵커 `href="#all-features"`가 허용 href 집합(가입·로그인·법적 고지 3종·블로그·root)에 없음.
-   - 권장 갱신: 허용 조건에 **인페이지 앵커(`#` 접두 href — ② 진입 아님)** 추가. `assert_select "a[href=?]", new_password_path, count: 0` 등 나머지 단정은 유지 가능.
-2. **`test_주_CTA는_히어로·LP-10_최종에서_가입_화면_실링크다_(SURF-4,_AUTH-1_반전)`** (:33, 실패 지점 :36)
-   - 원인: 가입 CTA 실링크 2 → **4**(all_features 끝 "이 모든 기능, 무료로 시작하기"·sales_program 끝 "무료로 시작하기" 추가 — LP-16 "CTA 반복 배치" 반영).
-   - 권장 갱신: `count: 2` → `count: 4` + 위치 주석 갱신. 문구 단정(`text: /무료로 시작하기/`)은 동일 count 갱신 필요.
-3. **`test_LP-8_FAQ_8항목의_질문이_모두_노출된다_(LP-8)`** (:189, 실패 지점 :191)
-   - 원인: `summary` 8 → **12**(LP-16 확장 4항목 — 전자세금계산서·반복 청구·추천 코드·휴대폰 인증).
-   - 권장 갱신: `count: 8` → `count: 12` + 신규 4질문 문구 단정 추가.
+## 미해결·리스크
 
-**깨지지 않아 확인된 인접 단정**(갱신 불요): `figure blockquote` 3·`ol li` 5(신규 섹션 전부 ul·div 사용 — _control 선례)·`div[class*='FEE500']` 4(신규 버블 없음)·`h1` 1(신규 섹션은 h2/h3만)·LP-12 금지 표현·`button[disabled] 작동 방식 보기` 1.
+1. **테스트 환경 기본 켬 헬퍼 미구현** — 지시대로 Tester 영역. 꺼짐 기본값 상태에선 위 20건이 계속 깨진다
+   (Tester가 test_helper에서 config 기본 켬 + 꺼짐 케이스 분리 예정).
+2. **paid_pending 패널이 꺼짐에 가려짐** — TAX-4 우선순위(기존 기록 > 꺼짐 > …)에 따라 결제 후 SOAP 실패
+   건(paid 주문만 있는 청구)은 꺼짐 동안 "준비 중" 카드로 표시된다. 주문 show 경로 자체는 살아있으나
+   패널 링크가 사라져 접근성이 떨어진다(플랜 확정 우선순위를 그대로 따름 — 스위치를 켜면 복귀).
+   ※보고 누락 정정 — "show 경로 살아있음"에는 **pending 주문의 결제 진입점**이 포함돼 있었다
+   (리뷰 C-2 — 꺼짐·부적격 상태에서도 결제 버튼이 열려 있었다). Phase 6 C-2 수정(결제 진입 차단)과
+   W-1 수정(paid_pending 우선순위 상향)으로 해소.
+3. **랜딩 불일치** — 스위치 꺼진 채 외부 공개 시 랜딩의 세금계산서 카드·FAQ와 어긋남(플랜 리스크 3 그대로 —
+   랜딩은 미연동, 런칭 전 켜기 전제).
+4. **켜짐 + 포인트 미충전** — 스위치만 켜면 결제 후 발행 실패 가능(플랜 리스크 4 그대로).
+5. **법적 근거 확인 수준** — 시행령 §70·§64조의2는 검색 자료 일치 기준(원문 직접 대조 못함) — 안내 문구에
+   "세무사 확인" 고지로 흡수(플랜 확정 사항).
 
-## 7. 후속(Phase 3 오케스트레이터) 참고
+## Phase 6 수정 내역 (리뷰 반영 — 2026-11-24)
 
-- uibowl 관찰 검증용 렌더 스크린샷 시 앵커 동선: features "더 많은 기능 보기" → `#all-features`.
-- PRD 반영(02_prd_update.md)과 별도로 **REM-15 미존재**·**SEC-4 미구현('예정' 배지)** 2건은 문서 정합성 관점에서 오케스트레이터 확인 권장.
+Reviewer 리뷰(`05_review.md` — BLOCKER 0·CRITICAL 2·WARNING 5)의 지시분을 전부 반영했다.
+오케스트레이터 판정(`02_prd_update.md` "리뷰 반영 보완") 기준. 리뷰 이슈와 무관한 코드는 변경하지
+않았고, 테스트 파일은 작성·수정하지 않았다(Tester 담당 — 리다이렉트 대상 변경으로 기존 가드 테스트의
+갱신이 예상된다).
+
+| 이슈 | 수정 내용 | 파일·이름 |
+|:---|:---|:---|
+| **C-1** (TAX-3 ②) | 발행 화면 진입 `new`가 차단되지 않는 문제 — `new`·`create` 공용 before_action 가드로 해소. 기능 게이트(`require_tax_invoice_feature` — 꺼짐이면 대시보드, 그대로) 다음에 대상 청구 로드(미마감 → 목록·기존 동작 이동) → `issue_guard_message` 판정(자격 없음·설정 미완료·거래처 사업자번호 없음·기발행)으로 막히면 **청구서 상세(`app_invoice_path`)로 리다이렉트**. 기존 가드를 같은 구조로 해소(Reviewer 권장 채택) — `create` 본문 7줄(10줄 기준 해소). `new`로 되돌리는 경로는 결제 버튼이 남은 막다른 길·무한 리다이렉트라 금지 | `App::TaxInvoicesController` — `load_issue_invoice`·`guard_issue_entry` 신설, `redirect_guard_message` 대상을 청구서 상세로 변경, `redirect_unpaid_invoice` 삭제, `new`는 빈 본문(`def new; end`) |
+| **C-2** (TAX-3·4 ④) | 미결제(pending) 주문의 상세 화면이 게이트 밖 결제 진입점인 문제 — 주문이 pending이고 (a) 기능 꺼짐 (b) 사용자 부적격이면 컨트롤러가 차단 안내를 `@tax_invoice_blocked_notice`로 공급하고, 뷰가 포트원 체크아웃 섹션(Stimulus data 포함) **대신 안내 카드**를 그린다(결제가 시작되지 않게). 조회 자체는 200 유지. 꺼짐이 우선, 부적격이면 User 단일 출처 문구. paid 주문의 `show`·`cancel`은 그대로 허용(TAX-4 ④), 청구서로 돌아가는 링크 유지 | `App::TaxInvoicesController#show` · `app/views/app/tax_invoices/show.html.erb`(pending 분기 조건화) |
+| **W-1** (TAX-4 ②) | 패널 판정 우선순위 재배열 — 기존 발행 기록 > **paid_pending(결제 완료·발행 기록 없음)** > 꺼짐 > 자격 없음 > settings_missing > client_missing > ready. 돈을 낸 사용자가 "발행 주문 확인" 링크를 잃지 않게(paid_pending 카드에는 발행 버튼이 없어 게이트 약화 없음) | `App::InvoicesController#set_tax_invoice_context` |
+| **W-2** (TAX-4) | 두 컨트롤러에 복제된 `require_tax_invoice_feature`를 **컨트롤러 concern으로 추출**(RemindersContext 선례). C-2의 pending 주문 차단 판정(`tax_invoice_payment_block_notice`)도 같은 concern에 둠. "전자세금계산서 발행은 현재 준비 중입니다." 리터럴 3곳 → **`TaxInvoice::FEATURE_DISABLED_NOTICE`** 단일 출처(패널 보조 문장 "준비가 되면 이 화면에서 발행할 수 있습니다."는 뷰에 유지) | **신설** `app/controllers/concerns/tax_invoice_gate.rb` · `app/models/tax_invoice.rb`(상수) · 패널·두 컨트롤러는 include로 전환 |
+| **W-3** (TAX-3) | 발행 설정 화면이 부적격 사용자를 인증서 등록으로 이끄는 문제 — ① 저장 성공 플래시를 자격 조건화(부적격은 "다음으로 공동인증서를 등록해 주세요" 미출력, "사업자 정보가 저장되었습니다." + 발급 불가 안내) ② 2단계 안내·버튼을 `@tax_type_ineligible`로 숨기고 발급 불가 안내(amber note 박스 — 기존 톤)를 대신 표시 ③ 과세 유형 도움말을 "사업자 유형에 따라 전자세금계산서 발급 가능 여부가 결정됩니다."로 교체 | `App::TaxInvoiceSettingsController#saved_notice` 신설 · `app/views/app/tax_invoice_settings/show.html.erb` |
+| **W-4** (TAX-3·LP-12) | 안내 문구를 **서비스 기준**으로 교체(법적 단정 회피) — 간이과세: "받을돈에서는 간이과세자의 전자세금계산서 발급을 지원하지 않습니다. …매출 규모에 따라 세금계산서 발급이 필요할 수 있으니 세무사에게 확인해 주세요." / 면세사업자: "받을돈에서는 면세사업자의 전자세금계산서 발급을 지원하지 않습니다. …". 문구 단일 출처 유지(패널·플래시·설정 화면·서비스 예외), "세무 자문 아님" 고지는 변경 없음 | `User#tax_invoice_ineligibility_notice` |
+| **W-5** (문서) | 이 문서의 정정 2건 — ① TAX-3 표 ② 행("issue_guard_message new·create 공용"은 사실과 달랐다 — `create` 전용) ② 리스크 2에 pending 주문 `show`의 결제 진입점 누락 — 와 본 절 신설 | `_workspace/03_implementation.md` |
+| 경과 관찰 (채택) | ① `IssueService::TAX_TYPE_BY_USER`를 `"general"`만 남김 — 가드를 건너뛰어도 `fetch` 실패(KeyError)로 발행 레코드 미생성 ② `User` enum 주석("간이과세→영세(2)·면세→면세(3) 매핑")을 실제와 일치하게 정정 ③ `issue_service.rb` 오타 "검증 사알"→"검증 사항" | `app/services/tax_invoices/issue_service.rb` · `app/models/user.rb` |
+
+범위 밖(이번에 변경 없음): 과세 유형 기본값(일반과세), 법적 예외(§64조의2) 지원, pending 주문 자동
+만료·실패 처리 로직, 랜딩 문구, 결제·바로빌 호출·과금 로직. 소유권 제한 3파일(`Gemfile.lock` ·
+`test/application_system_test_case.rb` · `test/test_helpers/capybara_chrome_compat.rb`)은 여전히
+미접촉이다.

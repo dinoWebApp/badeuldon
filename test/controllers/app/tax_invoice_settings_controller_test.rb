@@ -5,6 +5,8 @@ require_relative "../../test_helpers/fake_baro_bill_client"
 # 전자세금계산서 발행 설정(/app/tax_invoice_setting — TAX-1 2단계 온보딩·W-3) HTTP 통합 테스트.
 # 사업자 정보 저장(RegistCorp)·-32000 흡수·조작된 tax_type·9자리 corp_num의 422 수렴·
 # 인증서 등록 URL(CERT)·CheckCERTIsValid 기반 마킹을 검증한다. SOAP는 스텁(실호출 금지).
+# TAX-4 — 이 파일은 스위치 켜짐을 전제로 한다(test_helper 기본 켬 — 꺼짐 케이스는
+# tax_invoice_gate_test.rb가 with_tax_invoice_feature(false)로 격리해 검증한다).
 class App::TaxInvoiceSettingsControllerTest < ActionDispatch::IntegrationTest
   include BaroBillStubbing
 

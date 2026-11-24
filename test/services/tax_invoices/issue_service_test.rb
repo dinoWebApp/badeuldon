@@ -46,6 +46,43 @@ class TaxInvoices::IssueServiceTest < ActiveSupport::TestCase
     assert_empty @client.calls.values.flatten
   end
 
+  # TAX-3 ④(2026-11-24·Q25) — 결제 완료 뒤 경로의 최종 방어선. 자격 가드는 가드 사슬의
+  # 맨 앞이므로 설정 미완료가 함께 있어도 자격 문구가 먼저 나오고, 기록·바로빌 호출은 없다.
+  test "가드(TAX-3): 간이과세 사용자는 GuardFailed다 — 기록·바로빌 호출 없음" do
+    @user.update!(tax_type: :simplified)
+
+    error = assert_raises(TaxInvoices::IssueService::GuardFailed) do
+      TaxInvoices::IssueService.new(invoice: @invoice, order: @order, client: @client).call
+    end
+
+    assert_equal @user.tax_invoice_ineligibility_notice, error.message
+    assert_nil TaxInvoice.find_by(invoice_id: @invoice.id)      # 발행 레코드 미생성
+    assert_empty @client.calls.values.flatten                    # SOAP 미호출
+  end
+
+  test "가드(TAX-3): 면세사업자 사용자도 GuardFailed다" do
+    @user.update!(tax_type: :exempt)
+
+    error = assert_raises(TaxInvoices::IssueService::GuardFailed) do
+      TaxInvoices::IssueService.new(invoice: @invoice, order: @order, client: @client).call
+    end
+
+    assert_equal @user.tax_invoice_ineligibility_notice, error.message
+    assert_nil TaxInvoice.find_by(invoice_id: @invoice.id)
+    assert_empty @client.calls.values.flatten
+  end
+
+  test "가드(TAX-3): 자격 가드는 설정 미완료 가드보다 앞선다 — 부적격+미설정은 자격 문구다" do
+    @user.update!(tax_type: :simplified, barobill_cert_registered: false)
+
+    error = assert_raises(TaxInvoices::IssueService::GuardFailed) do
+      TaxInvoices::IssueService.new(invoice: @invoice, order: @order, client: @client).call
+    end
+
+    assert_equal @user.tax_invoice_ineligibility_notice, error.message
+    assert_no_match(/발행 설정을 먼저 완료/, error.message)
+  end
+
   test "가드: 거래처 사업자번호 없음(개인 거래처)은 GuardFailed다" do
     clients(:delta_main).update!(business_number: nil)
 
