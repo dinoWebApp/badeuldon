@@ -1,4 +1,5 @@
 require "test_helper"
+require_relative "test_helpers/capybara_chrome_compat"
 
 # 시스템 테스트 공통 케이스(첫 도입 — 플랜 결정 #3). 로컬 Chrome headless —
 # selenium-webdriver 4.5+는 Selenium Manager로 드라이버를 자동 관리한다.
