@@ -8,6 +8,12 @@ class Admin::AuditTrailTest < ActionDispatch::IntegrationTest
 
   test "핵심 여정에서 5종 감사 action이 각 시점에 기록된다 (ADMIN-2)" do
     t0 = Time.current
+    # CI 경화(2026-11-24 실측) — 같은 작업 프로세스의 앞선 테스트가 트랜잭션 밖에서 남긴 감사 행이
+    # 전역 카운트에 섞인다(payments_concurrency_test 가 별도 스레드로 커밋한 payment_over_recorded).
+    # 이 여정이 만든 행만 세도록 여정 시작 전의 마지막 감사 행 id를 기준선으로 델타 검증한다
+    # (8db0fe9 선례). 시각(created_at) 비교는 쓰지 않는다 — 로그인 시각을 t0으로 고정해 만든 행은
+    # DB에 마이크로초로 절삭되어 t0보다 약간 앞선 시각이 되어 't0 이후' 조건에서 빠진다.
+    audit_baseline = AuditLog.maximum(:id).to_i
     admin = admins(:ops)
 
     # login_failed — 1단계 비밀번호 실패
@@ -41,7 +47,8 @@ class Admin::AuditTrailTest < ActionDispatch::IntegrationTest
       "login_failed" => 1, "login_success" => 2,
       "new_ip_login" => 1, "lockout" => 1, "password_reset" => 1
     }
-    assert_equal expected, AuditLog.group(:action).count
-    assert_equal 6, AuditLog.count, "감사 생성은 RecordService 단일 경로 — 이외 경로 없음"
+    journey_audits = AuditLog.where("id > ?", audit_baseline)
+    assert_equal expected, journey_audits.group(:action).count
+    assert_equal 6, journey_audits.count, "감사 생성은 RecordService 단일 경로 — 이외 경로 없음"
   end
 end
