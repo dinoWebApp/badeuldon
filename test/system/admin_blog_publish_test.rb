@@ -22,9 +22,9 @@ class AdminBlogPublishTest < ApplicationSystemTestCase
     visit new_admin_session_path
     fill_in "이메일", with: admins(:ops).email
     fill_in "비밀번호", with: "password"
-    submit_form_of(admin_session_path)
+    submit_and_await_navigation(admin_session_path)
     fill_in "인증 코드", with: totp_code(admins(:ops).otp_secret)
-    submit_form_of(totp_verify_admin_session_path)
+    submit_and_await_navigation(totp_verify_admin_session_path)
     assert_text "관리자로 로그인되었습니다." # /admin 대시보드 도달
 
     # ② 신규 폼 작성 — multipart 필드 2종 실첨부.
@@ -41,8 +41,9 @@ class AdminBlogPublishTest < ApplicationSystemTestCase
     attach_file "blog_post_thumbnail", Rails.root.join("test/fixtures/files/sample.png")
     attach_file "blog_post_og_image", Rails.root.join("test/fixtures/files/sample.png")
 
-    submit_form_of(admin_blog_posts_path)
-
+    # 제출 직후 DB를 읽지 않는다 — 리다이렉트까지 마무리된 뒤 읽는다(사연은 await_state·
+    # submit_and_await_navigation 주석).
+    submit_and_await_navigation(admin_blog_posts_path)
     post = BlogPost.order(:id).last
     assert_equal "미수금 대응 가이드", post.title
     assert_match(/\A[a-z0-9-]+\z/, post.slug)
@@ -56,6 +57,8 @@ class AdminBlogPublishTest < ApplicationSystemTestCase
     # ③ 발행 — 필수 충족이므로 성공해야 한다(BLOG-5). button_to 폼을 action 특정 네이티브 제출
     visit admin_blog_posts_path
     submit_form_of(publish_admin_blog_post_path(post))
+    # 생성 단계와 같은 이유 — 발행 요청 처리가 확정된 뒤 상태를 읽는다.
+    await_state("게시글 발행 상태 전환") { post.reload.published? }
     assert_equal "published", post.reload.status
     assert post.published_at.present?
 
@@ -87,5 +90,39 @@ class AdminBlogPublishTest < ApplicationSystemTestCase
     page.execute_script(
       "document.querySelector('form[action=\"' + arguments[0] + '\"]').submit()", url
     )
+  end
+
+  # 네이티브 제출 뒤 화면이 바뀔 때까지 기다린다(2026-11-24 실측). 제출 응답이 리다이렉트인
+  # 폼에서 제출 직후 노드를 읽으면 내비게이션 진행 중이라 Chrome 158 이 "unhandled inspector
+  # error: Node with given id does not belong to the document"(UnknownError)를 내고, Capybara 는
+  # StaleElementReferenceError 만 재시도하므로 이 변형은 그대로 실패한다(로컬 32회 중 1회·원격 CI
+  # 간헐). 화면 단정(assert_text)보다 먼저 주소가 바뀌기를 기다린다. 리다이렉트 뒤 로딩 중이어도
+  # 이후 fill_in·assert_text 는 Capybara 대기로 처리된다.
+  # 같은 주소로 돌아오는 폼(발행 — 목록 → 목록)에는 쓸 수 없으므로 그곳은 await_state 로 상태를 기다린다.
+  def submit_and_await_navigation(url)
+    from_path = page.current_path
+    submit_form_of(url)
+    await_state("화면 전환") { page.current_path != from_path }
+  end
+
+  # 요청 처리 확정 대기(2026-11-24 실측). 네이티브 폼 제출(form.submit())은 응답 완료를 기다리지
+  # 않는다 — 제출 직후 DB를 읽으면 요청이 끝나기 전에 읽혀 nil이 된다("undefined method 'title'
+  # for nil": 로컬 10회 중 6회·원격 CI 간헐 실패). 화면 단정(assert_text)은 Capybara가 알아서
+  # 재시도하지만 DB 읽기는 재시도가 없어, 조건이 참이 될 때까지 Capybara 대기 시간만큼 폴링한다.
+  # 시간 초과 시 현재 화면 주소와 표시 내용(flash 안내)과 함께 실패시켜 원인 분류가 가능하게 한다
+  # (예: 발행 검증 실패는 수정 화면 + alert 으로 돌아온다).
+  def await_state(description)
+    deadline = Time.now + Capybara.default_max_wait_time
+    until yield
+      flunk "#{description} — #{Capybara.default_max_wait_time}초 내에 확정되지 않았습니다. " \
+            "현재 화면: #{page.current_url} / 표시 내용: #{visible_text_snippet}" if Time.now >= deadline
+      sleep 0.05
+    end
+  end
+
+  def visible_text_snippet
+    page.find("body", wait: 0).text.squish[0, 400]
+  rescue Capybara::CapybaraError
+    "(화면을 읽지 못했습니다)"
   end
 end
