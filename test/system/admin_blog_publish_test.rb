@@ -41,10 +41,13 @@ class AdminBlogPublishTest < ApplicationSystemTestCase
     attach_file "blog_post_thumbnail", Rails.root.join("test/fixtures/files/sample.png")
     attach_file "blog_post_og_image", Rails.root.join("test/fixtures/files/sample.png")
 
-    # 제출 직후 DB를 읽지 않는다 — 리다이렉트까지 마무리된 뒤 읽는다(사연은 await_state·
-    # submit_and_await_navigation 주석).
+    # 저장 확정을 기다린 뒤 읽는다 — 화면 주소 변경만으로는 요청 처리 완료가 보장되지 않으므로 DB 행
+    # 존재로 확정한다(방어). 이 테스트의 과거 실패("undefined method 'title' for nil" — 커밋 5acdae4 뒤에도
+    # 2026-11-25 원격 CI 재발)의 근본 원인은 따로 있었다: chromedriver 입력 유실로 필수값이 빠진 폼이
+    # 제출돼 422를 받은 것(ApplicationSystemTestCase#fill_in 주석 — 2026-11-25 CPU 부하 재현·이벤트
+    # 기록으로 확정). await_record 는 실패 시 화면 내용(검증 오류 안내)을 메시지에 싣어 이 원인을 드러냈다.
     submit_and_await_navigation(admin_blog_posts_path)
-    post = BlogPost.order(:id).last
+    post = await_record("게시글 생성") { BlogPost.find_by(title: "미수금 대응 가이드") }
     assert_equal "미수금 대응 가이드", post.title
     assert_match(/\A[a-z0-9-]+\z/, post.slug)
     assert_equal "draft", post.status
@@ -105,12 +108,13 @@ class AdminBlogPublishTest < ApplicationSystemTestCase
     await_state("화면 전환") { page.current_path != from_path }
   end
 
-  # 요청 처리 확정 대기(2026-11-24 실측). 네이티브 폼 제출(form.submit())은 응답 완료를 기다리지
-  # 않는다 — 제출 직후 DB를 읽으면 요청이 끝나기 전에 읽혀 nil이 된다("undefined method 'title'
-  # for nil": 로컬 10회 중 6회·원격 CI 간헐 실패). 화면 단정(assert_text)은 Capybara가 알아서
-  # 재시도하지만 DB 읽기는 재시도가 없어, 조건이 참이 될 때까지 Capybara 대기 시간만큼 폴링한다.
+  # 요청 처리 확정 대기(2026-11-24 도입). 네이티브 폼 제출(form.submit())은 응답 완료를 기다리지
+  # 않는다 — 제출 직후 DB 를 읽으면 요청이 끝나기 전일 수 있다. 화면 단정(assert_text)은 Capybara 가
+  # 알아서 재시도하지만 DB 읽기는 재시도가 없어, 조건이 참이 될 때까지 Capybara 대기 시간만큼 폴링한다.
   # 시간 초과 시 현재 화면 주소와 표시 내용(flash 안내)과 함께 실패시켜 원인 분류가 가능하게 한다
   # (예: 발행 검증 실패는 수정 화면 + alert 으로 돌아온다).
+  # 정정(2026-11-25): 도입 당시 "저장 전에 DB 를 읽어 nil"로 본 실패는 실제로는 chromedriver 입력 유실로
+  # 필수값이 빠진 폼이 422 를 받은 것이었다(ApplicationSystemTestCase#fill_in). 이 폴링은 방어로 유지한다.
   def await_state(description)
     deadline = Time.now + Capybara.default_max_wait_time
     until yield
@@ -124,5 +128,25 @@ class AdminBlogPublishTest < ApplicationSystemTestCase
     page.find("body", wait: 0).text.squish[0, 400]
   rescue Capybara::CapybaraError
     "(화면을 읽지 못했습니다)"
+  end
+
+  # 저장 확정 대기(2026-11-25) — 블록이 참인 값을 반환할 때까지 폴링하고 그 값을 돌려준다.
+  # submit_and_await_navigation 은 화면 주소가 바뀌면 돌아오는데, 주소 변경은 요청 처리(저장) 완료를
+  # 보장하지 않는다. DB 를 직접 읽는 단언 앞에서 쓴다(화면 단언은 Capybara 가 알아서 재시도한다).
+  # 대기 상한은 화면 대기 기본값(2초)보다 길게 둔다 — 저장 요청 자체가 느린 CI 에서 조기 실패하지 않게.
+  # 통과하는 경로는 행이 생기는 즉시 반환된다. 시간 초과 시 현재 화면 주소·표시 내용과 함께 실패시켜
+  # 원인 분류가 가능하게 한다(예: 검증 실패로 폼 + 오류 안내로 돌아온 경우).
+  AWAIT_RECORD_TIMEOUT = 10
+
+  def await_record(description)
+    deadline = Time.now + AWAIT_RECORD_TIMEOUT
+    loop do
+      record = yield
+      return record if record
+
+      flunk "#{description} — #{AWAIT_RECORD_TIMEOUT}초 내에 확정되지 않았습니다. " \
+            "현재 화면: #{page.current_url} / 표시 내용: #{visible_text_snippet}" if Time.now >= deadline
+      sleep 0.05
+    end
   end
 end

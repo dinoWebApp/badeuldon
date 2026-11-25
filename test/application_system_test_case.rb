@@ -7,6 +7,31 @@ require_relative "test_helpers/capybara_chrome_compat"
 class ApplicationSystemTestCase < ActionDispatch::SystemTestCase
   driven_by :selenium, using: :headless_chrome, screen_size: [ 430, 932 ]
 
+  # fill_in 을 값 검증형으로 덮어쓴다(2026-11-25 실측). chromedriver 의 텍스트 입력은 CPU 부하·저사양
+  # 환경에서 한 구간이 조용히 사라질 수 있다 — 로컬 CPU 부하 8회 중 2회: 본문 87자 중 84자만 들어가고
+  # 뒤이은 필드 2개는 포커스만 받은 채 input 이벤트 0건·값 0자였다. fill_in 은 오류 없이 반환하므로
+  # 필수값이 빠진 폼이 그대로 제출돼 검증에 걸리고, 테스트는 전혀 다른 오류(블로그 발행 테스트의
+  # "undefined method 'title' for nil")로 보였다 — 원격 CI 플레이크의 근본 원인. 입력 뒤 값을 되읽어
+  # 기댓값과 다르면 JS 로 값을 넣고 input·change 이벤트를 발생시킨다(프런트엔드 프레임워크 없는 일반
+  # 폼 — 입력값을 JS 가 바꿔 쓰는 필드에는 쓰지 않는다. 현재 시스템 테스트의 fill_in 은 아이디·비밀번호·
+  # 인증코드·제목·본문·사유뿐이다). 정상 환경에서는 한 번에 맞아 아무 일도 일어나지 않는다.
+  def fill_in(locator = nil, with: nil, **options)
+    super
+    return if with.nil?
+
+    expected = with.to_s
+    field = find_field(locator, **options)
+    return if field.value == expected
+
+    page.execute_script(<<~JS, field, expected)
+      const [field, value] = arguments;
+      field.value = value;
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      field.dispatchEvent(new Event("change", { bubbles: true }));
+    JS
+    assert_equal expected, field.value, "#{locator} 입력값이 재입력 뒤에도 일치하지 않습니다"
+  end
+
   private
 
   # Turbo 부트 대기(2026-11-06 CI 안정화 — 경위는 _workspace/07_test_report.md §7 참조).
