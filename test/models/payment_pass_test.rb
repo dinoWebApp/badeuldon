@@ -75,4 +75,72 @@ class PaymentPassTest < ActiveSupport::TestCase
       assert_not_includes usable_ids, expired.id
     end
   end
+
+  # ── PLAN-9②·Q27 — 회원 단위 차감(revoke_uses!) ──
+
+  test "revoke_uses!는 만료 임박순으로 여러 패스에 걸쳐 차감한다 (PLAN-9②·Q27)" do
+    travel_to(Time.zone.parse("2026-10-15 09:00")) do
+      user = users(:gamma) # 패스 fixture 없는 사용자 — 테스트가 보유 패스를 만든다
+      soon = create_pass(user, remaining: 6, expires_at: Time.zone.parse("2026-11-05 23:59:59"))
+      later = create_pass(user, remaining: 10, expires_at: Time.zone.parse("2026-12-25 23:59:59"))
+
+      revoked, ignored = PaymentPass.revoke_uses!(user: user, count: 10)
+
+      assert_equal [ 10, 0 ], [ revoked, ignored ]
+      assert_equal 0, soon.reload.remaining_uses, "만료 임박 패스 먼저"
+      assert_equal 6, later.reload.remaining_uses, "남은 수량은 다음 패스에서"
+    end
+  end
+
+  test "revoke_uses!는 잔여 부족 시 0에서 종료하고 나머지를 무시한다 (PLAN-9② — 음수 방지)" do
+    travel_to(Time.zone.parse("2026-10-15 09:00")) do
+      user = users(:gamma)
+      pass = create_pass(user, remaining: 3, expires_at: Time.zone.parse("2026-11-05 23:59:59"))
+
+      revoked, ignored = PaymentPass.revoke_uses!(user: user, count: 10)
+
+      assert_equal [ 3, 7 ], [ revoked, ignored ]
+      assert_equal 0, pass.reload.remaining_uses, "0에서 종료 — 음수 없음"
+    end
+  end
+
+  test "revoke_uses!는 만료·소진 패스를 제외하고 유효 패스만 차감한다 (PLAN-9②)" do
+    travel_to(Time.zone.parse("2026-10-15 09:00")) do
+      user = users(:gamma)
+      usable = create_pass(user, remaining: 4, expires_at: Time.zone.parse("2026-11-05 23:59:59"))
+      expired = create_pass(user, remaining: 10, expires_at: Time.zone.parse("2026-10-15 08:59:59"))
+      exhausted = create_pass(user, remaining: 0, expires_at: Time.zone.parse("2026-12-25 23:59:59"))
+
+      revoked, ignored = PaymentPass.revoke_uses!(user: user, count: 10)
+
+      assert_equal [ 4, 6 ], [ revoked, ignored ]
+      assert_equal 0, usable.reload.remaining_uses
+      assert_equal 10, expired.reload.remaining_uses, "만료 패스 무변경"
+      assert_equal 0, exhausted.reload.remaining_uses, "소진 패스 무변경"
+    end
+  end
+
+  test "revoke_uses!는 보유 패스가 없으면 [0, count]를 반환한다 (PLAN-9② 경계)" do
+    travel_to(Time.zone.parse("2026-10-15 09:00")) do
+      revoked, ignored = PaymentPass.revoke_uses!(user: users(:gamma), count: PaymentPass::TOTAL_USES)
+
+      assert_equal [ 0, 10 ], [ revoked, ignored ]
+    end
+  end
+
+  test "revoke_uses!는 count가 0·음수면 ArgumentError로 거부한다 (PLAN-9② 방어)" do
+    travel_to(Time.zone.parse("2026-10-15 09:00")) do
+      user = users(:gamma)
+
+      assert_raises(ArgumentError) { PaymentPass.revoke_uses!(user: user, count: 0) }
+      assert_raises(ArgumentError) { PaymentPass.revoke_uses!(user: user, count: -1) }
+    end
+  end
+
+  private
+
+  def create_pass(user, remaining:, expires_at:)
+    user.payment_passes.create!(total_uses: PaymentPass::TOTAL_USES,
+                                remaining_uses: remaining, expires_at: expires_at)
+  end
 end

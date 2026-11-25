@@ -269,4 +269,20 @@ class App::TaxInvoicesControllerTest < ActionDispatch::IntegrationTest
     assert_match(app_tax_invoice_path(order), response.body)
     assert_no_match(/전자세금계산서 발행</, response.body)      # 발행 버튼 미노출
   end
+
+  # ── PLAN-9 환불 실행 — 회원 표기(Q27·W-5f) ──
+
+  test "환불된 발행 주문 상세는 환불 안내를 보여주고 다시 발행 요청 링크가 없다 (PLAN-9·W-5f)" do
+    sign_in_as @user
+    order = create_tax_order(status: :paid)
+    order.update!(paid_at: Time.current, status: :cancelled,
+                  refunded_at: Time.current, refund_reason: "이중 결제 정정")
+
+    get app_tax_invoice_path(order)
+
+    assert_response :success
+    assert_match "이 발행 주문은 환불되었습니다.", response.body
+    assert_match "고객지원(문의)으로 연락해 주세요", response.body, "재발행은 고객지원 경로로 안내한다"
+    assert_no_match "다시 발행 요청", response.body, "발행 이력 가드에 막혀 막다른 글이 되는 링크는 노출하지 않는다"
+  end
 end

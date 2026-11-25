@@ -1,5 +1,5 @@
 {
-  "domain": "TAX",
+  "domain": "PLAN/ADMIN",
   "currentPhase": null,
   "pipelineType": "Full",
   "parallelTasks": [],
@@ -7,58 +7,63 @@
     {
       "phase": 0,
       "status": "done",
-      "note": "새 작업 — 세금계산서 발급 자격 차단·운영 준비 게이트. 미커밋 3파일(보안 gem·Chrome 호환) 공존 — 처리 방식 승인 질의에 포함"
+      "note": "새 작업 — 관리자 환불 실행(포트원 결제 취소 연동·구독 즉시 Free·수금 패스 차감). 작업 트리 깨끗함·원격 동기"
     },
     {
       "phase": 1,
       "status": "done",
-      "note": "01_plan.md — TAX-3(발급 자격)·TAX-4(운영 준비 게이트)·Q25·Q26 설계"
+      "note": "01_plan.md — Orders::RefundService·owner 전용 콘솔·PLAN-9·ADMIN-11·Q27 설계. 사용자 확정 3건(패스 10건 차감·발행물 그대로·owner 전용)+카드 저장 확인(빌링키만 보관·환불 시 구독 키와 주문 복사본 비움) 반영. 주문 status cancelled 수렴·웹훅 변경 없음으로 설계 정정"
     },
     {
       "phase": 1.5,
       "status": "done",
-      "note": "승인 — 계속 진행 (임시 스위치 포함·미커밋 3파일 그대로 두기)"
+      "note": "승인 게이트 통과(2026-11-24 사용자 선택: 승인 — 계속 진행, 개인정보처리방침 빌링키 문구는 보류)"
     },
     {
       "phase": 2,
       "status": "done",
-      "note": "PRD v0.46 — TAX-3·TAX-4·Q25·Q26 신설, AGENTS 진행 중 항목, 02_prd_update.md"
+      "note": "02_prd_update.md — PRD v0.47: PLAN-9 신설·PLAN-6 보강·ADMIN-11 신설·ADMIN-4 보강·포트원 의존 행·Q27 신설. AGENTS.md Rule 색인 PLAN·ADMIN 행 갱신"
     },
     {
       "phase": 3,
       "status": "done",
-      "note": "Developer 구현 — 12파일(생성 1·수정 11). 켜짐 상태 기존 테스트 98 runs 0실패. 실측 GLM-5.3-Flash/high 일치. 리스크: paid_pending 건이 꺼짐 카드에 가려짐(리뷰 검증 항목)"
+      "note": "badeuldon-developer 구현 — 신설 2(refund_service·admin/orders_helper)·수정 11·기존 테스트 1 파일 이식. 자체 보고: 전체 테스트 1,529건 0실패·rubocop 0·zeitwerk 통과. 위임 실측 GLM-5.3-Flash/high 일치. 03_implementation.md 작성"
     },
     {
       "phase": 4,
       "status": "done",
-      "note": "rubocop 414파일 위반 0·zeitwerk 이상 없음·새 정의 5종 모두 호출됨. 사전 관찰 2건을 리뷰 검증 항목으로 전달(new 진입 미차단·paid_pending이 꺼짐에 가려짐)"
+      "note": "오케스트레이터 기계적 검증 — bin/rubocop 422파일 0 offenses·zeitwerk:check 통과(test/mailers/previews 안내는 기존 권고)·마이그레이션 없음. 소스 변경 12파일(+187/-59)+신설 2"
     },
     {
       "phase": 5,
       "status": "done",
-      "note": "Reviewer CHANGES_REQUESTED — B0·C2(new 미차단·pending 주문 show가 게이트 밖 결제 진입점)·W5·확인요청 3. 실측 GLM-5.4/high 일치(첫 실제 스폰)"
+      "note": "badeuldon-reviewer CHANGES_REQUESTED — B0·C2·W9(범위 밖 1)+확인 요청 2. C-1 dunning 잔여 필드로 재등록 카드 재차감·C-2 PG 취소 뒤 확정 실패 시 감사 기록 0건. 포트원 OpenAPI 원문 대조 성공(amount.paid/total/cancelled 확정·취소 내역 키는 totalAmount). 위임 실측 GLM-5.4/high 일치. ⚠ 리뷰 중 서브에이전트가 포트원 운영 호스트로 실요청(거부됨·금전 이동 없음) + 기존 테스트 결함 R3(dunning_retry_test:135 대역 없이 갱신 잡 실행) 발견"
     },
     {
       "phase": 6,
       "status": "done",
-      "note": "Developer 재위임 — 리뷰 C-1·C-2·W-1~W-5·경과 관찰 3건 전부 수정. concern TaxInvoiceGate 신설. 켜짐 상태 118 runs 중 1건 실패(리다이렉트 대상 변경 — Tester 갱신 대상). 실측 GLM-5.3-Flash/high 일치"
+      "note": "badeuldon-developer 재위임 — 포트원 test 환경 실호출 차단 가드(클라이언트 perform + with_http_transport 플래그 + 가드 테스트 1건)·R3 대역 감싸기·C-1(reset_dunning!+last_payment_failed_at nil)·C-2(order_refund_attempt/failed 감사)·W-1~W-8 수정. 자체 보고: 가드 활성 전체 테스트 1,530건 0실패 0에러·rubocop 0·zeitwerk 통과. 위임 실측 GLM-5.3-Flash/high 일치"
+    },
+    {
+      "phase": 6.5,
+      "status": "done",
+      "note": "오케스트레이터 재검증 — rubocop 422파일 0 offenses·zeitwerk 통과. 가드 코드·stubbing 플래그·R3 대역 감싸기·refund_service(C-1·C-2·W-1~W-8)·컨트롤러 안전망·관리자/회원 문구 diff 직접 확인(지시대로 반영). CRITICAL 건은 규약상 재리뷰 불필요 — Tester 회귀 테스트로 검증"
     },
     {
       "phase": 7,
       "status": "done",
-      "note": "Tester — 신규 5파일·기존 갱신. 세금계산서 관련 158 runs 0실패, 전체 1,529 runs(+52) 0실패, 시스템 13 runs 0실패, 코드 버그 0건. 실측 GLM-5.3-Flash/high 일치"
+      "note": "badeuldon-tester — 1차 호출은 5시간 사용량 한도로 리딩 단계 중단(2026-11-24), 신규 호출 재시도로 완료(2026-11-25). 자체 보고: 전체 1,582 runs(+52)·9,958 assertions·0 failures·0 errors / test:system 14 runs(신규 1건 10/10 안정) / app 버그 0 / 기존 테스트 날짜 폭탄 1건(Sales::RotateReferralCodesServiceTest) 테스트 측 수정. 위임 실측 GLM-5.3-Flash/high 일치. 07_test_report.md 작성"
     },
     {
       "phase": 8,
       "status": "done",
-      "note": "꺼짐·켜짐 부트 정상(에러·경고 0)·스위치 값 실측(fail-closed)·bin/ci 그린(1,529 runs 0실패)·시스템 13건 0실패"
+      "note": "오케스트레이터 실행 검증 — 전체 테스트 직접 재실행 1,582 runs·0 failures·0 errors(Tester 보고 일치)·Brakeman 0 경고·db:prepare·라우트 등록·Puma 부팅·미로그인 요청 응답(CSRF 없는 PATCH 422·유효 CSRF+관리자 세션 없음 303 로그인 가드)·500·예외 0·외부 실호출 0. bin/dev는 비TTY에서 css 감시 프로세스 즉시 종료로 foreman 전체 종료(환경 특성) → rails server 직접 구동으로 대체. 08_run_report.md 작성"
     },
     {
       "phase": 9,
       "status": "done",
-      "note": "AGENTS 갱신(완료 항목·운영 노트)·08_run_report·progress 리셋 — 커밋은 사용자 요청 시"
+      "note": "완료 보고 — AGENTS.md 구현 진행 상황·테스트 전략(test 환경 실호출 차단 가드 3종)·운영 노트(관리자 환불 실행 운영) 갱신, PRD PLAN-9 구현 확정 보강. 위임 실측 4건 전부 일치. 커밋·배포는 사용자 요청 시(badeuldon-git-deploy·bin/ci)"
     }
   ],
-  "lastUpdated": "2026-11-24T12:00:00+09:00"
+  "lastUpdated": "2026-11-25T08:40:00+09:00"
 }

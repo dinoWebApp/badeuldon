@@ -1,4 +1,4 @@
-<%# ADMIN-4(T-B3) — 주문 상세 + 환불 사유 기록 폼 %>
+<%# ADMIN-4·11(PLAN-9) — 주문 상세 + 결제 취소(환불) 실행(owner 전용 — @can_refund) %>
 <div class="admin-card">
   <h1 class="admin-title">주문 상세</h1>
 
@@ -6,13 +6,17 @@
     <div><dt class="text-xs text-stone-500">주문 ID</dt><dd class="font-mono"><%= @order.pg_order_id %></dd></div>
     <div><dt class="text-xs text-stone-500">주문일</dt><dd><%= @order.created_at.strftime("%Y-%m-%d %H:%M") %></dd></div>
     <div><dt class="text-xs text-stone-500">사용자</dt><dd><%= @order.user.email %></dd></div>
-    <div><dt class="text-xs text-stone-500">상품</dt><dd><%= @order.product.humanize %></dd></div>
+    <div><dt class="text-xs text-stone-500">상품</dt><dd><%= order_item_label(@order) %></dd></div>
     <div><dt class="text-xs text-stone-500">금액</dt><dd><%= number_to_currency(@order.amount, unit: "₩", precision: 0) %></dd></div>
     <div><dt class="text-xs text-stone-500">상태</dt><dd><%= @order.status.humanize %></dd></div>
     <div><dt class="text-xs text-stone-500">PG 결제 ID</dt><dd class="font-mono"><%= @order.pg_payment_id || "-" %></dd></div>
     <% if @order.refunded? %>
-      <div><dt class="text-xs text-stone-500">환불 기록일</dt><dd><%= @order.refunded_at.strftime("%Y-%m-%d %H:%M") %></dd></div>
+      <div><dt class="text-xs text-stone-500">환불일</dt><dd><%= @order.refunded_at.strftime("%Y-%m-%d %H:%M") %></dd></div>
       <div class="sm:col-span-2"><dt class="text-xs text-stone-500">환불 사유</dt><dd><%= @order.refund_reason %></dd></div>
+      <% if @refund_info.present? %>
+        <div><dt class="text-xs text-stone-500">환불 실행자</dt><dd><%= @refund_info["executed_by"] %></dd></div>
+        <div><dt class="text-xs text-stone-500">환불 금액</dt><dd><%= number_to_currency(@refund_info["amount"].to_i, unit: "₩", precision: 0) %></dd></div>
+      <% end %>
     <% end %>
     <% if @order.metadata.present? %>
       <div class="sm:col-span-2"><dt class="text-xs text-stone-500">메타데이터</dt><dd class="font-mono text-xs"><%= @order.metadata.inspect %></dd></div>
@@ -23,25 +27,55 @@
 </div>
 
 <div class="admin-card mt-6">
-  <h2 class="text-lg font-bold text-stone-800">환불 사유 기록</h2>
+  <h2 class="text-lg font-bold text-stone-800">결제 취소(환불) 실행</h2>
+
   <% if @order.refunded? %>
-    <p class="mt-2 text-sm text-stone-500">이미 환불 기록이 있는 주문입니다. (기록일: <%= @order.refunded_at.strftime("%Y-%m-%d %H:%M") %>)</p>
-  <% else %>
+    <%# ADMIN-11 — 환불 완료 건: 실행 결과 표시, 폼 감춤. @refund_info 유무로 실행 건과
+        레거시 기록 전용 건(ADMIN-4 mark_refunded 시절)을 구분한다(W-5e). %>
+    <% if @refund_info.present? %>
+      <p class="mt-2 text-sm text-stone-500">
+        환불이 완료된 주문입니다(<%= @order.refunded_at.strftime("%Y-%m-%d %H:%M") %>).
+        상품별 되돌리기와 감사 로그 기록까지 완료되었습니다(ADMIN-2).
+      </p>
+    <% else %>
+      <p class="mt-2 text-sm text-stone-500">
+        과거 기록 전용 방식으로 기록된 주문입니다(실제 환불·되돌리기는 이 화면으로 실행된 것이 아닙니다).
+      </p>
+    <% end %>
+  <% elsif !@can_refund %>
+    <p class="mt-2 text-sm text-stone-500">환불 실행은 최고 관리자(owner)만 수행할 수 있습니다(ADMIN-1).</p>
+  <% elsif @order.pending? || @order.failed? || @order.paid_at.blank? %>
+    <%# ADMIN-11 — 결제 완료 적 없는 주문(pending·failed·가상계좌 말소): 버튼 없이 안내만 %>
     <p class="mt-2 text-sm text-stone-500">
-      ※ 실제 PG 환불은 포트원(KG이니시스) 콘솔에서 수동 처리해야 합니다(PLAN-5).
-      이 폼은 그 결과를 서비스에 기록하는 절차이며, 기록 시 감사 로그가 남습니다(ADMIN-2).
+      이 주문은 결제가 완료된 적이 없어 환불할 수 없습니다(현재 상태: <%= @order.status.humanize %>).
     </p>
-    <%= form_with scope: :order, url: mark_refunded_admin_order_path(@order), method: :patch, class: "mt-4 space-y-3" do |form| %>
+  <% else %>
+    <%# paid·cancelled(paid_at 있음) — 실행 폼. cancelled + refunded_at 없음은 포트원 콘솔 선취소 건 %>
+    <% if @order.cancelled? %>
+      <p class="mt-2 rounded border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800">
+        포트원에서 이미 취소된 결제입니다 — 이 버튼으로 정산(환불 기록·상품 되돌리기)을 완료하세요.
+        실행하면 포트원에 결제 취소를 요청한 뒤 포트원에 다시 조회해 전액 취소를 확인합니다
+        (이미 취소된 결제는 확인만 합니다). 부분 취소된 결제는 실행에 실패합니다.
+      </p>
+    <% else %>
+      <p class="mt-2 text-sm text-stone-500">
+        실행하면 포트원 결제 취소(전액·즉시)를 요청하고 결제 상품을 되돌립니다(PLAN-9 — Q27).
+      </p>
+    <% end %>
+    <%= form_with scope: :order, url: refund_admin_order_path(@order), method: :patch, class: "mt-4 space-y-3" do |form| %>
       <div>
         <%= form.label :refund_reason, "환불 사유(필수)", class: "block text-xs text-stone-500" %>
         <%= form.text_area :refund_reason, rows: 3, required: true,
-              placeholder: "예: 고객 중복 결제 요청 — 콘솔 환불 완료(2026-11-10)",
+              placeholder: "예: 고객 중복 결제 요청",
               class: "mt-1 w-full rounded border border-stone-300 p-2 text-sm" %>
       </div>
-      <p class="text-xs text-stone-400">기록하면 되돌릴 수 없습니다. 콘솔에서 환불이 실제 완료된 후 기록해 주세요.</p>
-      <%= form.submit "환불 사유 기록",
+      <p class="text-xs text-stone-400">
+        실행 시 되돌릴 수 없습니다. 실행 효과: <%= refund_effect_summary(@order) %>.
+        실행 기록은 감사 로그에 남습니다(ADMIN-2).
+      </p>
+      <%= form.submit "결제 취소(환불) 실행",
             class: "rounded bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700",
-            data: { turbo_confirm: "환불 사유를 기록할까요? 실제 PG 환불은 포트원 콘솔에서 별도 완료되어야 합니다." } %>
+            data: { turbo_confirm: refund_confirm_message(@order) } %>
     <% end %>
   <% end %>
 </div>

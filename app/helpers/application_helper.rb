@@ -17,4 +17,19 @@ module ApplicationHelper
       5 => "M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" # 수금 마감(체크)
     }.fetch(no)
   end
+
+  # 주문 결제 상태 뱃지(LEGAL-2·TAX-1·PLAN-9) — 라벨과 상태색 클래스를 돌려준다.
+  # 환불 주문은 cancelled이어도 "결제 실패·취소"가 아니라 "환불됨"으로 먼저 표기한다.
+  # [라벨, CSS 클래스] 반환 — 상태색 3종 중 완료 녹색·대기 중립·이탈 주황/빨강.
+  def order_payment_badge(order)
+    if order.refunded?
+      [ "환불됨", "bg-orange-50 text-orange-600" ]
+    elsif order.paid?
+      [ "결제 완료", "bg-emerald-50 text-emerald-700" ]
+    elsif order.pending?
+      [ "결제 대기", "bg-stone-100 text-stone-500" ]
+    else
+      [ "결제 실패·취소", "bg-red-50 text-red-600" ]
+    end
+  end
 end

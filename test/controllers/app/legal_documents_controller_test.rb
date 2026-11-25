@@ -142,6 +142,49 @@ class App::LegalDocumentsControllerTest < ActionDispatch::IntegrationTest
     assert_response :not_found
   end
 
+  # ── PLAN-9 환불 실행 — 회원 표기(Q27·W-5c) ──
+
+  test "환불된 주문은 목록에 환불됨 배지로 남는다 (PLAN-9)" do
+    sign_in_as @user
+    order = create_legal_order
+    confirm_paid!(order)
+    refund!(order)
+
+    get app_legal_documents_path
+
+    assert_response :success
+    assert_match order.pg_order_id, response.body, "환불 주문도 발급 이력에 남는다(P4)"
+    assert_match "환불됨", response.body
+  end
+
+  test "환불된 주문 상세는 환불 안내를 보여주고 정식 다운로드 버튼이 없다 (PLAN-9·W-5c)" do
+    sign_in_as @user
+    order = create_legal_order
+    confirm_paid!(order)
+    refund!(order)
+
+    get app_legal_document_path(order)
+
+    assert_response :success
+    assert_match "이 주문은 환불되었습니다.", response.body
+    assert_match "새로 주문해 주세요", response.body, "재주문 안내"
+    assert_no_match "내용증명 PDF 내려받기", response.body, "정식 PDF 다운로드 버튼은 노출하지 않는다"
+  end
+
+  test "환불된 주문의 download는 정식 PDF가 아닌 워터마크 미리보기를 돌려준다 (기존 paid 한정 규칙)" do
+    sign_in_as @user
+    order = create_legal_order
+    confirm_paid!(order)
+    refund!(order)
+
+    get download_app_legal_document_path(order)
+
+    assert_response :ok
+    assert_equal "application/pdf", response.media_type
+    assert_not_equal LegalDocuments::ContentProofPdfService.call(invoice: @invoice), response.body,
+                     "환불 건은 정식(워터마크 없는) PDF를 돌려주지 않는다"
+  end
+
   private
 
   def create_legal_order
@@ -160,5 +203,16 @@ class App::LegalDocumentsControllerTest < ActionDispatch::IntegrationTest
     assert_response :ok
     order.reload
     assert_predicate order, :paid?
+  end
+
+  # PLAN-9 — 실제 실행 경로로 환불 상태를 만든다(서비스에 client: 주입 — 실호출 0).
+  def refund!(order)
+    fake = FakePortOneClient.new(get_payment: { id: order.pg_order_id, status: "CANCELLED",
+                                                amount: { paid: order.amount,
+                                                          cancelled: order.amount } })
+    result = Orders::RefundService.new(admin: admins(:ops), order: order,
+                                       reason: "이중 결제 정정", client: fake).call
+    assert result.success?, "전제: 환불 실행이 성공해야 한다"
+    order.reload
   end
 end

@@ -39,4 +39,19 @@ class Admin::BaseController < ApplicationController
   def current_admin
     Current.admin
   end
+
+  protected
+
+  # ADMIN-1 owner 전용 가드 — staff 접근은 거부 + admin_console_denied 감사(기록은
+  # RoleService 경유). AdminsController(관리자 계정 콘솔)와 Admin::OrdersController#refund
+  # (ADMIN-11 환불 실행 콘솔)가 공용한다.
+  def require_owner
+    return if current_admin.owner?
+
+    Admins::RoleService.record_denied!(actor: current_admin,
+                                       action: "admin_console_denied",
+                                       detail: "owner 전용 관리자 콘솔에 staff가 접근했습니다: #{current_admin.email}")
+    redirect_to admin_root_path, status: :see_other,
+                alert: "이 작업은 최고 관리자(owner)만 수행할 수 있습니다."
+  end
 end

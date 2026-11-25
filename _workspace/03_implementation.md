@@ -1,139 +1,189 @@
-# 03_implementation — 세금계산서 발급 자격 차단·운영 준비 게이트 (2026-11-24, Developer)
+# 03_implementation — 관리자 환불 실행: 포트원 결제 취소 연동·구독 즉시 Free·수금 패스 차감 (2026-11-24)
 
-플랜(01_plan.md) 설계 확정 사항을 그대로 구현했다. 라우트·마이그레이션 변경 없음.
-결제 로직·바로빌 API 호출·과금 금액(300원) 변경 없음. 소유권 제한 3파일
-(`Gemfile.lock`·`test/application_system_test_case.rb`·`test/test_helpers/capybara_chrome_compat.rb`)
-미접촉 확인(git status 대조).
+`_workspace/01_plan.md`(승인 완료) 설계를 그대로 구현했다. 마이그레이션 없음(환불 실행 정보는 기존
+`refunded_at`·`refund_reason`·`status`·`metadata`로 보관). 웹훅(`Webhooks::PortOneController`)·PRD·AGENTS.md는
+변경하지 않았다.
 
-## 변경 파일 목록
+## 1. 변경 파일 목록
 
-| 구분 | 파일 | 요약 |
+### 신설
+| 파일 | 요약 |
+|:---|:---|
+| `app/services/orders/refund_service.rb` | PLAN-9 환불 실행 전체 — 사전 가드 → PG 취소(트랜잭션 밖) → PG 재조회 확정(fail-closed) → 로컬 확정 트랜잭션(with_lock + 가드 재검사) → 상품별 되돌리기 → 감사 로그. `client:` 주입으로 테스트 대역 분리. Result는 `Admins::MemberAdminService::Result`와 같은 구조를 Orders 네임스페이스 안에 자체 선언(§4.3 — 타 도메인 내부 클래스 참조 회피) |
+| `app/helpers/admin/orders_helper.rb` | `order_item_label`(item_type 한국어 라벨 — 내용증명·세금계산서 주문은 product가 collection_pass라 item_type으로만 구분), `refund_effect_summary`·`refund_confirm_message`(ADMIN-11 확인 대화창 실행 효과 문구) |
+
+### 수정
+| 파일 | 요약 |
+|:---|:---|
+| `app/models/payment_pass.rb` | `PaymentPass.revoke_uses!(user:, count:)` 신설(31~54행) — 회원 단위 차감(만료 임박순), 0에서 종료·나머지 무시, 건별 `with_lock` + 잠금 후 `usable?` 재판정(`use!`와 같은 이중 방어). 반환 `[차감 건수, 무시 수량]` |
+| `app/controllers/admin/base_controller.rb` | `require_owner`를 AdminsController의 private에서 **protected**로 이동(43~56행) — 동작 그대로(거부 시 `Admins::RoleService.record_denied!` 감사 + 303 안내) |
+| `app/controllers/admin/admins_controller.rb` | 이동된 `require_owner` 정의 제거·안내 주석만 남김. `before_action :require_owner, except: %i[index]` 유지(기존 테스트 전부 통과 — 회귀 없음) |
+| `app/controllers/admin/orders_controller.rb` | `mark_refunded`(기록 전용) → `refund`(실행) 교체(23행). `before_action :require_owner, only: :refund`(7행). 성공 303 + flash 요약 / 실패 422 재렌더(500 금지 — W-1 유지). `set_order`가 `@can_refund`(owner 플래그)·`@refund_info`(metadata["refund"])를 공급(36~41행 — 뷰에서 모델 클래스 메서드 호출 회피). 목록 필터 화이트리스트에 `cancelled` 추가(49행) |
+| `config/routes.rb` | admin orders member `patch :mark_refunded` → `patch :refund`(157행). 헬퍼 `refund_admin_order_path` |
+| `app/views/admin/orders/show.html.erb` | "환불 사유 기록" 폼 → "결제 취소(환불) 실행" 폼으로 교체. 상품 행을 item_type 라벨로 표기(내용증명·세금계산서 주문의 "collection_pass" 오인 방지). 환불 완료 건: 일시·사유·실행자·금액 표시 + 폼 감춤. staff: 실행 불가 안내(폼 없음). pending·failed·`paid_at` 없는 건: 버튼 없이 안내. `cancelled`+`refunded_at` 없음(콘솔 선취소): "포트원에서 이미 취소됨 — 정산을 완료하세요" 주황 안내 + 같은 폼. 파괴 버튼은 기존 선례 bg-orange-600 유지, `turbo_confirm` 확인창(관리자 화면 선례 방식) |
+| `app/views/admin/orders/index.html.erb` | "기록됨" → "환불됨", 필터 라벨 "환불 기록 있음/없음" → "환불됨/환불 안 됨", 상태 필터에 "취소·환불"(cancelled) 옵션 추가, 하단 안내 문구를 실행 절차(ADMIN-11·PLAN-9)로 갱신 |
+| `app/views/app/legal_documents/index.html.erb` | 상태 뱃지를 `order_payment_badge` 헬퍼로 교체 — `refunded?` 우선 "환불됨" 표기 |
+| `app/views/app/legal_documents/show.html.erb` | `refunded?` 분기 신설 — "이 주문은 환불되었습니다." + 재주문 안내. 다운로드는 기존 paid 한정 규칙 그대로(환불 건은 불가 — 의도된 동작) |
+| `app/views/app/tax_invoices/show.html.erb` | `refunded?` 분기 신설 — "이 발행 주문은 환불되었습니다." + 재발행 안내 |
+| `app/helpers/application_helper.rb` | `order_payment_badge` 헬퍼 신설 — [라벨, 상태색 클래스] 반환(환불됨=주황·완료=녹색·대기=중립·실패·취소=빨강). 3개 뷰 공용 |
+| `test/controllers/admin/orders_controller_test.rb` | `mark_refunded` 경로 3건을 `refund` 실행 경로로 최소 수정(원 의미 유지 — ① B-1 폼 페이로드 E2E: 303·refunded?·감사 1건 + status cancelled 확장 어설션 ② 이중 실행 422·감사 미기록 ③ blank 사유 422). PG 실호출 방지를 `with_portone_client(FakePortOneClient)`로 차단 — `raise_on`으로 가드 통과 없이는 PG 호출이 없음을 보증. 신규 시나리오 테스트는 Tester 범위라 추가하지 않음 |
+
+## 2. Rule ID별 구현 매핑
+
+### PLAN-9 확정 절차 (`app/services/orders/refund_service.rb`)
+| 절차 | 구현 | 위치 |
 |:---|:---|:---|
-| **생성** | `config/initializers/tax_invoice.rb` | TAX-4 — 부팅 시 `ENV["TAX_INVOICE_ENABLED"]`를 한 번 읽어 `Rails.application.config.x.tax_invoice_enabled`에 고정. `"true"`만 true(fail-closed). ENV 직접 읽기는 이 파일 한 곳 |
-| 수정 | `app/models/tax_invoice.rb` | TAX-4 — `TaxInvoice.feature_enabled?` 클래스 메서드(단일 판정점, config.x만 읽음) |
-| 수정 | `app/models/user.rb` | TAX-3 — `tax_invoice_eligible?`(general만 true)·`tax_invoice_ineligibility_notice`(간이과세·면세 문구 단일 출처). `tax_invoice_ready?` 바로 아래 배치 |
-| 수정 | `app/services/tax_invoices/create_order_service.rb` | TAX-3 — `IneligibleUser` 예외 신설 + `call` 맨 앞 가드(주문 미생성 — 300원 결제 전 차단 핵심 지점) |
-| 수정 | `app/services/tax_invoices/issue_service.rb` | TAX-3 — `verify_guards!` 맨 앞에 자격 가드(GuardFailed, 메시지는 User 단일 출처) |
-| 수정 | `app/controllers/app/invoices_controller.rb` | TAX-3/4 — `set_tax_invoice_context` 판정 우선순위 재배열 + `@tax_invoice_guard_notice` 신설(뷰 문구 공급) |
-| 수정 | `app/controllers/app/tax_invoices_controller.rb` | TAX-4 — `require_tax_invoice_feature`(new·create 한정 before_action), TAX-3 — `issue_guard_message` 맨 앞 자격 판정, create에 `IneligibleUser` rescue(안내 리다이렉트 수렴) |
-| 수정 | `app/controllers/app/tax_invoice_settings_controller.rb` | TAX-4 — `require_tax_invoice_feature`(전 액션), TAX-3 — `set_tax_type_context`(show·update — 422 재렌더 대응)·`certificate_confirmed_notice`(완료 안내 조건화) |
-| 수정 | `app/views/app/invoices/_tax_invoice_panel.html.erb` | `:feature_disabled`·`:tax_type_ineligible` 분기 추가(둘 다 버튼 없음 — client_missing 분기의 카드 톤·여백·타이포 동일), 헤더 주석 갱신 |
-| 수정 | `app/views/app/tax_invoice_settings/show.html.erb` | 과세 유형 select 아래 발급 불가 안내(amber note 박스 — 기존 고지 박스와 동일 톤), `@tax_type_ineligible`·`@tax_type_notice` @변수만 사용 |
-| 수정 | `app/helpers/app/base_helper.rb` | TAX-4 — `app_nav_items`를 3분할(앞 배열 + 조건부 전자세금계산서 항목 + 뒤 배열)해 메뉴 순서 유지, 꺼짐 시 비노출 |
-| 수정 | `config/deploy.yml` | TAX-4 — `env.clear`에 `TAX_INVOICE_ENABLED: "false"` + 켜는 조건 주석(바로빌 계약·포인트 충전·법인 등록) |
+| ① 사전 가드(로컬·PG 무호출) | 사유 blank / 이미 환불 / paid·cancelled 외 상태 / `paid_at` nil / `pg_order_id` 없음 — 각각 실패 Result | `refund_service.rb:47~55(precheck_error)` |
+| ② PG 취소(전액·즉시·트랜잭션 밖) | `client.cancel_payment(payment_id: pg_order_id, reason:)` — `PortOne::ApiError`를 흡수하고 ③으로 진행(콘솔 선취소·응답 유실 재동기화) | `refund_service.rb:65~72(confirm_cancellation!)` |
+| ③ PG 재조회 확정(fail-closed) | ① 결제 완료 사실(금액 ≥ 주문 금액) ② 전액 취소(상태 CANCELLED 계열 또는 취소 합계 ≥ 주문 금액) **모두** 확인. PARTIAL_CANCELLED는 명시 실패. 확인 불가는 전부 실패·로컬 무변경 | `refund_service.rb:85~127(ensure_full_cancellation·payment_paid_fact?·fully_cancelled?·cancellations_total)` |
+| ④ 로컬 확정 트랜잭션 | `ActiveRecord::Base.transaction` + `order.with_lock` 후 가드 재검사(`refundable_state?`) — 이중 제출·경합에서 이긴 요청만 1회 실행 | `refund_service.rb:129~148(finalize!)·150~152` |
+| 주문 확정 | `mark_refunded!`(refunded_at·refund_reason 재사용) + `status: :cancelled` + metadata 병합(B-1 선례 — 기존 키 보존, `refund` 키에 실행자·일시·금액·사유) | `refund_service.rb:154~174(apply_refund!·merged_metadata)` |
+| Plus 주문 되돌리기 | 구독 `with_lock` 안에서 `expire!`(자동 갱신·dunning 잡과 같은 잠금 방식). 이미 Free·만료면 무변경. expire! 전 빌링키를 캡처해 그 회원의 `orders.pg_billing_key` 복사본 일괄 nil(키 nil이면 쿼리 생략 — `where(pg_billing_key: nil)` 오염 방지) | `refund_service.rb:190~208(expire_subscription!)` |
+| 수금 패스 주문 되돌리기 | `PaymentPass.revoke_uses!(user:, count: PaymentPass::TOTAL_USES)` — 10건 차감 | `refund_service.rb:210~214` · `payment_pass.rb:31~54` |
+| 내용증명·세금계산서 주문 | 되돌릴 것 없음 — 주문 기록만(발행물 보존·세금계산서 취소 요청 없음) | `refund_service.rb:176~188(revert_product!)` |
+| ⑤ 감사 로그 | `AuditLogs::RecordService.call(action: "order_refund", target: order, detail: 사유 + 환불 금액 + 상품별 요약)` — 기존 action 이름 유지 | `refund_service.rb:216~219` |
+| Result 요약 | "환불 금액 N원 · 구독 즉시 Free 전환 / 수금 패스 N건 차감(미차감 M건)" | `refund_service.rb:221~224` |
 
-테스트 파일은 작성·수정하지 않음(Tester 담당 — Phase 7).
+### ADMIN-11 환불 실행 콘솔
+| 조항 | 구현 | 위치 |
+|:---|:---|:---|
+| 실행 버튼·사유 필수 | show 폼(text_area required) → `PATCH /admin/orders/:id/refund` | `show.html.erb:41~55` · `routes.rb:157` |
+| 확인 대화창에 실행 효과 | `refund_confirm_message`(환불 금액 전액 즉시 + 상품별 효과)·폼 하단 안내 | `orders_helper.rb:20~32` · `show.html.erb:50~54` |
+| owner 전용·staff 차단 | `before_action :require_owner, only: :refund`(가드는 BaseController protected로 이동 — AdminsController와 공용). staff 뷰: 실행 불가 안내·폼 없음 | `orders_controller.rb:7` · `base_controller.rb:43~56` · `show.html.erb:27~28` |
+| 실행 결과 표시 | 환불일·사유·실행자(metadata["refund"]["executed_by"] — @refund_info로 공급)·금액 + flash 요약 | `show.html.erb:13~20` · `orders_controller.rb:36~41` |
+| 콘솔 선취소 건 안내 | `cancelled` + `refunded_at` 없음: "포트원에서 이미 취소됨 — 정산을 완료하세요" + 같은 폼(재조회 재동기화로 수렴) | `show.html.erb:31~35` |
+| 결제 완료 적 없는 건 | pending·failed·`paid_at` 없음: 버튼 없이 안내만 | `show.html.erb:29~30` |
+| 감사 로그 | ADMIN-2 — PLAN-9 ⑤와 동일(기존 `order_refund` action — 기존 감사 화면·테스트와 정합) | `refund_service.rb:216~219` |
 
-## Rule ID별 구현 매핑
+### Q27 확정 6건
+| # | 결정 | 구현 위치 |
+|:---|:---|:---|
+| 1 | 포트원 취소 연동·즉시 전액 | `refund_service.rb:65~72` |
+| 2 | Plus 주문 → 구독 즉시 Free | `refund_service.rb:190~208` |
+| 3 | 수금 패스 10건 차감·0에서 종료 | `payment_pass.rb:31~54` |
+| 4 | 발행물은 그대로(환불만) | `refund_service.rb:176~188` |
+| 5 | owner 전용 | `orders_controller.rb:7` · `base_controller.rb:43~56` |
+| 6 | 카드 미저장·빌링키만 정리(구독+주문 행 복사본) | `refund_service.rb:190~208` — 카드 관련 값은 어디에도 다루지 않음 |
 
-### TAX-3 — 차단 4지점(이중화)
+### 부수 규칙
+- **ADMIN-5** 매출 집계 제외 — `refunded_at` 기준 기존 스코프·집계 로직 그대로(`status` 변경과 무관하게 `refunded?`는 `refunded_at` 판정 — `order.rb:48~50`).
+- **SURF-3 등 기존 표면 정책** — 관리자 화면 구조 변경 없음.
+- **DESIGN** — 기존 관리자 타이포·여백·상태색 유지, 파괴 버튼 주황(bg-orange-600) 기존 선례, 터치 타깃 기존 클래스 재사용.
 
-| # | 지점 | 파일·메서드 | 동작 |
-|:--|:---|:---|:---|
-| ① | 청구서 상세 패널 | `App::InvoicesController#set_tax_invoice_context` → `_tax_invoice_panel.html.erb` `:tax_type_ineligible` 분기 | 발급 불가 안내(버튼 없음) — 문구는 `@tax_invoice_guard_notice` @변수로 공급 |
-| ② | 발행 화면 진입 | `App::TaxInvoicesController` before_action `guard_issue_entry`(new·create 공용 — Phase 6 C-1 수정) | 자격 판정을 맨 앞에 두고 안내 문구와 함께 **청구서 상세**로 리다이렉트. ※초기 보고 오류 정정 — 당시 구현은 `issue_guard_message`가 `create` 전용이었고 `new`는 미차단이었다(리뷰 C-1 지적). 이 표는 Phase 6 수정 후 기준 |
-| ③ | 주문 생성(결제 전) | `TaxInvoices::CreateOrderService.call` | 부적격이면 주문을 만들지 않고 `IneligibleUser` 상승 — 컨트롤러 create가 rescue해 `redirect_guard_message`로 수렴(500 아님) |
-| ④ | 발행 서비스 가드 | `TaxInvoices::IssueService#verify_guards!` | 가드 순서 맨 앞(결제 완료 뒤 경로의 최종 방어선) — GuardFailed |
+## 3. PG 재조회 응답 해석 근거 ([INFERENCE] 경계 명시)
 
-- 판정·문구 단일 출처: `User#tax_invoice_eligible?` / `User#tax_invoice_ineligibility_notice`
-  (패널·컨트롤러·설정 화면·서비스 전부 이 두 메서드만 사용).
-- 허용 유지 확인: 과세 유형 select(저장 허용 — `set_tax_type_context`는 안내만 공급)·사업자 정보
-  저장(RegisterCorpService 무변경)·기존 발행 내역 조회(@tax_invoice 기록 존재 시 기존 분기 그대로)·취소(cancel 무변경).
+**실측 기반(기존 코드가 이미 이 키로 읽는다)**:
+- `payment[:status]` — 웹훅이 `ORDER_STATUS_BY_PORTONE.fetch(payment[:status])`(portone_controller.rb:59), PurchaseService가 confirm 응답 `payment[:status] == "PAID"`로 승인 판정(purchase_service.rb:87). 상태 값 집합 PAID·CANCELLED·PARTIAL_CANCELLED·CONSOLE_CANCELLED·FAILED(웹훅 매핑 상수 — 운영 웹훅 실측).
+- `payment[:id]` — 웹훅 무결성 확인(`payment[:id] != order.pg_order_id` — portone_controller.rb:56).
 
-### TAX-4 — 꺼짐 동작 4종 + 스위치
+**[INFERENCE](포트원 V2 공식 문서 원문 대조 실패 — 스크립트 렌더링·01_plan 리스크 1)**:
+- `payment.dig(:amount, :paid)` / `:total` / `:cancelled` — 결제 객체 amount 구조 후보.
+- `payment[:cancellations]` 배열의 `:cancellationAmount` / `:amount` — 취소 내역 후보.
 
-| 동작 | 파일·메서드 |
-|:---|:---|
-| 사이드바 메뉴 비노출 | `App::BaseHelper#app_nav_items` — `TaxInvoice.feature_enabled?` 조건부 |
-| 패널 "준비 중" | `:feature_disabled` 분기 — "전자세금계산서 발행은 현재 준비 중입니다. 준비가 되면 이 화면에서 발행할 수 있습니다." (기존 발행 기록 있는 청구는 기록 표시가 우선 — 우선순위 최상단 유지) |
-| new·create 직접 접속 차단 | `App::TaxInvoicesController#require_tax_invoice_feature` — 대시보드(`app_root_path`) 303 리다이렉트 + 동일 문구 flash |
-| 설정 전 액션 차단 | `App::TaxInvoiceSettingsController#require_tax_invoice_feature` — 동일 |
-| **허용 유지** | `App::TaxInvoicesController`의 `show`·`cancel` — before_action에서 제외(주석 명시) |
+**fail-closed 정책**:
+- ① 결제 완료 사실은 **금액 필드로만** 확정한다(관대한 후보 키 2종을 읽되, 둘 다 없으면 확인 불가 → **성공 처리 금지**).
+- ② 전액 취소는 상태(CANCELLED·CONSOLE_CANCELLED) 또는 취소 합계(amount.cancelled → cancellations[] 합계)로 확정. 두 근거 모두 없으면 실패.
+- PARTIAL_CANCELLED는 명시적 실패(부분 취소는 PLAN-9 범위 밖 — 콘솔에서 나머지 환불 후 재실행 안내).
+- **첫 실환불 1건으로 응답 필드를 실측해 확정할 것**(운영 후속 — 01_plan 리스크 1). 실측 결과가 후보 키와 다르면 `payment_paid_fact?`·`fully_cancelled?`·`cancellations_total` 3개 메서드만 수정하면 된다.
 
-- 스위치 접근자: `config/initializers/tax_invoice.rb`(ENV 읽기) → `Rails.application.config.x.tax_invoice_enabled`
-  → `TaxInvoice.feature_enabled?`(모델이 ENV을 직접 읽지 않음 — 테스트에서 config 값 교체로 토글 가능).
-- fail-closed: `"true"` 문자열만 true. 미설정·그 외 값·오타 모두 false.
+> **[2026-11-24 정정 — 리뷰 W-2·W-3 반영, §7 참조]** 위 [INFERENCE] 후보 키는 리뷰어가 공식
+> OpenAPI v2 스펙(`src/schema/v2.openapi.json`, version 1.16.0)과 대조해 확정됐다. 확정값:
+> `cancellations[].totalAmount`(required, 항목 `status`는 SUCCEEDED·REQUESTED·FAILED 3종),
+> 상태 enum 7종(READY·PENDING·VIRTUAL_ACCOUNT_ISSUED·PAID·FAILED·PARTIAL_CANCELLED·CANCELLED —
+> `CONSOLE_CANCELLED`는 스펙에 없음), `amount.paid·cancelled` required. 이전 후보 키
+> `cancellationAmount`·`amount`는 스펙에 없어 제거했다. 실측 전 후보로 쓴 본 절의 표기는
+> §7의 확정 구현이 우선한다. §6-1의 "fail-closed라 안전하게 떨어진다" 서술도 정정했다 —
+> 판정 실패 시에도 PG에서는 환불이 실행됐을 수 있다(§7 W-8·C-2).
 
-## 새로 만든 이름
+## 4. 웹훅 무변경 판단 근거 (`app/controllers/webhooks/portone_controller.rb` — 변경 없음)
 
-- `config/initializers/tax_invoice.rb` — `Rails.application.config.x.tax_invoice_enabled`
-- `TaxInvoice.feature_enabled?` — 클래스 메서드
-- `User#tax_invoice_eligible?` / `User#tax_invoice_ineligibility_notice`
-- `TaxInvoices::CreateOrderService::IneligibleUser` — 예외(message = 단일 출처 문구)
-- `require_tax_invoice_feature` — before_action 가드 2개 컨트롤러에 동일 구현
-- `@tax_invoice_guard_notice` / `@tax_type_ineligible` / `@tax_type_notice` — 뷰 공급 @변수
-- `App::TaxInvoiceSettingsController#set_tax_type_context` / `#certificate_confirmed_notice`
+- **후행 도착(우리 실행 뒤 Transaction.Cancelled)**: 주문이 이미 `cancelled` → `apply_status`의 `return if order.status == status`(71행)에서 무동작. 상태 수렴이 같으므로 멱등.
+- **선행 도착(포트원 콘솔 선취소 → 웹훅이 status만 cancelled로)**: 이후 관리자가 실행 버튼을 누르면 사전 가드(`paid? || cancelled?` + `paid_at` 존재)를 통과하고, PG 취소 요청은 ApiError(ALREADY 계열)여도 재조회로 전액 취소 확정 → 로컬 정산 1회 기록. 스모크 검증 완료(아래 §5).
+- **웹훅으로는 회복되지 않는 상태**: PG 취소 성공 + 로컬 확정 실패(cancelled인데 refunded_at 없음) — 웹훅은 상태만 보므로 이 건은 콘솔 안내("정산을 완료하세요")+ 재실행 버튼으로 회복(01_plan §3 설계 그대로).
+- 부분 취소 이벤트(Transaction.PartialCancelled)도 웹훅은 기존처럼 status만 동기화 — PLAN-9 서비스는 부분 취소를 실패 처리해 상충 없음.
 
-## 스위치 사용법 (TAX_INVOICE_ENABLED)
-
-| 환경 | 켜는 방법 |
-|:---|:---|
-| 로컬 개발 서버 | `TAX_INVOICE_ENABLED=true bin/dev` (미설정 시 꺼짐) |
-| 테스트 | `TAX_INVOICE_ENABLED=true bin/rails test ...` — 또는 Tester가 test_helper에서 `Rails.application.config.x.tax_invoice_enabled = true` 기본 켬 헬퍼 추가(플랜 확정 사항) |
-| 운영(Kamal) | `config/deploy.yml`의 `env.clear.TAX_INVOICE_ENABLED`를 `"true"`로 변경 → 커밋·`bin/kamal deploy` (변경 이력 남는 방식 — 켜기 전제: 바로빌 계약·포인트 충전·법인 등록 스모크) |
-
-## 설계 판정 (플랜 대비 선택·보강)
-
-1. **패널 `:feature_disabled` 문구에 한 문장 보강** — 지시 문구("…현재 준비 중입니다.") 뒤에
-   "준비가 되면 이 화면에서 발행할 수 있습니다."를 덧붙였다. 이 분기는 발행 기록이 없는 paid 청구에만
-   나타나므로 "기존 발행 내역은 그대로 확인" 류의 문구는 오히려 오해를 낳는다 — 최소한의 재진입 안내만 추가.
-2. **`issue_guard_message`의 자격 문구는 조건식 내 직접 반환** — `return Current.user.tax_invoice_ineligibility_notice unless ...` 형태로 GuardFailed 문자열 리터럴 패턴과 통일.
-3. **create의 rescue 수렴 경로** — `IneligibleUser`를 `redirect_guard_message(e.message)`로 처리해
-   기존 가드 문구 경로(new 미리보기 + alert)와 동일 UX. feature 꺼짐 시엔 create 자체가 before_action에서
-   차단되므로 이 경로에 도달하지 않는다.
-4. **confirm_certificate 완료 안내** — 부적격 사용자에게는 "공동인증서 등록이 확인되었습니다. " + 단일 출처
-   문구를 이어 붙였다(별도 변형 문구 신설 금지 — 문구 단일 출처 원칙 유지).
-5. **helper에서 `TaxInvoice.feature_enabled?` 호출** — "뷰에서 모델 클래스 메서드 호출 금지"의 취지는
-   DB 쿼리·비즈니스 로직 배제이고, 이 호출은 config 부트값 읽기(쿼리 없음)라 허용 판단. 지시서가
-   이 접근자를 단일 판정점으로 명시했으므로 헬퍼·컨트롤러·서비스가 모두 이를 사용한다.
-6. **`set_tax_invoice_context`에서 notice @변수는 자격 분기에서만 채움** — 다른 분기에서 nil 유지
-   (패널의 tax_type 분기만 소비 — 불필요한 문구 노출 방지).
-
-## 자가 검증 결과
+## 5. 실행한 검증 명령과 결과
 
 | 명령 | 결과 |
 |:---|:---|
-| `bin/rails zeitwerk:check` | 통과 — "all is good!" |
-| `bin/rubocop` (변경 app/config 파일 9개) | 9 files inspected, **no offenses** |
-| `TAX_INVOICE_ENABLED=true bin/rails test` (tax_invoices·settings·services·invoices 4파일) | **98 runs, 584 assertions, 0 failures, 0 errors, 0 skips** — 기존 테스트 전부 회귀 없음 |
-| 기본값(꺼짐) 동일 4파일 | **20 failures, 0 errors** — `tax_invoices_controller_test.rb` 12건 + `tax_invoice_settings_controller_test.rb` 8건 (전부 리다이렉트 목적지가 `/app`으로 바뀐 것 — 의도된 fail-closed 동작). `invoices_controller_test`·`test/services/tax_invoices/`는 꺼짐 상태에서도 통과 |
-| `bin/rails runner` 판정 검증 | 꺼짐 기본값 false / config true 토글 true · general eligible=true, simplified·exempt=false · 문구 2종 단일 출처 출력 확인 · CreateOrderService `IneligibleUser`(주문 생성 전) · IssueService `GuardFailed` 확인 |
+| `bin/rails zeitwerk:check` | 통과("Otherwise, all is good!") |
+| `bin/rails routes` | `refund_admin_order PATCH /admin/orders/:id/refund` 확인 |
+| `bin/rubocop -a` (변경 파일 8종) | 8 files inspected, **no offenses** |
+| `bin/rails test test/controllers/admin/orders_controller_test.rb` | **8 runs, 56 assertions, 0 failures** |
+| `bin/rails test test/controllers/admin/admins_controller_test.rb test/models/order_test.rb test/models/payment_pass_test.rb test/controllers/webhooks/portone_controller_test.rb test/services/port_one/client_service_test.rb` | **50 runs, 247 assertions, 0 failures** |
+| `bin/rails test test/controllers/app/legal_documents_controller_test.rb test/controllers/webhooks/tax_invoice_settle_test.rb` | **15 runs, 92 assertions, 0 failures** |
+| `bin/rails test test/controllers/app/tax_invoices_controller_test.rb` | **19 runs, 101 assertions, 0 failures** |
+| `bin/rails test` (전체) | **1,529 runs, 9,562 assertions, 0 failures, 0 errors** — 기존 전체 스위트와 동일 건수 유지 |
+| 자체 스모크(임시 테스트 — 실행 후 삭제, 커밋 대상 아님) | **5 runs, 22 assertions, 0 failures** — ① 패스 10건 차감·만료 임박순(6잔여→0 먼저, 10잔여→6) ② 잔여 3건 → 0에서 종료·"미차감 7건" 요약 ③ Plus → 구독 즉시 Free·구독/주문 행 빌링키 동시 nil ④ PARTIAL_CANCELLED·paid_at 없는 cancelled 실패(로컬 무변경) ⑤ cancel_payment ApiError → 재조회로 재동기화 성공(콘솔 선취소 수렴) |
 
-## 미해결·리스크
+포트원·솔라피·바로빌 실호출 없음 — 전 테스트가 `FakePortOneClient` + `with_portone_client` 대역만 사용.
 
-1. **테스트 환경 기본 켬 헬퍼 미구현** — 지시대로 Tester 영역. 꺼짐 기본값 상태에선 위 20건이 계속 깨진다
-   (Tester가 test_helper에서 config 기본 켬 + 꺼짐 케이스 분리 예정).
-2. **paid_pending 패널이 꺼짐에 가려짐** — TAX-4 우선순위(기존 기록 > 꺼짐 > …)에 따라 결제 후 SOAP 실패
-   건(paid 주문만 있는 청구)은 꺼짐 동안 "준비 중" 카드로 표시된다. 주문 show 경로 자체는 살아있으나
-   패널 링크가 사라져 접근성이 떨어진다(플랜 확정 우선순위를 그대로 따름 — 스위치를 켜면 복귀).
-   ※보고 누락 정정 — "show 경로 살아있음"에는 **pending 주문의 결제 진입점**이 포함돼 있었다
-   (리뷰 C-2 — 꺼짐·부적격 상태에서도 결제 버튼이 열려 있었다). Phase 6 C-2 수정(결제 진입 차단)과
-   W-1 수정(paid_pending 우선순위 상향)으로 해소.
-3. **랜딩 불일치** — 스위치 꺼진 채 외부 공개 시 랜딩의 세금계산서 카드·FAQ와 어긋남(플랜 리스크 3 그대로 —
-   랜딩은 미연동, 런칭 전 켜기 전제).
-4. **켜짐 + 포인트 미충전** — 스위치만 켜면 결제 후 발행 실패 가능(플랜 리스크 4 그대로).
-5. **법적 근거 확인 수준** — 시행령 §70·§64조의2는 검색 자료 일치 기준(원문 직접 대조 못함) — 안내 문구에
-   "세무사 확인" 고지로 흡수(플랜 확정 사항).
+## 6. 미해결·리스크·오케스트레이터가 알아야 할 점
 
-## Phase 6 수정 내역 (리뷰 반영 — 2026-11-24)
+1. **[INFERENCE] 대부분 해소(2026-11-24 리뷰 정정 — §7 W-2·W-3)** — 재조회 응답의 금액·취소 내역 필드는 공식 OpenAPI v2 스펙으로 확정됐다(`amount.paid·cancelled`·`cancellations[].totalAmount`·상태 enum 7종 — `CONSOLE_CANCELLED` 없음). 남은 미확인 2건: **전액 취소 뒤 `amount.paid` 유지 여부·카드 취소의 동기(SUCCEEDED) 여부** — 첫 실환불 1건으로 확인할 것. 이전 서술("fail-closed라 안전하게 떨어진다")은 절반만 맞다: 판정 실패는 로컬 무변경이지만 **취소 요청이 판정 앞에 실행되므로 PG에서는 환불이 일어났을 수 있다** — §7 C-2의 시도·실패 감사(action `order_refund_attempt`·`order_refund_failed`)로 추적한다. 성공 오인 위험은 없다는 판정은 유지된다.
+2. **`Order.cancelled` 스코프** — index 필터 확장(`filtered_orders`의 `%w[paid failed cancelled]`)은 enum 자동 스코프에 의존한다(Rails enum은 값별 조건 스코프를 생성). 전체 테스트 통과로 동작 확인했으나, `Order` 모델의 명시 스코프(paid·failed)와 혼재해 있다 — 정리는 별도 과제로.
+3. **가상계좌 등 비동기·환불계좌 필요 결제수단** — cancel_payment가 환불 계좌 정보를 요구하는 결제수단(01_plan 리스크 1)은 ApiError → 재조회에서 CANCELLED가 아니면 실패로 안전하게 떨어진다. 운영에서 발생하면 §3 실측과 함께 절차를 확정할 것.
+4. **임시 스모크 파일 삭제 완료** — `test/dev_smoke_refund_test.rb`는 자체 검증용으로만 사용하고 삭제했다(정식 시나리오 테스트는 Tester 범위 — 01_plan §에이전트 지시 요약의 Tester 목록).
+5. **감사 action 이름 "order_refund" 유지** — 기존 감사 로그 화면·테스트와 정합. 실행 절차가 기록 전용에서 실행으로 바뀌었으므로 운영 참고: 과거 기록(레거시 "사유 기록")과 신규 실행 건이 같은 action으로 남는다(detail 본문으로 구분 — 신규 실행 건은 "환불 금액 N원 ·" 접두 형식).
+6. **`update_all` 사용 1곳** — `expire_subscription!`의 주문 행 빌링키 일괄 정리(검증 컬럼이 아닌 복사본·읽는 곳 없는 값 — 01_plan §1 지시 "update_all 또는 동등 방식" 준수). 그 외 전부 검증 경유(`update!`).
 
-Reviewer 리뷰(`05_review.md` — BLOCKER 0·CRITICAL 2·WARNING 5)의 지시분을 전부 반영했다.
-오케스트레이터 판정(`02_prd_update.md` "리뷰 반영 보완") 기준. 리뷰 이슈와 무관한 코드는 변경하지
-않았고, 테스트 파일은 작성·수정하지 않았다(Tester 담당 — 리다이렉트 대상 변경으로 기존 가드 테스트의
-갱신이 예상된다).
+## 7. Phase 6 수정(리뷰 반영 — 2026-11-24)
 
-| 이슈 | 수정 내용 | 파일·이름 |
+`_workspace/05_review.md`의 이슈(C-1·C-2·W-1~W-9)와 사고 대응(R1~R3)을 수정했다. 마이그레이션·라우트 변경 없음. 웹훅 컨트롤러·PRD·AGENTS.md는 변경하지 않았다.
+
+### 7-0. 포트원 test 환경 실호출 차단 가드(최우선 — W-9·사고 대응 R1~R3)
+
+솔라피(`solapi/client_service.rb` perform 가드)·이메일(`outbound_mail/client_service.rb`) 선례를 그대로 따랐다.
+
+| 파일 | 내용 |
+|:---|:---|
+| `app/services/port_one/client_service.rb:94~108(perform)` | `Rails.env.test? && !Thread.current[:portone_http_stub]`이면 `ApiError(status: nil, code: "TEST_GUARD")` — 실제 연결(`Net::HTTP.start`) 직전에 예외로 차단. development·production은 무관 |
+| `test/test_helpers/portone_stubbing.rb:18~32` | `with_http_transport`이 `Thread.current[:portone_http_stub] = true`로 켜고 `ensure`에서 nil 복원(솔라피·이메일 플래그와 같은 방식) — HTTP transport stub 경유 테스트(`client_service_test` 전체)는 통과 유지 |
+| `test/services/port_one/client_service_test.rb`(테스트 1건 신설) | 대역 없이 `get_payment` 호출 → `TEST_GUARD` ApiError + `Net::HTTP.start` 호출 기록 0건(네트워크 연결 0회 보증). **가드 테스트 +1로 전체 1,529→1,530건** |
+| `test/services/subscriptions/dunning_retry_test.rb:133~150`(R3) | 갱신 스윕 `SubscriptionRenewalJob.perform_now`를 `with_portone_client(@ok)`로 감쌈 — 같은 파일 ⑤·157행 선례. epsilon fixture(active·주기 종료 10-31)의 차감 간섭을 ⑤와 같은 `update_columns`로 제거하고 `assert_empty @ok.calls`로 강등 경로의 차감 호출 0건을 보증. 테스트 의미(3회 소진 → cancelled → 스윕에서 Free 강등)는 불변 |
+
+가드는 `with_portone_client`(생성자 교체) 경로에는 적용되지 않는다 — 생성자 교체 시점에 실제 클라이언트 인스턴스가 만들어지지 않으므로 연결 자체가 없다. 가드는 "실제 `PortOne::ClientService#perform`이 test에서 실행되는 모든 경로"를 막는 2차 방어선이다.
+
+### 7-1. 이슈별 수정 매핑
+
+| 이슈 | 수정 | 위치 |
 |:---|:---|:---|
-| **C-1** (TAX-3 ②) | 발행 화면 진입 `new`가 차단되지 않는 문제 — `new`·`create` 공용 before_action 가드로 해소. 기능 게이트(`require_tax_invoice_feature` — 꺼짐이면 대시보드, 그대로) 다음에 대상 청구 로드(미마감 → 목록·기존 동작 이동) → `issue_guard_message` 판정(자격 없음·설정 미완료·거래처 사업자번호 없음·기발행)으로 막히면 **청구서 상세(`app_invoice_path`)로 리다이렉트**. 기존 가드를 같은 구조로 해소(Reviewer 권장 채택) — `create` 본문 7줄(10줄 기준 해소). `new`로 되돌리는 경로는 결제 버튼이 남은 막다른 길·무한 리다이렉트라 금지 | `App::TaxInvoicesController` — `load_issue_invoice`·`guard_issue_entry` 신설, `redirect_guard_message` 대상을 청구서 상세로 변경, `redirect_unpaid_invoice` 삭제, `new`는 빈 본문(`def new; end`) |
-| **C-2** (TAX-3·4 ④) | 미결제(pending) 주문의 상세 화면이 게이트 밖 결제 진입점인 문제 — 주문이 pending이고 (a) 기능 꺼짐 (b) 사용자 부적격이면 컨트롤러가 차단 안내를 `@tax_invoice_blocked_notice`로 공급하고, 뷰가 포트원 체크아웃 섹션(Stimulus data 포함) **대신 안내 카드**를 그린다(결제가 시작되지 않게). 조회 자체는 200 유지. 꺼짐이 우선, 부적격이면 User 단일 출처 문구. paid 주문의 `show`·`cancel`은 그대로 허용(TAX-4 ④), 청구서로 돌아가는 링크 유지 | `App::TaxInvoicesController#show` · `app/views/app/tax_invoices/show.html.erb`(pending 분기 조건화) |
-| **W-1** (TAX-4 ②) | 패널 판정 우선순위 재배열 — 기존 발행 기록 > **paid_pending(결제 완료·발행 기록 없음)** > 꺼짐 > 자격 없음 > settings_missing > client_missing > ready. 돈을 낸 사용자가 "발행 주문 확인" 링크를 잃지 않게(paid_pending 카드에는 발행 버튼이 없어 게이트 약화 없음) | `App::InvoicesController#set_tax_invoice_context` |
-| **W-2** (TAX-4) | 두 컨트롤러에 복제된 `require_tax_invoice_feature`를 **컨트롤러 concern으로 추출**(RemindersContext 선례). C-2의 pending 주문 차단 판정(`tax_invoice_payment_block_notice`)도 같은 concern에 둠. "전자세금계산서 발행은 현재 준비 중입니다." 리터럴 3곳 → **`TaxInvoice::FEATURE_DISABLED_NOTICE`** 단일 출처(패널 보조 문장 "준비가 되면 이 화면에서 발행할 수 있습니다."는 뷰에 유지) | **신설** `app/controllers/concerns/tax_invoice_gate.rb` · `app/models/tax_invoice.rb`(상수) · 패널·두 컨트롤러는 include로 전환 |
-| **W-3** (TAX-3) | 발행 설정 화면이 부적격 사용자를 인증서 등록으로 이끄는 문제 — ① 저장 성공 플래시를 자격 조건화(부적격은 "다음으로 공동인증서를 등록해 주세요" 미출력, "사업자 정보가 저장되었습니다." + 발급 불가 안내) ② 2단계 안내·버튼을 `@tax_type_ineligible`로 숨기고 발급 불가 안내(amber note 박스 — 기존 톤)를 대신 표시 ③ 과세 유형 도움말을 "사업자 유형에 따라 전자세금계산서 발급 가능 여부가 결정됩니다."로 교체 | `App::TaxInvoiceSettingsController#saved_notice` 신설 · `app/views/app/tax_invoice_settings/show.html.erb` |
-| **W-4** (TAX-3·LP-12) | 안내 문구를 **서비스 기준**으로 교체(법적 단정 회피) — 간이과세: "받을돈에서는 간이과세자의 전자세금계산서 발급을 지원하지 않습니다. …매출 규모에 따라 세금계산서 발급이 필요할 수 있으니 세무사에게 확인해 주세요." / 면세사업자: "받을돈에서는 면세사업자의 전자세금계산서 발급을 지원하지 않습니다. …". 문구 단일 출처 유지(패널·플래시·설정 화면·서비스 예외), "세무 자문 아님" 고지는 변경 없음 | `User#tax_invoice_ineligibility_notice` |
-| **W-5** (문서) | 이 문서의 정정 2건 — ① TAX-3 표 ② 행("issue_guard_message new·create 공용"은 사실과 달랐다 — `create` 전용) ② 리스크 2에 pending 주문 `show`의 결제 진입점 누락 — 와 본 절 신설 | `_workspace/03_implementation.md` |
-| 경과 관찰 (채택) | ① `IssueService::TAX_TYPE_BY_USER`를 `"general"`만 남김 — 가드를 건너뛰어도 `fetch` 실패(KeyError)로 발행 레코드 미생성 ② `User` enum 주석("간이과세→영세(2)·면세→면세(3) 매핑")을 실제와 일치하게 정정 ③ `issue_service.rb` 오타 "검증 사알"→"검증 사항" | `app/services/tax_invoices/issue_service.rb` · `app/models/user.rb` |
+| **C-1**(dunning 잔존 → 재등록 뒤 새 카드 차감) | `expire_subscription!`의 `with_lock` 안에서 `expire!`과 함께 `reset_dunning!`(멱등) + `last_payment_failed_at` nil(스키마 확인 — subscriptions 테이블에 컬럼 존재)을 실행. 이미 Free여서 `expire!`을 건너뛴 경우에도 dunning 필드가 남아 있으면 비운다 | `refund_service.rb:293~313` |
+| **C-2**(PG 취소 시도의 감사 부재) | ① PG 호출 직전 시도 감사를 별도 트랜잭션으로 기록 — action `order_refund_attempt`, target=주문, detail=사유. **기록 실패 시 PG 호출 없이 실패 Result**(기록 없는 취소 금지) ② PG 호출 뒤 정산이 안 끝난 모든 경로(재조회 실패·판정 실패·`finalize!` 재검사 실패·로컬 예외)에 action `order_refund_failed`(detail=사유+실패 사유). 롤백 뒤 별도 기록 — 감사 기록 자체가 실패해도 실패 Result는 유지 ③ 성공 action `order_refund`는 그대로 ④ 사전 가드에서 걸린 시도(PG 호출 없음)는 기록하지 않음(변경 없음). 감사 화면(`admin/audit_logs/index.html.erb`)에는 action 라벨 사전이 없어(행위 필터는 원문 나열·기존 `order_refund`도 미등록) **그대로 둠** — 지시 "없으면 그대로" 적용 | `refund_service.rb:44~53(call)·80~92(record_attempt_audit!)·239~248(fail_with_audit)` |
+| **W-1**(500 유출) | `finalize!` rescue를 `ActiveRecord::ActiveRecordError`(StatementInvalid·ConcurrencyError·RecordInvalid 포함) + 그 외 `StandardError`까지 확대 — 전부 실패 Result로 전환, 예외 클래스·메시지는 `Rails.logger.error`(사용자 메시지에는 클래스명만). `confirm_cancellation!`의 `get_payment`도 `StandardError`를 실패 Result로. 컨트롤러 `refund` 액션에 마지막 안전망 `rescue StandardError`(로깅 + flash 안내 + 422 show 재렌더 — 액션 본문 10줄 이내 유지, 성공·실패 응답은 private 헬퍼로 분리) | `refund_service.rb:206~237` · `orders_controller.rb:20~44` |
+| **W-2**(스펙 불일치) | `FULL_CANCELLED_STATUSES`에서 `CONSOLE_CANCELLED` 제거(`%w[CANCELLED]`) + 공식 enum 7종 주석. `cancellations_total`은 `status == "SUCCEEDED"` 항목의 `totalAmount`만 합산(틀린 후보 키 `cancellationAmount`·`amount` 제거). 웹훅 컨트롤러 상수는 변경 금지대라 유지 | `refund_service.rb:30~36·176~181` |
+| **W-3**(total 폴백·ID 검증) | `payment_paid_fact?`에서 `amount.total` 폴백 제거(`paid`는 필수 — 없으면 확인 불가 실패). `ensure_full_cancellation` 첫 검사로 `payment[:id] == @order.pg_order_id` 일치 확인 신설(웹훅 선례 `portone_controller.rb:56`) | `refund_service.rb:130~134·158~162` |
+| **W-4a**(사유 상실) | 흡수한 취소 요청 오류를 실패 메시지에 덧붙임 — "포트원 취소 요청 오류: {code} — …"(ApiError는 `code`, 그 외 예외는 클래스명) | `refund_service.rb:195~207` |
+| **W-4b**(비동기 취소) | 취소 응답 본문(신뢰하지 않고 참고만)의 `cancellation.status == "REQUESTED"` + 재조회에서 미전액취소 → 실패 메시지를 "취소가 비동기로 진행 중입니다. 잠시 후 다시 실행해 주세요."로 대체(재실행은 재조회로 수렴) | `refund_service.rb:149~153·183~190` |
+| **W-4c**(부분 취소 가드 위치) | **변경 없음** — 오케스트레이터 판정(현행 유지: 이미 부분 취소된 결제는 PG가 잔액 전액을 취소해 전액 환불되거나 거부되어 명시 실패로 끝난다) | — |
+| **W-5a~c**(확인창 문구) | Plus="남은 결제 기간 소멸·이 주문 금액만 환불" / 수금 패스="회원 보유 패스 중 만료 임박순 차감" / 발행물="환불 뒤 앱에서 재다운로드 불가" — `refund_effect_summary` 1곳 수정(폼 안내·확인창 공용이라 자동 반영) | `orders_helper.rb:11~23` |
+| **W-5d**(사실과 다른 안내) | "PG 취소 요청 없이 재조회로 확인…" → "포트원에 결제 취소를 요청한 뒤 포트원에 다시 조회해 전액 취소를 확인합니다(이미 취소된 결제는 확인만 합니다)" + 부분 취소 실패 안내 추가 | `admin/orders/show.html.erb:47~53` |
+| **W-5e**(레거시 건 문구) | `@refund_info` 유무로 분기 — 있으면 기존 문구(되돌리기·감사 완료), 없으면 "과거 기록 전용 방식으로 기록된 주문입니다(실제 환불·되돌리기는 이 화면으로 실행된 것이 아닙니다)" | `admin/orders/show.html.erb:13~27` |
+| **W-5f**(막다른 길 링크) | 세금계산서 회원 화면 환불 분기의 "다시 발행 요청" 링크 제거 → "재발행이 필요한 경우 고객지원(문의)으로 연락해 주세요."(같은 뷰 취소 건 분기 선례 문구) | `app/tax_invoices/show.html.erb:66~78` |
+| **W-6**(이미 Free 판정) | `already_free = subscription.free?`(상태 무관) — expire! 생략 + 보고 "구독은 이미 Free(무변경)". 빌링키 복사본 정리 쿼리는 `billing_key.present?`일 때만(기존 유지 — 이미 Free면 키가 nil이라 쿼리 생략) | `refund_service.rb:293~313` |
+| **W-8**(주석·문서 정정) | 서비스 헤더 절차 주석 전면 정정: 롤백 경로의 주문은 **실행 전 상태(paid 등)로 미정산 채 남는다**(이전 "cancelled로 남는다"는 롤백 경로와 불일치 — 웹훅 도착 뒤 재실행으로 회복). "fail-closed"는 로컬 무변경만 보장하고 **PG 환불 부재는 보장하지 않는다**(취소 요청이 판정 앞에 실행 — C-2 감사로 추적). 본 문서 §3·§6-1도 같은 취지로 정정 | `refund_service.rb:1~21` · 본 문서 §3 정정 노트·§6-1 |
 
-범위 밖(이번에 변경 없음): 과세 유형 기본값(일반과세), 법적 예외(§64조의2) 지원, pending 주문 자동
-만료·실패 처리 로직, 랜딩 문구, 결제·바로빌 호출·과금 로직. 소유권 제한 3파일(`Gemfile.lock` ·
-`test/application_system_test_case.rb` · `test/test_helpers/capybara_chrome_compat.rb`)은 여전히
-미접촉이다.
+### 7-2. 바꾼 기존 테스트(의미 변경 목록)
+
+| 테스트 | 변경 | 이유 |
+|:---|:---|:---|
+| `dunning_retry_test.rb` ④ "재시도 3회 소진…" | 스윕 실행에 `with_portone_client(@ok)` + epsilon 간섭 제거 + `assert_empty @ok.calls` 추가 | R3 — 대역 없이는 운영 API 실호출(가드로도 차단되지만 테스트 자체를 정상 경로로 고정) |
+| `client_service_test.rb` | 가드 테스트 1건 신설(이것만 추가) | W-9 — 가드 동작·네트워크 0회 정식 고정 |
+
+`orders_controller_test.rb`는 **변경 없이 통과**한다 — ①~③의 감사 어설션이 전부 `action: "order_refund"` 한정이라 시도·실패 감사(`order_refund_attempt`·`order_refund_failed`) 신설과 무충돌이고, blank·이중 실행은 사전 가드(PG 호출 0)라 시도 감사도 남지 않는다(의미 불변).
+
+### 7-3. 실행한 검증(가드 활성 상태)
+
+| 명령 | 결과 |
+|:---|:---|
+| `bin/rails test`(전체) | **1,530 runs(+1 — 가드 테스트), 9,568 assertions, 0 failures, 0 errors** |
+| 대상 파일 선행 실행(가드·dunning·관리자 주문) | 32 runs, 207 assertions, 0 failures |
+| `bin/rubocop` | 422 files inspected, **no offenses**(-a 자동 교정 4건은 인라인 if 할당 → guard 스타일 수동 전환) |
+| `bin/rails zeitwerk:check` | 통과("all is good") |
+
+### 7-4. 남은 [INFERENCE]·운영 주의
+
+- **[INFERENCE] 2건 유지**: 전액 취소 뒤 `amount.paid` 유지 여부(유지 추정 — 같은 PaymentAmount 타입)·카드 취소의 동기(SUCCEEDED) 여부. **첫 실환불 1건(실결제 검증용 수금 패스 권장)으로 확인**하고 리뷰어 §8 테스트로 회귀 고정할 것.
+- **W-4c 운영 관찰**: 이미 부분 취소된 결제에 대한 전액 취소 요청의 PG 동작(잔액 전액 취소 vs 거부)은 미확인 — 어느 쪽이든 명시 실패 또는 전액 취소 확정으로 수렴하지만, 첫 실제 발생 시 로그로 확인.
+- **시도 감사의 성공 쌍**: 성공 환불은 `order_refund_attempt` + `order_refund` 2건이 남는다(의도 — 시도 기록은 결과와 독립). 감사 화면 필터에 이 2개 action은 미등록(기존 `order_refund`도 미등록 — 사전 없음)이라 필요 시 별도 과제로.
+- **R1·R2 사고 후속(Developer 범위 밖)**: 리뷰어가 보낸 1회 차감 요청은 가짜 빌링키로 포트원이 거부(`BILLING_KEY_NOT_FOUND`) — 포트원 콘솔에 실패 요청 기록이 남을 수 있다. 시크릿의 운영 키 여부는 확인 대상.

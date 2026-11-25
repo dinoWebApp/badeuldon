@@ -1,49 +1,51 @@
-# 08_run_report — 세금계산서 발급 자격 차단·운영 준비 게이트 (2026-11-24, Phase 8)
+# 08_run_report — 관리자 환불 실행(PLAN-9·ADMIN-11·Q27) 실행 검증
 
-## 부트 검증 (개발 서버 — 스위치 꺼짐·켜짐 두 상태)
+2026-11-25 08:26~08:29 KST · 오케스트레이터 직접 수행 · 로컬 macOS(arm64) · Ruby 4.0.10 · Rails 8.1.4.1 · Puma 8.1.2
 
-| 모드 | 부팅 | 로그 에러·경고 | `/` | `/up` | `/app`·세금계산서 경로(미로그인) |
-|:---|:---|:---|:---|:---|:---|
-| 꺼짐(ENV 미설정 — 기본값) | 3초 | 0줄 | 200 | 200 | 302 → 로그인 화면 |
-| 켜짐(`TAX_INVOICE_ENABLED=true`) | 2초 | 0줄 | 200 | 200 | 302 → 로그인 화면 |
+## 결론
 
-- 부팅 로그: `Listening on http://127.0.0.1:3011` 확인, FATAL·Error·exception·WARN 0건 (111줄).
-- 확인한 경로: `/`, `/up`, `/app`, `/app/tax_invoice_setting`, `/app/tax_invoices/new?invoice_id=1`, `/app/invoices/1`.
-- 미로그인 요청은 인증이 먼저 걸려 두 모드의 응답이 같다(로그인 화면 리다이렉트) — 게이트 동작 자체는 아래 테스트로 확인.
-
-## 스위치 값 (개발 환경 — 서버와 별도 프로세스)
-
-| ENV | `TaxInvoice.feature_enabled?` |
+| 항목 | 결과 |
 |:---|:---|
-| 미설정 | false |
-| `"true"` | **true** |
-| `"TRUE"` | false |
+| `bin/rails db:prepare` | 정상 (이번 작업 마이그레이션 없음) |
+| 라우트 | `refund_admin_order PATCH /admin/orders/:id/refund` 등록 확인 · 기존 `mark_refunded` 라우트 제거 확인 |
+| 앱 부팅 | **성공** — "Rails 8.1.4.1 application starting in development" · Puma 3000/3100 포트 리스닝 · 부팅 로그에 FATAL/ERROR 0건 |
+| 요청 응답 | 아래 표 — **500 없음**, 예외 0건, DEPRECATION/WARNING 0건 |
+| 전체 테스트 직접 재실행 | **1,582 runs · 9,958 assertions · 0 failures · 0 errors · 0 skips** (28.1초, seed 459) — Tester 보고(`07_test_report.md`)와 정확히 일치 |
+| RuboCop · zeitwerk | 422파일 0 offenses · 통과 (Phase 6.5 재검증) |
+| Brakeman 8.1.1 | **Security Warnings 0 · Errors 0** (컨트롤러 48·모델 33·템플릿 130) |
+| 외부 API 실호출 | **0건** — 개발 서버는 잡 프로세스 없음(`Procfile.dev`: web + css만). 검증 요청은 미로그인이라 포트원 호출 경로에 도달하지 않음 |
 
-→ 초기화 파일이 환경 변수를 부팅 시 읽어 config.x에 고정하고, `"true"`만 켜진다(fail-closed).
+## 요청 응답 (미로그인, `bin/rails server -p 3100`)
 
-## 커밋 전 게이트 `bin/ci` (Ruby 4.0.10)
+| 요청 | 응답 | 판정 |
+|:---|:---|:---|
+| `GET /` | 200 | 정상 |
+| `GET /admin/orders` | 303 → `/admin/session/new` | 로그인 가드 정상 |
+| `GET /admin/orders/1` | 303 → `/admin/session/new` | 로그인 가드 정상 |
+| `GET /app` | 302 → `/session/new` | U1 가드 정상 |
+| `PATCH /admin/orders/1/refund` (CSRF 토큰 없음) | 422 | **CSRF 검증이 액션 실행 전에 차단** — 쿼리 0회. 액션 본문 미실행 |
+| `PATCH /admin/orders/999999/refund` (CSRF 토큰 없음) | 422 | 동일 |
+| `PATCH /admin/orders/1/refund` (**세션 쿠키 + 유효 CSRF 토큰**, 관리자 로그인 없음) | 303 → `/admin/session/new` | **`Filter chain halted as :require_admin_session`** (`admin/base_controller.rb:20`) — 액션 미실행, 감사·주문 변경 흔적 0건 |
 
-| 단계 | 결과 |
-|:---|:---|
-| rubocop | 420 files, no offenses |
-| bundler-audit | 통과 (취약점 0건 — 갱신된 권고 DB 기준) |
-| importmap audit | 통과 |
-| brakeman | Errors 0 · Security Warnings 0 |
-| 테스트 | **1,529 runs · 9,561 assertions · 0 failures · 0 errors · 0 skips** |
-| 시드 | 통과 |
+새 결제 취소 진입점은 로그인 없이는 도달할 수 없다(토큰이 없으면 CSRF 422, 토큰이 있어도 관리자 세션이 없으면 303).
+owner 전용 차단(staff 거부·감사)은 컨트롤러 테스트·시스템 테스트로 검증됨(`07_test_report.md` C·F절).
 
-추가: 시스템 테스트 `bin/rails test:system` — 13 runs · 0 failures (Tester 실행).
+## `bin/dev` 관찰 (이번 변경과 무관한 실행 환경 특성)
 
-## 검증 범위와 한계
+- `bin/dev`(foreman)로 띄우면 Puma 기동·3000 포트 리스닝까지 확인됐으나, `css: bin/rails tailwindcss:watch` 프로세스가
+  **비대화형(TTY 아님) 실행 환경에서 1초 만에 exit 0**으로 끝나 foreman이 전체 프로세스에 SIGTERM을 보내 서버가
+  같이 내려갔다. 응답 확인은 `bin/rails server` 직접 구동으로 대체했다. 사용자 터미널(TTY)에서는 이 동작이
+  없을 것으로 보이나 확인하지는 못했다.
+- 부작용: `bin/dev` 스크립트가 없던 `foreman` 젬을 자동 설치했다(Ruby 4.0.10 젬 경로 — 프로젝트 Gemfile 밖).
 
-- **로그인이 필요한 경로의 실서버 응답 검증은 하지 않았다.** 대신 같은 라우트·컨트롤러·뷰를 그대로 타는 Tester의 통합 테스트(세금계산서 관련 158건 — 기본 켬·끈 상태 토글, 패널 우선순위 매트릭스 9건, pending 주문 결제 화면 차단, 소유권 격리·noindex 회귀)로 확인했다. 개발 DB에 검증용 계정을 만들지 않기 위한 선택이다.
-- 이번 작업에는 새 라우트·마이그레이션이 없다.
-- 세금계산서 발행 플로우의 브라우저 E2E는 기존과 같이 없다 — 실기 QA 때 켜짐 상태 발행 화면을 육안 확인해야 한다.
-- 실결제·바로빌 실호출은 하지 않았다(테스트는 전부 stub).
+## 종료·정리 확인
 
-## 운영 반영 시 주의 (TAX-4)
+- 서버 프로세스·3100 포트 해제 확인.
+- 개발 DB에 검증용 흔적 없음(환불 주문 0건·환불 계열 감사 0건·주문 0건).
+- 작업 트리에 검증 부산물 없음(쿠키 임시 파일 삭제).
 
-- 배포 직후 운영에서는 세금계산서 기능 전체가 잠긴다(기본 꺼짐 — 의도된 동작).
-- 켜기 전에 바로빌 운영 준비(계약·포인트 충전·법인 회원 등록)를 끝낸다. 미충전 상태에서 켜면 결제만 되고 발행이 실패한다.
-- 스위치를 끈 채로 배포할 때는 운영의 미결제 세금계산서 주문을 확인해 실패 처리한다(2026-11-24 실측: 0건).
-- 랜딩의 세금계산서 소개는 스위치와 연동되지 않는다 — 외부 공개 전에 켜야 한다.
+## 검증하지 못한 것
+
+- 실제 포트원 응답(전액 취소 뒤 `amount.paid` 유지 여부·카드 취소의 동기 처리 여부) — 실호출 금지. **운영 첫 실환불 1건으로 확인.**
+- 브라우저에서 확인 대화창이 실제로 뜨는 화면 — 시스템 테스트는 `data-turbo-confirm` 속성 문구 단정으로 갈음.
+- 운영 배포 환경(Kamal·SQLite 볼륨)에서의 동작 — 배포는 별도 요청 시.

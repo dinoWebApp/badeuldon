@@ -1,66 +1,113 @@
-# 07_test_report — LP-16 랜딩 재구성 Phase 7 (2026-11-20 · 일반 모드)
+# 07_test_report — 세금계산서 발급 자격 차단(TAX-3) + 운영 준비 게이트(TAX-4)
 
-대상: `test/controllers/landing_controller_test.rb`(기존 갱신 3건 + 신규 10건) · `test/controllers/pages_policy_test.rb`(T1 법무 검토 정합 갱신). 근거: `_workspace/05_review.md`(APPROVED·Tester 지시 A·B) · `_workspace/03_implementation.md`(§6 인계 3건) · PRD LP-16·LP-12·SURF-4.
+2026-11-24 · Tester · 대상: 미커밋 구현(app/config 12파일 + 신설 2파일) · 앱 코드는 수정하지 않았다.
 
-## 최종 결과
+## 결과 요약
 
 | 게이트 | 결과 |
-|---|---|
-| `bin/rails test test/controllers/landing_controller_test.rb` | **41 runs, 561 assertions, 0 failures, 0 errors** (갱신 전 31 runs, 3 failures → 전부 예측된 단정 갱신 대상) |
-| `bin/rails test test/controllers/pages_policy_test.rb` | **6 runs, 86 assertions, 0 failures, 0 errors** (T1 갱신 — 5→6 runs) |
-| `bin/rails test` 전체 회귀 | **1,477 runs, 9,287 assertions, 0 failures, 0 errors, 0 skips** |
-| `bin/rubocop` | 412 files inspected, **no offenses** |
-| 코드 버그 | **0건** — 실패 3건 전부 테스트 오류(기존 단정 미갱신)로 분류, 소스 수정 0건 |
+|:---|:---|
+| 세금계산서 관련 테스트(13파일 + 신규 5파일) | **158 runs · 863 assertions · 0 failures · 0 errors** |
+| 전체 `bin/rails test` | **1,529 runs · 9,561 assertions · 0 failures · 0 errors · 0 skips** (이전 기준선 1,477 → +52건) |
+| 전체 `bin/rails test:system` | **13 runs · 117 assertions · 0 failures · 0 errors** (1회 통과 — 알려진 로그인 경합 플레이크 미발생) |
+| `bin/rubocop test/` | 195 files inspected, **no offenses** |
+| 코드 버그 | **0건** — 실패·에러 전무, 원인 분류 대상 없음 |
 
-## 1. 기존 갱신 3건 (03 문서 §6 인계 = 05_review §A)
+시작점이었던 기존 실패(꺼짐 기본값 상태 19건 + 켜짐 1건)는 모두 해소됐다. 지시서 기록(꺼짐 20건 = 12+8)과 실측(19건 = 11+8)에 1건 차이가 있었으나 전부 같은 원인(리다이렉트 대상이 `/app`으로 바뀐 것)이고 갱신 후 전부 통과라 영향 없다.
 
-| # | 테스트(갱신 후 이름) | 갱신 내용 | 원인 분류 |
-|---|---|---|---|
-| 1 | `주 CTA는 히어로·all_features·sales_program·LP-10 최종에서 가입 화면 실링크다 (SURF-4, AUTH-1 반전, LP-16)` | `new_registration_path` 링크 `count: 2 → 4`, 문구 단정 `/무료로 시작하기/` `count: 2 → 4` — all_features 끝 "이 모든 기능, 무료로 시작하기"·sales_program 끝 CTA 반영(LP-16 "CTA 반복 배치") | 테스트 오류(단정 미갱신) |
-| 2 | `표면 ①의 a 요소는 가입 CTA·헤더 로그인·법적 고지·인페이지 앵커만 사용한다 (SURF-4 개정 — LP-16 앵커 허용)` | 허용 href 조건에 **인페이지 앵커(`#` 접두 — ② 진입 아님)** 추가 + `a[href^='#'] count: 1`(#all-features 단일) 단정. 가입·로그인·법적 고지 3종·블로그·root·비밀번호 재설정 count 0 기존 단정 유지 | 테스트 오류(화이트리스트 미갱신) |
-| 3 | `LP-8 FAQ 12항목의 질문이 모두 노출된다 (LP-8, LP-16 확대)` | `summary` `count: 8 → 12` + 신규 4질문(전자세금계산서·정기 청구·추천 코드·휴대폰 인증) 단정 추가. 기존 8질문 목록 유지 | 테스트 오류(단정 미갱신) |
+## 구조 — 테스트 환경의 스위치 기본 켬
 
-## 2. 신규 10건 (05_review §B 반영 — LP-16 매핑)
+- **신규** `test/test_helpers/tax_invoice_feature_helper.rb` — `with_tax_invoice_feature(enabled)` 블록 헬퍼. `ensure`로 원래 값 복원.
+- **수정** `test/test_helper.rb` — `ActiveSupport::TestCase` setup에서 `config.x.tax_invoice_enabled = true`(기존 세금계산서 테스트의 전제 보전), teardown에서 부팅 값 복원(테스트 간 누수 방지).
+- 꺼짐이 필요한 케이스는 전부 `with_tax_invoice_feature(false)` 블록으로 격리했다. fail-closed **파싱** 자체는 초기자를 `load`하는 단위 테스트(`test/config/tax_invoice_initializer_test.rb`)가 담당 — 부팅 9회 없이 ENV 9값을 검증한다.
 
-| # | 테스트 | 검증 내용 | Rule ID |
-|---|---|---|---|
-| 1 | LP-16 재구성 13섹션이 지정 순서로 렌더된다 | hero→pain→how_it_works→features→**all_features**→scenarios→message_samples→control→**sales_program**→positioning→pricing→faq→closing — 섹션별 고유 마커 `body.index` 순서 비교, closing은 문구 공유로 `rindex` 판정 | LP-16·DESIGN-8 |
-| 2 | all_features 12카드가 전 기능 커버 그리드를 구성한다 | `section#all-features ul li` count 12 + 12카드 h3 제목 전수 단정 | LP-16 |
-| 3 | 배지는 신규 2종·예정 1종만 표기된다 | `신규` span count 2(반복 청구·전자세금계산서)·`예정` span count 1(데이터 내보내기=SEC-4 미구현) + 카드별 배지 소속 검증(h3 인접 span) | LP-16·LP-12 |
-| 4 | "더 많은 기능 보기" 앵커가 all_features 섹션에 착지한다 | `a[href="#all-features"]` count 1 + `section#all-features` count 1 — 끊어진 앵커 방지 | LP-16·SURF-4 |
-| 5 | sales_program 수치는 SALES 확정 조건 스냅샷과 일치한다 | "Plus 첫 결제 20% 할인(첫 달 7,920원)"·"영업 파트너는 20%(12개월), 지인 추천은 15%(무기한)"·"매주 월요일 자동으로 새 코드로 갱신"·"원천징수(3.3%)" — 수치 변경 시 테스트가 알림 | SALES-1/2/4/5·LP-12 |
-| 6 | sales_program 섹션의 링크는 가입 CTA 1개뿐이다 | 섹션 내 `a` 요소 1개 = `new_registration_path` — 외부 href·mailto 0건(참여 문의는 텍스트 안내) | SURF-4 |
-| 7 | hero 수치 배지 3종이 PRD 확정치로 렌더된다 | "첫 14일 무료 체험"(PLAN-2)·"청구 건당 최대 5통"(PLAN-3)·"4단계 정중한 안내"(REM-2) — 히어로 섹션 내 span 단정 | LP-16·LP-12 |
-| 8 | 신규 섹션 2종은 h2 헤딩을 갖고 h1 1개를 유지한다 | `h1` count 1 + all_features h2 "받을돈이 하는 일, 한눈에"(W-1 반영 문구) + sales_program h2 | LP-16·DESIGN-8 |
-| 9 | FAQ 신규 4항목 답변이 확정 수치·조건과 함께 노출된다 | 세금계산서 "수금 마감(입금 완료) 한해·300원·승인번호·공동인증서"(TAX-1·Q21) / 반복 청구 "발행일(1~28일)·일시중지·재개"(INV-7) / 추천 "7,920원·정상가·매주 새로 발급"(SALES-4) / 휴대폰 인증 "알림톡(SMS 폴백)·5분"(AUTH-9) | LP-8·TAX-1·INV-7·SALES-4·AUTH-9 |
-| 10 | LP-16 신규 섹션 문구도 과장·보장·근거 없는 수치가 없다 | `전부입니다` 부재(W-1 회귀 방지)·`19종` 부재(03 §4-3 미채택 수치)·`완벽`·`회수율`·`실패 없는` 부재 + 완화 헤드라인 "한눈에" 존재 | LP-12 |
+## 추가·변경한 테스트 파일
 
-## 3. T1 정책 문서 테스트 갱신 (법무 검토 7건 정합화 반영)
+| 파일 | 구분 | 내용 |
+|:---|:---|:---|
+| `test/test_helpers/tax_invoice_feature_helper.rb` | 신규 | 토글 블록 헬퍼 |
+| `test/test_helper.rb` | 수정 | 기본 켬 setup/teardown + 헬퍼 include |
+| `test/models/tax_invoice_test.rb` | 신규 8건 | `feature_enabled?` 단일 판정점(ENV 비의존)·`FEATURE_DISABLED_NOTICE` 상수·`User#tax_invoice_eligible?` 3값·문구 2종(TAX-3 단일 출처) |
+| `test/config/tax_invoice_initializer_test.rb` | 신규 3건 | ENV 9값 fail-closed 파싱(`"true"`만 켜짐; 미설정·`"false"`·`TRUE`·`True`·`1`·`yes`·`" true"`·`"true "` 꺼짐)·로드 후 판정점 확인 |
+| `test/controllers/app/tax_invoice_gate_test.rb` | 신규 22건 | TAX-4 꺼짐 전체 + 패널 우선순위 매트릭스 9건 + 사이드바 순서 |
+| `test/controllers/app/tax_invoice_eligibility_test.rb` | 신규 12건 | TAX-3 정상/경계/예외(간이과세 7건·면세 1건 통합) |
+| `test/controllers/app/tax_invoices_controller_test.rb` | 수정 1건 | 가드 리다이렉트 대상을 `new` → 청구서 상세로 갱신(리뷰 C-1 반영 — 테스트 의도·규칙은 유지) + 파일 헤더에 켜짐 전제 명시 |
+| `test/controllers/app/tax_invoice_settings_controller_test.rb` | 수정 0건 | 파일 헤더에 켜짐 전제 명시만(기본 켬으로 전부 통과) |
+| `test/services/tax_invoices/create_order_service_test.rb` | +2건 | `IneligibleUser`(간이·면세) — message 단일 출처 일치·주문 0건 |
+| `test/services/tax_invoices/issue_service_test.rb` | +3건 | `GuardFailed`(간이·면세) 기록 0건·SOAP 미호출 + 가드 순서(자격 > 설정) |
+| `test/controllers/webhooks/tax_invoice_settle_test.rb` | +2건 | TAX-3 ④ 웹훅 경로(결제 성립·발행 차단) + TAX-4 스위치 무관성(settle은 꺼짐에도 정상 발행) |
 
-파일: `test/controllers/pages_policy_test.rb` — 기존 5테스트 문구 단정에 법무 검토 반영 문구 추가 + 개정일 통일 신규 1테스트(총 6 runs).
+신규 테스트 총 **52건** = 전체 증분(+52)과 일치. 소유권 제한 3파일(`Gemfile.lock`·`test/application_system_test_case.rb`·`test/test_helpers/capybara_chrome_compat.rb`)은 미접촉(git status 대조). 외부 API 실호출 0건 — 바로빌은 기존 `with_baro_bill_client(FakeBaroBillClient.new)` 방식, 포트원은 기존 `PortOneStubbing`을 그대로 사용했다.
 
-| 법무 검토 항목 | 문서 | 추가 단정 |
-|---|---|---|
-| 취소 과금 재고지 | 이용약관 제7조 | "결제 전 안내 및 발행 전 확인 화면에서 재고지" |
-| 휴대폰 인증 가입 절차 | 이용약관 제4조 | "휴대폰 번호를 필수로 제출하며" |
-| 인증서 직접 등록·미보관 | 이용약관 제5조 | "공동인증서는 대행사에 위탁 등록되며 회사가 보관하지 않습니다" |
-| 중복 가입 방지 고지(목적) | 개인정보처리방침 제2조 | "휴대폰 인증을 통한 가입 본인 확인(중복 가입 방지 포함)" |
-| 인증서 미보관(제4조) | 개인정보처리방침 제4조 | "회사는 이를 보관하지 않습니다" |
-| 이용 완료 정의 | 환불 정책 | '"이용 완료"란' + "PDF 다운로드가 가능해진 시점" + "국세청 발행 접수가 완료된 시점" |
-| 개정일 통일 | 3종 전체 | 신규 테스트 — 헤더·부칙·공고일자 2026-11-20 통일 + 구 문구 "2026년 10월 15일부터 시행합니다" 잔존 0 (제정일 이력 표기는 허용) |
+## Rule ID별 시나리오 매트릭스
 
-## 4. 금지 표현 스캔 결과 (LP-12)
+### TAX-3 — 발급 자격(Q25 — 발행만 차단·영구)
 
-전체 페이지 대상 기존 단정 + 신규 10-# 테스트 이중 커버 — **검출 0건**:
+| 구분 | 시나리오 | 검증 위치 |
+|:---|:---|:---|
+| 정상(general) | `new` 200 + "수수료 결제하고 발행 요청" 버튼 | eligibility |
+| 정상(general) | 패널 ready — 발행 링크·300원 고지, 안내 문구 없음 | gate 매트릭스 ready |
+| 정상(general) | 설정 화면 발급 불가 안내 없음 + 인증서 완료 안내 "이제 … 발행할 수 있습니다" | eligibility |
+| 경계 | 과세 선택지 3종 유지 + 저장 성공(바로빌 스텁 — `barobill_id` 채번·tax_type 반영) | eligibility |
+| 경계 | 기존 발행 내역 조회(기록 분기)·취소 성공 — 자격 무관 허용 | eligibility |
+| 예외(간이·면세) | ① 패널 "발급 불가" + 문구 + 발행 링크 없음 | eligibility·gate |
+| 예외 | ② `new` → **청구서 상세** 리다이렉트 + 안내 플래시(리뷰 C-1) | eligibility(간이·면세) |
+| 예외 | ② `create` → 청구서 상세 + 주문 0건 | eligibility(간이·면세) |
+| 예외 | ③ `CreateOrderService::IneligibleUser` — message == 단일 출처 문구, 주문 미생성 | create_order_service(간이·면세) |
+| 예외 | ④ `IssueService::GuardFailed` — 기록 0건·SOAP 호출 0건 | issue_service(간이·면세) |
+| 예외 | ④ 가드 순서 — 자격 가드가 설정 가드보다 앞선다 | issue_service |
+| 예외 | pending 주문 `show` — 결제 버튼·`portone-payment` 위젯 없음(리뷰 C-2) | eligibility(간이·면세) |
+| 예외 | 설정 2단계(인증서 등록) 숨김 + 안내 박스(리뷰 W-3) | eligibility |
+| 예외 | 저장 성공 플래시에 "다음으로 공동인증서" 없음 | eligibility |
+| 예외 | 인증서 확인 성공 안내에 발행 가능 문언 없음 | eligibility |
 
-- `100%`·`보장`·`마지막 알림` — 기존 LP-12 테스트 통과(신규 카드·sales_program 포함 전체 응답 대상)
-- `추심` — 문맥 필터 테스트 통과(부정·의문 문맥만: VIEW-5 고지문·FAQ·positioning)
-- 신규 확장 — `전부입니다`(W-1)·`19종`·`완벽`·`회수율`·`실패 없는` 부재 확인
-- SALES 수치는 전부 PRD 확정치(SALES-1/2/4/5) — LP-12 "측정 근거 수반" 준수, 테스트가 수치 스냅샷 고정(#5)
+### TAX-4 — 운영 준비 게이트(Q26 — 기본 꺼짐·fail-closed)
 
-## 5. 유의 사항
+| 구분 | 시나리오 | 검증 위치 |
+|:---|:---|:---|
+| 스위치 | ENV 9값 파싱 — `"true"`만 켜짐, 나머지 전부 꺼짐 | initializer |
+| 스위치 | 모델은 config만 읽는다 — ENV true여도 config 꺼짐이면 꺼짐 | models/tax_invoice_test |
+| 꺼짐① | 사이드바 "전자세금계산서" 비노출 | gate |
+| 꺼짐② | 패널 "준비 중" — 상수 문구 + 보조 문장, 발행 링크 없음 | gate |
+| 꺼짐② | 기존 발행 기록 있는 청구는 기록 표시 유지(승인번호·주문 링크) | gate |
+| 꺼짐③ | `new`·`create` → `/app` 리다이렉트 + 상수 플래시 + 주문 미생성 | gate 2건 |
+| 꺼짐③ | 설정 4액션(show·update·register_certificate·confirm_certificate) → `/app` + 상수 플래시, 저장 미수행 | gate 3건 |
+| 꺼짐④ | paid 주문 `show` 200(발행 상태 표시) | gate |
+| 꺼짐④ | paid 발행 `cancel` 성공(canceled 전이) | gate |
+| 꺼짐④ | pending 주문 `show` — 200 유지 + 결제 위젯 미렌더(리뷰 C-2) | gate |
+| 회귀 | 소유권 격리 — 꺼짐 상태에서도 타인 주문 show·cancel 404 | gate |
+| 켜짐 | 메뉴 순서 회귀 — "추심 안내" < "전자세금계산서" < "공지" | gate |
+| 켜짐 | 기존 세금계산서 테스트 전수 통과 + settle 경로는 스위치와 무관하게 발행 수행 | 13파일 158 runs + settle |
+| 매트릭스 | 기존 기록 > paid_pending·꺼짐·자격 없음(복합 조건 1건) | gate |
+| 매트릭스 | paid_pending > 꺼짐(리뷰 W-1 — 주문 링크 보전·재결제 버튼 없음) | gate |
+| 매트릭스 | paid_pending > 자격 없음(W-1) | gate |
+| 매트릭스 | 꺼짐 > 자격 없음 / 꺼짐 > settings_missing / 자격 없음 > settings_missing / settings_missing > client_missing / client_missing > ready / ready | gate 6건 |
 
-- 소스(app/) 수정 0건 — 3건 실패는 전부 기존 단정 미갱신(테스트 오류)으로, Phase 7 인계 목록(03 §6)과 1:1 일치해 **코드 버그 0건** 확정.
-- `sections#all-features` 배지 검증은 `h3 + span` 인접 선택자로 배지 소속 카드까지 검증 — '예정' 배지가 SEC-4(미구현) 1건뿐임을 데이터 수준에서 고정.
-- 전체 스위트 1,477 runs에는 병렬 배치 타 태스크(T1 정책 문서 소스·기술 부채 등) 반영분이 포함 — 타 태스크 테스트 수정은 하지 않았음.
-- 시스템 테스트(05_review §C — 모바일 뷰포트 13섹션 스크롤·반응형)는 선택 항목으로 미작성 — 정적 마크업이며 컨트롤러 통합 테스트로 구조·문구·링크 무결성 전수 커버.
+### 문구 단일 출처·기타 회귀
+
+- **TAX-3 문구**: 패널·`new`/`create` 플래시·설정 화면·저장 플래시·인증서 안내·`IneligibleUser`/`GuardFailed` message가 전부 `User#tax_invoice_ineligibility_notice`와 **exact-equality**(el.(assert_equal)) 검증 — 12건.
+- **TAX-4 문구**: 플래시 7액션·패널·pending 주문 차단이 전부 `TaxInvoice::FEATURE_DISABLED_NOTICE`와 일치.
+- **noindex**: 기존 "설정·발행 화면 noindex"(SURF-3) 켜짐 상태 통과. **인증서 완료 안내 조건화**: 정상/예외 양방향 검증. **콜백 착지·웹훅 멱등**: 기존 7건 통과 + 스위치 무관 1건 신설.
+- `test/controllers/app/dashboards_controller_test.rb`(네비 12개 단정) — 기본 켬 상태에서 기존 단정 그대로 통과(변경 불요 확인).
+
+## 실행 결과 상세
+
+| 명령 | 결과 |
+|:---|:---|
+| `bin/rails test test/controllers/app/tax_invoices*_test.rb tax_invoice_gate_test.rb tax_invoice_eligibility_test.rb webhooks/tax_invoice_settle_test.rb webhooks/portone_controller_test.rb test/services/tax_invoices/ fulfill_tax_invoice_service_test.rb test/jobs/tax_invoices/ test/models/tax_invoice_test.rb test/config/tax_invoice_initializer_test.rb dashboards_controller_test.rb` | 158 runs · 863 assertions · 0 failures · 0 errors |
+| `bin/rails test` (전체) | 1,529 runs · 9,561 assertions · **0 failures · 0 errors · 0 skips** |
+| `bin/rails test:system` (전체) | 13 runs · 117 assertions · **0 failures · 0 errors** |
+| `bin/rubocop test/` | 195 files · no offenses |
+
+참고 — 시작 시점에 테스트 DB stale로 fixture FK 검증 오류(28 errors)가 발생해 `bin/rails db:test:prepare`로 재구성했다. 코드·테스트와 무관한 환경 문제였다.
+
+## 발견한 코드 버그
+
+**0건.** 리뷰 C-1(`new` 차단)·C-2(pending 주문 결제 진입)·W-1(우선순위)·W-2(concern·상수)·W-3(설정 화면)·W-4(문구) 수정분이 모두 의도대로 동작함을 테스트로 확인했다. 별도 Developer 위임 불요.
+
+## 남긴 리스크
+
+1. **시스템 테스트 미포함** — TAX-3/4의 브라우저 E2E는 신설하지 않았다(기존에도 세금계산서 시스템 테스트 부재). 컨트롤러 HTTP 통합 테스트가 응답·리다이렉트·위젯 미렌더까지 검증하므로 커버리지 격차는 작으나, 인앱 실기 QA 때 스위치 켜짐 상태의 발행 플로우 육안 확인이 필요하다.
+2. **이미 열린 결제 위젯은 서버가 못 막는다** — pending 주문 `show`의 체크아웃 미렌더(리뷰 C-2)는 렌더 계층 방어다. SDK 직접 호출 경로의 최종 방어선은 운영 노트(배포 시 `Order.pending.tax_invoices` 실패 처리 절차)다 — Phase 9(AGENTS.md 운영 노트 기록)에서 반영 필요.
+3. **테스트 기본 켬은 config 조작 방식** — ENV 파싱과 분리돼 있고, 실부팅 fail-closed는 초기자 `load` 테스트가 담당한다. 운영에서는 deploy.yml env의 `"true"` 문자열 정확성이 여전히 사람 손에 달려 있다(오타 시 꺼짐 — 안전한 쪽).
+4. **과세 유형 기본값 일반과세** — 간이과세자가 기본값을 그대로 두면 자격 판정을 통과한다(02_prd_update 후속 과제 — PRD 설계 영역, 테스트로 막을 수 없는 구조적 리스크).
+5. **켜짐+포인트 미충전** 조합("결제만 되고 발행 실패")은 스위치 켜기 전제(운영 준비 완료)로 흡수된다 — Q26 운영 규율 영역.

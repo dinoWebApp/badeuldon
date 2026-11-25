@@ -152,9 +152,9 @@ Rails.application.routes.draw do
         patch :change_plan
       end
     end
-    resources :orders, only: %i[ index show ] do                                    # ADMIN-4
+    resources :orders, only: %i[ index show ] do                                    # ADMIN-4·11
       member do
-        patch :mark_refunded
+        patch :refund # ADMIN-11·PLAN-9 — 결제 취소(환불) 실행(owner 전용)
       end
     end
 

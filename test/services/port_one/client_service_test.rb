@@ -269,6 +269,27 @@ module PortOne
       assert_predicate error, :ambiguous?
     end
 
+    # ── TEST 환경 실호출 차단 가드(2026-11-24 — 리뷰 R1·R3 실호출 사고 대응) ──
+
+    test "test 환경에서는 대역 없이 호출하면 TEST_GUARD로 차단되고 네트워크 연결이 0회다" do
+      started = []
+      original = Net::HTTP.method(:start)
+      Net::HTTP.define_singleton_method(:start) do |*args, **kwargs, &block|
+        started << [ args, kwargs ]
+        original.call(*args, **kwargs, &block)
+      end
+
+      error = nil
+      begin
+        error = assert_raises(ApiError) { @client.get_payment(payment_id: "x") }
+      ensure
+        Net::HTTP.define_singleton_method(:start, original)
+      end
+
+      assert_equal "TEST_GUARD", error.code
+      assert_empty started, "가드는 실제 연결 전에 예외를 던져야 한다"
+    end
+
     private
 
     def http_ok(body)

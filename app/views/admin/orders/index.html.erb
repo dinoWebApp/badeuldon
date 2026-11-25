@@ -44,11 +44,11 @@
   <%= form_with url: admin_orders_path, method: :get, class: "mt-3 flex flex-wrap items-end gap-3" do %>
     <div>
       <label class="block text-xs text-stone-500" for="status">상태</label>
-      <%= select_tag :status, options_for_select([["전체", ""], ["결제 완료", "paid"], ["결제 실패", "failed"]], params[:status]) %>
+      <%= select_tag :status, options_for_select([["전체", ""], ["결제 완료", "paid"], ["결제 실패", "failed"], ["취소·환불", "cancelled"]], params[:status]) %>
     </div>
     <div>
       <label class="block text-xs text-stone-500" for="refund">환불</label>
-      <%= select_tag :refund, options_for_select([["전체", ""], ["환불 기록 있음", "refunded"], ["환불 기록 없음", "not_refunded"]], params[:refund]) %>
+      <%= select_tag :refund, options_for_select([["전체", ""], ["환불됨", "refunded"], ["환불 안 됨", "not_refunded"]], params[:refund]) %>
     </div>
     <div><%= submit_tag "필터 적용", class: "rounded bg-stone-800 px-3 py-1.5 text-sm text-white hover:bg-stone-700" %></div>
   <% end %>
@@ -82,7 +82,7 @@
                 </span>
               <% end %>
             </td>
-            <td class="py-2"><%= order.refunded? ? "기록됨" : "-" %></td>
+            <td class="py-2"><%= order.refunded? ? "환불됨" : "-" %></td>
             <td class="py-2 text-right"><%= link_to "상세", admin_order_path(order), class: "text-emerald-700 hover:underline" %></td>
           </tr>
         <% end %>
@@ -92,5 +92,5 @@
     <p class="mt-4 text-sm text-stone-500">조건에 맞는 주문이 없습니다.</p>
   <% end %>
 
-  <p class="mt-4 text-xs text-stone-400">※ Plus 구독 차감 실패는 D+1·D+3·D+7 재시도(dunning) 후 3회 모두 실패 시 해지됩니다(PLAN-5). 실제 환불은 포트원(KG이니시스) 콘솔에서 수동 처리 후 이 화면에서 사유를 기록합니다(ADMIN-4).</p>
+  <p class="mt-4 text-xs text-stone-400">※ Plus 구독 차감 실패는 D+1·D+3·D+7 재시도(dunning) 후 3회 모두 실패 시 해지됩니다(PLAN-5). 환불 실행은 주문 상세에서 최고 관리자(owner)만 수행합니다 — 포트원 결제 취소(전액·즉시)와 상품 되돌리기가 함께 실행됩니다(ADMIN-11·PLAN-9).</p>
 </div>

@@ -92,6 +92,15 @@ module PortOne
     end
 
     def perform((uri, net_request))
+      # TEST 환경 실호출 원천 차단(2026-11-24 — 리뷰 중 운영 API 실호출 사고 계기) — test도
+      # 운영과 같은 credentials를 로드하므로 stub 누락 시 실제 결제 API 호출이 나간다.
+      # with_portone_client(생성자 교체) 또는 HTTP transport stub(client_service_test의
+      # stub_start) 경유 시에만 통과한다(솔라피·이메일 perform 가드와 같은 방식).
+      if Rails.env.test? && !Thread.current[:portone_http_stub]
+        raise ApiError.new(status: nil, code: "TEST_GUARD",
+                           message: "test 환경 실호출 차단 — with_portone_client 또는 HTTP transport stub 필요")
+      end
+
       Net::HTTP.start(uri.host, uri.port, use_ssl: true,
                       open_timeout: TIMEOUT_SECONDS, read_timeout: TIMEOUT_SECONDS) do |http|
         http.request(net_request)

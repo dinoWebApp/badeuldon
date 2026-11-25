@@ -131,10 +131,19 @@ class Subscriptions::DunningRetryTest < ActiveSupport::TestCase
     assert_predicate @user.orders.reload.sole, :failed?
 
     # 다음 일간 갱신 스윕 — due_subscriptions는 cancelled 포함 → expire!에 도달해야 한다(C-2)
+    # 스윕은 due 구독 전체를 돌므로 epsilon fixture(active·주기 종료 10-31)의 차감 간섭을
+    # 제거한다(아래 ⑤와 같은 방식). 잡 실행은 대역 필수 — 대역 없이는 운영 API 실호출이
+    # 나간다(2026-11-24 TEST_GUARD 가드 도입 계기 — 리뷰 R3).
+    Subscription.find_by(user_id: users(:epsilon).id)
+                &.update_columns(current_period_end: Time.zone.parse("2027-10-31 23:59:59"))
+
     travel_to(Time.zone.parse("2026-11-09 06:05")) do
-      SubscriptionRenewalJob.perform_now
+      with_portone_client(@ok) do
+        SubscriptionRenewalJob.perform_now
+      end
     end
 
+    assert_empty @ok.calls.values.flatten                 # 강등 경로에서 차감 API 호출 없음
     @sub.reload
     assert_predicate @sub, :expired?                      # 무료 Plus 영구 잔존 금지(PLAN-5)
     assert_predicate @sub, :free?

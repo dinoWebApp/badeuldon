@@ -121,6 +121,59 @@ class Webhooks::PortOneControllerTest < ActionDispatch::IntegrationTest
     assert_predicate orders(:delta_pass_order).reload, :cancelled?
   end
 
+  # ── PLAN-9 환불 실행과의 정합(03_implementation §4 — 웹훅 무변경 판단 근거) ──
+
+  test "환불 실행 뒤 Transaction.Cancelled 후행 도착은 무변경으로 흡수된다 (PLAN-9 멱등)" do
+    order = orders(:delta_pass_order)
+    refund_fake = FakePortOneClient.new(get_payment: { id: order.pg_order_id, status: "CANCELLED",
+                                                       amount: { paid: order.amount,
+                                                                 cancelled: order.amount } })
+    with_portone_client(refund_fake) do
+      result = Orders::RefundService.new(admin: admins(:ops), order: order,
+                                         reason: "이중 결제 정정").call
+      assert result.success?, "전제: 환불 실행이 성공해야 한다"
+    end
+    refunded_at = order.reload.refunded_at
+    assert_equal 1, AuditLog.where(action: "order_refund", target_type: "Order",
+                                   target_id: order.id).count
+
+    hook_fake = FakePortOneClient.new(get_payment: { id: order.pg_order_id, status: "CANCELLED" })
+    with_portone_client(hook_fake) do
+      post_event "Transaction.Cancelled", order.pg_order_id
+    end
+
+    assert_response :ok
+    order.reload
+    assert_equal refunded_at, order.refunded_at, "정산 기록은 보존된다"
+    assert_predicate order, :cancelled?
+    assert_equal 1, AuditLog.where(action: "order_refund", target_type: "Order",
+                                   target_id: order.id).count, "감사·정산 중복 없음(멱등)"
+  end
+
+  test "웹훅이 먼저 status만 cancelled로 만든 주문은 실행으로 정산 1회가 된다 (PLAN-9 선행 도착)" do
+    order = orders(:delta_pass_order)
+    hook_fake = FakePortOneClient.new(get_payment: { id: order.pg_order_id, status: "CANCELLED" })
+    with_portone_client(hook_fake) do
+      post_event "Transaction.Cancelled", order.pg_order_id
+    end
+    assert_predicate order.reload, :cancelled?
+    assert_nil order.refunded_at, "웹훅은 상태만 동기화 — 정산 기록 없음"
+
+    refund_fake = FakePortOneClient.new(get_payment: { id: order.pg_order_id, status: "CANCELLED",
+                                                       amount: { paid: order.amount,
+                                                                 cancelled: order.amount } })
+    with_portone_client(refund_fake) do
+      result = Orders::RefundService.new(admin: admins(:ops), order: order,
+                                         reason: "콘솔 선취소 정산").call
+      assert result.success?
+    end
+
+    order.reload
+    assert order.refunded_at.present?
+    assert_equal 1, AuditLog.where(action: "order_refund", target_type: "Order",
+                                   target_id: order.id).count, "정산 정확히 1회"
+  end
+
   test "미지원 type(BillingKey.*)는 포트원 호출 없이 200으로 흡수된다" do
     order = users(:gamma).orders.create!(product: :collection_pass, amount: 4_000,
                                          pg_order_id: "order-webhook-billingkey-1")

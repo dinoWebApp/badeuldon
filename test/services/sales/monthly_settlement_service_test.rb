@@ -1,4 +1,5 @@
 require "test_helper"
+require_relative "../../test_helpers/fake_portone_client"
 
 # 월 수수료 정산(SALES-5·Q24 — F-SALES). 역할 정책(sales 20%·12개월 캡 / officer 15%·무기한)·
 # 기준 실차감액(orders.amount — 첫달 할인가 포함)·환불 제외·upsert 멱등(재실행 동일·
@@ -188,5 +189,28 @@ class Sales::MonthlySettlementServiceTest < ActiveSupport::TestCase
     snapshot = @officer_rep.sales_commissions.sole
     assert_equal [ 2026, 10 ], [ snapshot.year, snapshot.month ], "직전월(10월)만 집계"
     assert_equal 9_900, snapshot.base_amount
+  end
+
+  # PLAN-9 — 관리자 환불 실행(status cancelled·refunded_at)은 정산 기준 금액에서 제외된다
+  # (기존 환불 제외 스코프 not_refunded가 실행 경로까지 커버함을 실제 실행 경로로 고정).
+  test "환불 실행된 주문은 수수료 기준 금액에서 제외된다 (SALES-5·PLAN-9)" do
+    user = referred_user(rep: @officer_rep, email: "settle-refund@example.com",
+                         created_at: Time.zone.parse("2026-08-10 09:00"))
+    order = plus_paid_order(user, amount: 9_900, paid_at: Time.zone.parse("2026-09-05 10:00"))
+
+    travel_to(Time.zone.parse("2026-09-08 10:00")) do
+      result = Orders::RefundService.new(
+        admin: admins(:ops), order: order, reason: "이중 결제 정정",
+        client: FakePortOneClient.new(get_payment: { id: order.pg_order_id, status: "CANCELLED",
+                                                     amount: { paid: order.amount,
+                                                               cancelled: order.amount } })
+      ).call
+      assert result.success?, "전제: 환불 실행이 성공해야 한다"
+    end
+
+    Sales::MonthlySettlementService.new(year: 2026, month: 9).call
+
+    assert_empty @officer_rep.sales_commissions,
+                 "환불 실행 건은 정산 기준 금액에서 제외 — 기준 0은 스냅샷 미생분(SKIP 가드)"
   end
 end
