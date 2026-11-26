@@ -197,13 +197,19 @@
   <% end %>
 
   <%# ── 자동 안내 현황(F-REM — REM-6/7/8·VIEW-7). 초안은 발송 대상이 아니므로 미노출.
-      버튼 가시성은 상태 기준: 활성 → 보류 버튼, 청구 보류 → 재개 버튼, 수신거부·종결 → 안내만.
-      수동 발송은 가드(보류·수신거부·종결)가 통과할 때만 노출해 죽은 버튼을 만들지 않는다 ── %>
+      버튼 가시성은 상태 기준: 활성 → 보류 버튼, 청구 보류 → 재개 버튼
+      (거래처 수신 거부와 겹치면 재개해도 발송이 없어 버튼 없이 안내만),
+      거래처 수신 거부 → 안내만(재개 불가 — VIEW-7, 채무자 의사라 되돌리는 경로 없음),
+      상한 도달(PLAN-3·Q28 — 종결 아님) → 상한 안내 상자(자동·직접 발송이 모두 막혀
+      버튼 행 자체를 렌더하지 않는다 — W-4. 입금 이벤트 안내는 계속 나간다 — Q10),
+      그 밖의 종결 → 다시 보내기 버튼(거래처 단위 보류가 겹치면 거래처 재개 전까지
+      발송이 없어 버튼 없이 안내만 — 리뷰 §5-3).
+      수동 발송은 가드(보류·수신거부·종결·상한)가 통과할 때만 노출해 죽은 버튼을 만들지 않는다 ── %>
   <% unless @invoice.draft? %>
     <section class="mt-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-base font-bold text-stone-800">자동 안내 현황</h2>
-        <%= reminder_state_badges(@invoice) %>
+        <%= reminder_state_badges(@invoice, cap_reached: @reminder_cap_reached) %>
       </div>
       <p class="mt-1 text-xs leading-relaxed text-stone-500">
         받을돈 명의로 거래처에게 단계별 안내를 대신 보냅니다. 평일 오전 9시~오후 6시에만 발송됩니다.
@@ -216,6 +222,17 @@
           <p class="text-sm font-bold text-stone-700">이 거래처가 추가 안내 수신을 거부했습니다</p>
           <p class="mt-1 text-xs leading-relaxed text-stone-500">
             해당 번호의 모든 자동 안내는 즉시 중단되었습니다. 이후 진행은 거래처와의 직접 소통으로 확인해 주세요.
+          </p>
+        </div>
+      <% elsif @reminder_cap_reached && @invoice.unsettled? %>
+        <%# PLAN-3·Q28·W-4 — 상한 도달 안내. 종결 마킹은 없지만 자동·직접 발송이 모두 막혀
+            「자동 안내 중」 배지와 발송 버튼을 보이면 죽은 버튼이 된다(제품 결정 — 상한 도달을
+            표시하고 종결 마킹은 하지 않는다).
+            미수 청구 한정 — 완납·무효 청구는 발송 대상이 아니라 안내하지 않는다. %>
+        <div class="mt-3 rounded-xl bg-stone-50 p-4 ring-1 ring-inset ring-stone-200" role="status">
+          <p class="text-sm font-bold text-stone-700">발송 상한에 도달했습니다</p>
+          <p class="mt-1 text-xs leading-relaxed text-stone-500">
+            이 청구서에는 단계별 안내와 직접 안내를 합쳐 청구 건당 5통을 모두 보냈습니다. 이 청구서의 자동 안내와 직접 안내는 더 보낼 수 없습니다. 입금을 기록하면 나가는 안내(잔액·감사)는 계속 발송됩니다.
           </p>
         </div>
       <% elsif @invoice.reminders_suspended? || @invoice.client.reminders_suspended? %>
@@ -237,27 +254,45 @@
         </div>
       <% end %>
 
-      <% if @invoice.unsettled? %>
+      <%# PLAN-3·Q28·W-4 — 상한 도달 시 버튼 행(보류하기·지금 1통 보내기·다음 안내 라벨 /
+          재개하기 / 다시 보내기)과 무료 플랜 문구를 모두 렌더하지 않는다 — 막힌 버튼·막힌
+          버튼 권유 문구가 되는 것을 막는다(상한 안내 상자가 대신 사유를 설명한다).
+          PLAN-3·W-3(마감 리뷰 2026-11-26) — 자동 상한(@reminder_cap_reached)은 미도달이지만
+          수동 상한(@manual_cap_reached — 채무자 향 sent 전체 5통)에 걸린 청구도 직접 발송은
+          막혀 있다(CAP_REACHED 가드). 활성 분기에서 「지금 1통 보내기」·「다음 안내」를
+          숨기고 한 줄 안내로 대체한다(보류하기는 유지 — 보류는 발송 조작이 아니다). %>
+      <% if @invoice.unsettled? && !@reminder_cap_reached %>
         <div class="mt-4 flex flex-wrap items-center gap-3 border-t border-stone-100 pt-4">
           <% if @invoice.reminders_active? %>
             <%= button_to "안내 보류하기", suspend_reminders_app_invoice_path(@invoice), method: :patch,
                   data: { turbo_confirm: "이 청구서의 자동 안내를 멈춥니다. 보류하시겠습니까?" },
                   class: "inline-flex min-h-11 cursor-pointer items-center rounded-xl border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-600 transition hover:border-stone-400 hover:text-stone-800" %>
-            <%= button_to "지금 1통 보내기", remind_app_invoice_path(@invoice), method: :post,
-                  data: { turbo_confirm: "현재 상황에 맞는 안내 1통을 거래처에게 보냅니다. 발송하시겠습니까?" },
-                  class: "inline-flex min-h-11 cursor-pointer items-center rounded-xl bg-emerald-800 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
-            <%# C-2 — 참인 안내 문구가 없는 창(만기 도과 + 약속 전날 이전)은 nil이라 라벨 행을 생략한다 %>
-            <% if @manual_template_key %>
+            <% if @manual_cap_reached %>
               <p class="text-xs text-stone-400">
-                다음 안내: <span class="font-bold text-stone-600"><%= message_template_label(@manual_template_key) %></span>
+                직접 안내는 청구 건당 5통을 모두 보내 더 보낼 수 없습니다.
               </p>
+            <% else %>
+              <%= button_to "지금 1통 보내기", remind_app_invoice_path(@invoice), method: :post,
+                    data: { turbo_confirm: "현재 상황에 맞는 안내 1통을 거래처에게 보냅니다. 발송하시겠습니까?" },
+                    class: "inline-flex min-h-11 cursor-pointer items-center rounded-xl bg-emerald-800 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+              <%# C-2 — 참인 안내 문구가 없는 창(만기 도과 + 약속 전날 이전)은 nil이라 라벨 행을 생략한다 %>
+              <% if @manual_template_key %>
+                <p class="text-xs text-stone-400">
+                  다음 안내: <span class="font-bold text-stone-600"><%= message_template_label(@manual_template_key) %></span>
+                </p>
+              <% end %>
             <% end %>
-          <% elsif @invoice.reminders_suspended? %>
+          <% elsif @invoice.reminders_suspended? && !@invoice.client.refused? %>
+            <%# VIEW-7 — 거래처 수신 거부와 보류가 겹친 청구는 재개 버튼을 노출하지 않는다
+                (재개해도 REFUSED 가드로 발송이 없다 — 죽은 버튼 방지). %>
             <%= button_to "안내 재개하기", resume_reminders_app_invoice_path(@invoice), method: :patch,
                   class: "inline-flex min-h-11 cursor-pointer items-center rounded-xl border border-emerald-700/40 bg-emerald-50 px-5 text-sm font-bold text-emerald-800 transition hover:bg-emerald-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
-          <% elsif @invoice.sequence_finished? %>
+          <% elsif @invoice.sequence_finished? && !@invoice.client.refused? && !@invoice.client.reminders_suspended? %>
             <%# REM-12·13 — 시퀀스 수동 재개 진입점(자동 재개 없음). 종결 해소 후 다음 평일
-                스캔이 남은 미발송 단계부터 이어서 보낸다(소급 창 밖 단계는 차단). %>
+                스캔이 남은 미발송 단계부터 이어서 보낸다(소급 창 밖 단계는 차단).
+                거래처 수신 거부 분은 렌더하지 않는다(VIEW-7 — 재개 요청도 컨트롤러가 거부).
+                거래처 단위 보류가 겹친 분도 렌더하지 않는다(리뷰 §5-3 — 보류가 남아 발송이
+                없으므로 「다시 진행합니다」 안내가 거짓이 된다. 거래처 재개 후 다시 보인다). %>
             <%= button_to "안내 다시 보내기", restart_reminders_app_invoice_path(@invoice), method: :post,
                   data: { turbo_confirm: "정기 안내를 다시 진행합니다. 남은 단계부터 이어서 발송됩니다. 다시 진행하시겠습니까?" },
                   class: "inline-flex min-h-11 cursor-pointer items-center rounded-xl border border-emerald-700/40 bg-emerald-50 px-5 text-sm font-bold text-emerald-800 transition hover:bg-emerald-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
@@ -266,8 +301,9 @@
             </p>
           <% end %>
         </div>
-        <% unless @reminder_eligible %>
-          <%# REM-8 — 무료 플랜은 자동 발송이 없다(수동 버튼이 유일한 발송 경로) %>
+        <% unless @reminder_eligible || @manual_cap_reached %>
+          <%# REM-8 — 무료 플랜은 자동 발송이 없다(수동 버튼이 유일한 발송 경로).
+              수동 상한 도달 시에도 숨긴다 — 막힌 버튼을 권하는 문구가 되지 않게 한다(W-3). %>
           <p class="mt-2 text-xs leading-relaxed text-stone-500">
             무료 플랜은 자동 발송이 없습니다 — 「지금 1통 보내기」로 원할 때 직접 안내할 수 있습니다.
           </p>

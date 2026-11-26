@@ -34,6 +34,20 @@ class ApplicationSystemTestCase < ActionDispatch::SystemTestCase
 
   private
 
+  # 시스템 테스트 공용 로그인(W-7 경화 — 2026-11-26). chromedriver의 합성 클릭이 세션 상태에
+  # 따라 드롭돼 로그인 폼이 제출되지 않는 플레이크가 관측됐다(05_review W-7 — 입력값은
+  # 채워진 로그인 화면 스크린샷 = 제출 누락). 제출을 dom_click_button(DOM 레벨 클릭)으로
+  # 수행하고, 입력값 유실은 위 fill_in 덮어쓰기의 값 검증이 담당한다. 각 시스템 테스트 파일이
+  # 동명 헬퍼를 자체 정의하면 그 정의가 우선하므로(메서드 섀도잉) 이 공용 정의는 자체 정의가
+  # 없는 파일에만 적용된다.
+  def log_in_as(user, password: "password")
+    visit new_session_path
+    fill_in "이메일", with: user.email
+    fill_in "비밀번호", with: password
+    dom_click_button "로그인"
+    assert_text "로그인되었습니다."
+  end
+
   # Turbo 부트 대기(2026-11-06 CI 안정화 — 경위는 _workspace/07_test_report.md §7 참조).
   # data-turbo-confirm 폼은 Turbo가 부트된 뒤에만 window.confirm을 거쳐 결정적으로 동작하므로:
   # (1) readyState complete를 보장해 execute_script로 window.confirm stub을 안전히 주입할

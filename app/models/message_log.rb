@@ -7,8 +7,8 @@
 # 보낸 단계를 자동 스캔이 다시 보내지 않는다). 사용자 향 알림과 수동 재발송(sent·failed·
 # skipped는 인덱스 밖)은 인덱스 제약 없이 단계별 반복·재발송·이력 누적이 허용된다.
 class MessageLog < ApplicationRecord
-  # PLAN-3 상한 산정 대역 — 시퀀스성 템플릿(기본·약속 트랙). 1회성 3종(issue_notice·partial_paid·
-  # paid_thanks)과 U1 알림(noti_*)은 상한 집계 밖이다(02_prd_update 확정 해석 1·결정 기록 Q10).
+  # PLAN-3 상한 산정 대역 — 시퀀스성 템플릿(기본·약속 트랙). U1 알림(noti_*)은 상한 집계 밖이고,
+  # 1회성 3종은 origin별로 다르다(결정 기록 Q10·Q11·Q28 — 아래 counted_for_cap 참조).
   SEQUENCE_TEMPLATE_KEYS = %w[
     invoice_notice confirm_d1 confirm_d1_opened requeue_d7 final_d14
     promise_d1 promise_overdue
@@ -40,14 +40,19 @@ class MessageLog < ApplicationRecord
   # variables — 발송 시 조립한 #{변수명} 치환값 기록(REM-6 문구 버전 추적의 보조 증거)
   serialize :variables, coder: JSON
 
-  # PLAN-3 상한 카운트 — 채무자 향 시퀀스성 sent(auto+manual 합산). origin 조건 없음이 의도다.
-  scope :sent_sequence, ->(invoice_id) {
-    where(invoice_id: invoice_id, recipient_role: :debtor,
-          template_key: SEQUENCE_TEMPLATE_KEYS, status: :sent)
+  # PLAN-3 상한 카운트(Q28 — 2026-11-25 확정 집계) — 채무자 향 sent 중 시퀀스성 템플릿
+  # (origin 무관 — auto+manual 합산)과 수동 발송(템플릿 무관)을 더한다. Q11("상한의 산정
+  # 대상은 시퀀스성 자동 발송 및 수동 발송")의 구현으로, 수동 issue_notice 반복 5통 뒤
+  # 자동 단계(confirm_d1 등)가 이어지던 우회를 막는다. 자동 1회성 3종(auto issue_notice·
+  # partial_paid·paid_thanks)과 U1 향 알림(noti_*·recipient_role=user)은 이벤트성 발송이라
+  # 집계 밖이다(Q10). skipped·failed는 미발송이라 대상이 아니다.
+  scope :counted_for_cap, ->(invoice_id) {
+    base = where(invoice_id: invoice_id, recipient_role: :debtor, status: :sent)
+    base.where(template_key: SEQUENCE_TEMPLATE_KEYS).or(base.where(origin: :manual))
   }
 
-  def self.sequence_sent_count(invoice_id)
-    sent_sequence(invoice_id).count
+  def self.cap_sent_count(invoice_id)
+    counted_for_cap(invoice_id).count
   end
 
   private

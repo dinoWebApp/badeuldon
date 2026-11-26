@@ -42,22 +42,28 @@ class MessageLogTest < ActiveSupport::TestCase
     assert_equal 5, MessageLog::SEQUENCE_CAP
   end
 
-  test "sequence_sent_count는 채무자 향 sent 시퀀스성만 세고 origin을 합산한다 (PLAN-3)" do
+  test "cap_sent_count는 시퀀스성 sent(자동·수동)과 수동 1회성 sent를 세고 자동 1회성·U1 향·skipped는 제외한다 (PLAN-3·Q11·Q28)" do
     invoice = invoices(:delta_issued)
-    debtor_log = MessageLog.create!(invoice: invoice, user: users(:delta),
-                                    template_key: "confirm_d1", status: :sent)
     MessageLog.create!(invoice: invoice, user: users(:delta),
-                       template_key: "requeue_d7", status: :sent, origin: :manual)
-    # 집계 밖 4종 — U1 향·1회성·미발송(skipped)
+                       template_key: "confirm_d1", status: :sent)                    # 자동 시퀀스성 — 셈
+    MessageLog.create!(invoice: invoice, user: users(:delta),
+                       template_key: "requeue_d7", status: :sent, origin: :manual)   # 수동 시퀀스성 — 셈
+    MessageLog.create!(invoice: invoice, user: users(:delta),
+                       template_key: "issue_notice", status: :sent, origin: :manual) # 수동 1회성 — 셈(Q11)
+    # 집계 밖 4종 — U1 향·자동 1회성 2종·미발송(skipped)
     MessageLog.create!(invoice: invoice, user: users(:delta),
                        template_key: "noti_prenotice", recipient_role: :user, status: :sent)
     MessageLog.create!(invoice: invoice, user: users(:delta),
-                       template_key: "paid_thanks", status: :sent)
+                       template_key: "issue_notice", status: :sent)                  # 자동 1회성 — 밖(Q10)
+    MessageLog.create!(invoice: invoice, user: users(:delta),
+                       template_key: "paid_thanks", status: :sent)                   # 자동 1회성 — 밖(Q10)
     MessageLog.create!(invoice: invoice, user: users(:delta),
                        template_key: "final_d14", status: :skipped, error_code: "PAST_WINDOW")
 
-    assert_equal 2, MessageLog.sequence_sent_count(invoice.id)
-    assert_equal [ debtor_log.id ], MessageLog.sent_sequence(invoice.id).where(origin: :auto).ids
+    assert_equal 3, MessageLog.cap_sent_count(invoice.id)
+    # 자동분(origin=auto)은 시퀀스성만 집계된다 — 자동 1회성 issue_notice·paid_thanks 미포함(Q10)
+    assert_equal %w[confirm_d1], MessageLog.counted_for_cap(invoice.id).where(origin: :auto)
+                                        .order(:id).pluck(:template_key)
   end
 
   test "상한 카운트는 청구서별로 격리된다 (PLAN-3)" do
@@ -65,8 +71,8 @@ class MessageLogTest < ActiveSupport::TestCase
     MessageLog.create!(invoice: other, user: users(:delta),
                        template_key: "confirm_d1", status: :sent)
 
-    assert_equal 0, MessageLog.sequence_sent_count(invoices(:delta_issued).id)
-    assert_equal 1, MessageLog.sequence_sent_count(other.id)
+    assert_equal 0, MessageLog.cap_sent_count(invoices(:delta_issued).id)
+    assert_equal 1, MessageLog.cap_sent_count(other.id)
   end
 
   # ── 검증 ──

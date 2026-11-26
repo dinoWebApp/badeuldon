@@ -13,6 +13,9 @@
 # 스텝 산정의 단일 출처 — 오늘 발송 예정 판정(steps_due_today — 사전통보 REM-11 공용), 수동
 # 발송 산정(manual_step_key — REM-8), 재개 가능 판정(restartable? — REM-12/13)이 모두
 # call의 발송 스캔과 같은 steps_for·소급 창 판정을 공유한다(C-2·W-1 — 이원화 차단).
+# 단 steps_due_today는 여기에 상한 도달 필터(PLAN-3·Q28 — 도달 청구는 빈 배열)를 더한
+# 산정이라 call의 스캔과 완전히 같지는 않다 — 14시 실제 스캔은 상한을 SendService 가드의
+# CAP_REACHED skip 기록으로 남긴다(P4·W-3 마감 리뷰 2026-11-26 주석 정정).
 module Reminders
   class DispatchService
     # 소급 창 경과 스텝의 스킵 사유(MessageLog.error_code)
@@ -41,20 +44,32 @@ module Reminders
     # 공용 판정점(REM-11·C-2). 발송 스캔(call)이 실제 발송에 쓰는 steps_for·소급 창 판정과
     # 같은 산정이므로 주말 nominal의 월요일 소급분도 09시 사전통보가 커버한다. 이미 발송된
     # 단계(origin 무관 — 수동 재발송분 포함)는 예정이 없으므로 제외한다.
+    # 상한 도달 청구(PLAN-3·Q28 — Invoice#reminder_cap_reached?)는 발송 예정 스텝이 있어도
+    # 빈 배열을 반환한다 — 09시 사전통보(REM-11)가 "오늘 보낼 예정"이라는 거짓 안내가 되는
+    # 것을 막고(W-3), 재개 가능 판정(restartable?)도 false로 수렴해 「안내 다시 보내기」
+    # 요청이 "남은 단계가 없다" 안내로 정확히 떨어진다. 상한 판정은 스텝 산정 뒤에 둔다 —
+    # 발송 예정 스텝이 없는 청구(대다수)는 상한 조회 없이 통과한다. 14시 실제 스캔(call)은
+    # 이 판정을 쓰지 않는다 — 상한 도달 단계는 SendService 가드가 CAP_REACHED skip으로
+    # 기록해야 한다(P4 — 스킵도 발송 이력).
     def steps_due_today(invoice)
       today = Date.current
-      steps_for(invoice).filter_map do |template_key, nominal_on|
+      due_steps = steps_for(invoice).filter_map do |template_key, nominal_on|
         next unless PRENOTICE_KEYS.include?(template_key)
         next if step_sent?(invoice, template_key)
 
         template_key if nominal_on <= today && today <= window_end(nominal_on)
       end
+      return [] if due_steps.any? && invoice.reminder_cap_reached?
+
+      due_steps
     end
 
     # 수동 재개(REM-12·13) 가능 판정 — 종결 해소 시 발송될 미발송 스텝이 소급 창 내에 남아
     # 있는가. 전부 창 경과면 재개해도 발송이 없으므로(멱등 skip·PAST_WINDOW) 재개 불가로
     # 안내한다. 종결 시점(final_d14·promise_overdue 성공 후)에는 만기 예정(D-1)·약속 전날
     # 스텝이 창 내일 수 없어 연체·도과 단계 판정(steps_due_today)과 같은 모집합이다.
+    # 상한 도달 청구(PLAN-3·Q28)도 재개 불가 모집단이다 — steps_due_today가 빈 배열을
+    # 돌려주므로(마감 리뷰 W-5 주석 정정 2026-11-26) 재개 요청이 "남은 단계가 없다"로 수렴.
     def restartable?(invoice)
       !steps_due_today(invoice).empty?
     end

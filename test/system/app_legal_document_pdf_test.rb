@@ -12,13 +12,7 @@ require_relative "../test_helpers/fake_portone_client"
 class AppLegalDocumentPdfTest < ApplicationSystemTestCase
   fixtures :users, :clients, :invoices
 
-  def log_in_as(user, password: "password")
-    visit new_session_path
-    fill_in "이메일", with: user.email
-    fill_in "비밀번호", with: password
-    click_button "로그인"
-    assert_text "로그인되었습니다."
-  end
+  # 로그인은 공용 log_in_as(ApplicationSystemTestCase — W-7 경화, dom_click_button 제출)를 쓴다.
 
   test "내용증명 상세에서 미결제는 워터마크 미리보기 PDF를, paid는 정식 PDF를 받는다 (LEGAL-2·C-1)" do
     user = users(:delta)
@@ -40,8 +34,13 @@ class AppLegalDocumentPdfTest < ApplicationSystemTestCase
       assert_equal "%PDF-", unpaid_report["magic"]
       assert_includes unpaid_report["disposition"], "attachment"
 
-      # 결제 확정(프로덕션 확정점 재사용 — legal_doc는 paid 전환만, 패스 미발급)
-      Orders::FulfillPassService.new(order: order, payment_id: "SYS-TEST-#{order.pg_order_id}").call
+      # 결제 확정(프로덕션 확정점 재사용 — legal_doc는 paid 전환만, 패스 미발급). 응답은 검증
+      # 통과 형태로 조립한다(재리뷰 R-1·R-2 — paid_payment 헬퍼, test 환경 기대값 TEST).
+      Orders::FulfillPassService.new(
+        order: order, payment_id: "SYS-TEST-#{order.pg_order_id}",
+        response: FakePortOneClient.paid_payment(id: order.pg_order_id,
+                                                 amount: Order::LEGAL_DOC_PRICE)
+      ).call
       assert_predicate order.reload, :paid?
 
       visit app_legal_document_path(order)

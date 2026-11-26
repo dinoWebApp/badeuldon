@@ -33,7 +33,7 @@ module App
       "FINISHED" => "정기 안내가 종결되어 발송하지 않았습니다",
       "INVALID_STATUS" => "발송할 수 없는 청구서 상태여서 발송하지 않았습니다",
       "INELIGIBLE_PLAN" => "무료 플랜은 자동 안내 대상이 아니어서 발송하지 않았습니다",
-      "CAP_REACHED" => "청구 건당 안내 상한(5통)에 도달하여 발송하지 않았습니다",
+      "CAP_REACHED" => "청구 건당 발송 상한(5통)에 도달하여 발송하지 않았습니다",
       "NO_PHONE" => "알림 수신 번호가 없어 발송하지 않았습니다",
       "PAST_WINDOW" => "발송 가능 시점이 경과하여 발송하지 않습니다"
     }.freeze
@@ -70,7 +70,12 @@ module App
     end
 
     # REM-7·VIEW-7 — 청구서의 안내 상태 배지 묶음(수신거부 주황·보류/종결 중립·진행 녹색).
-    def reminder_state_badges(invoice)
+    # PLAN-3·Q28·W-4 — cap_reached(상한 도달)는 종결 마킹과 별개 상태라 배지로 표기한다
+    # (종결과 같은 중립 톤). 상한 도달은 「자동 안내 중」 배지와 양립하지 않는다 — 실제로는
+    # 모든 자동·직접 발송이 막혀 있으므로 진행 녹색 배지를 내지 않는다. 판정값은 컨트롤러
+    # 컨텍스트(RemindersContext — @reminder_cap_reached)로 전달받는다(뷰 쿼리 금지).
+    # 상한 배지는 미수 청구에만 붙인다 — 완납·무효 청구는 발송 대상이 아니다.
+    def reminder_state_badges(invoice, cap_reached: false)
       badges = []
       if invoice.client.refused?
         badges << [ "수신 거부", "bg-orange-50 text-orange-600 ring-1 ring-inset ring-orange-200" ]
@@ -79,6 +84,7 @@ module App
         badges << [ "보류", "bg-stone-100 text-stone-600 ring-1 ring-inset ring-stone-200" ]
       end
       badges << [ "종결", "bg-stone-100 text-stone-600 ring-1 ring-inset ring-stone-200" ] if invoice.sequence_finished?
+      badges << [ "상한 도달", "bg-stone-100 text-stone-600 ring-1 ring-inset ring-stone-200" ] if cap_reached && invoice.unsettled?
       if badges.empty? && invoice.unsettled? && invoice.reminders_active?
         badges << [ "자동 안내 중", "bg-green-50 text-green-700 ring-1 ring-inset ring-green-200" ]
       end

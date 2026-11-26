@@ -38,6 +38,11 @@ class App::InvoicesRemindersTest < ActionDispatch::IntegrationTest
     invoice = invoices(:delta_due_soon)
     invoice.update_column(:reminders_suspended_at, Time.zone.parse("2026-10-12 09:00"))
 
+    # W-5(a) — 수신 거부하지 않은 보류 청구에 「안내 재개하기」가 보인다는 양성 단언
+    # (버튼 분기 조건이 잘못 바뀌어 보류 재개 진입점이 사라져도 잡아낸다)
+    get app_invoice_path(invoice)
+    assert_select "button", text: "안내 재개하기"
+
     patch resume_reminders_app_invoice_path(invoice)
     assert_response :see_other
     assert_equal "이 청구서의 자동 안내를 재개했습니다. 다음 단계부터 이어집니다.", flash[:notice]
@@ -181,6 +186,12 @@ class App::InvoicesRemindersTest < ActionDispatch::IntegrationTest
     invoice.client.update_column(:refused_at, Time.zone.parse("2026-10-12 09:00"))
 
     travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      # 버튼은 reminders_active?(수신 거부 배제)로 숨겨진다 — 직접 URL 우회도 아래 가드가 막는다.
+      get app_invoice_path(invoice)
+      assert_response :ok
+      assert_no_match(/지금 1통 보내기/, response.body)
+      assert_no_match(/안내 보류하기/, response.body)
+
       with_solapi_client(@fake) do
         post remind_app_invoice_path(invoice)
       end
@@ -192,6 +203,41 @@ class App::InvoicesRemindersTest < ActionDispatch::IntegrationTest
     log = MessageLog.where(invoice_id: invoice.id).sole
     assert_predicate log, :skipped?
     assert_equal "REFUSED", log.error_code                          # P4 — 시도도 기록
+  end
+
+  # 수신 거부 상태에서의 보류 요청(직접 URL — 버튼은 reminders_active?로 숨겨져 있다).
+  # 현재 동작 기록: 보류 마킹은 그대로 남고(재개 경로가 막혀 영구 잔존 — 리뷰 §5 관찰 3),
+  # 발송에는 영향이 없다(REFUSED 가드가 SUSPENDED보다 앞선다). 종결·거부 상태는 불변.
+  test "수신 거부한 거래처의 청구 보류 요청은 보류 마킹을 남기고 거부·종결 상태를 바꾸지 않는다 (VIEW-7·REM-7 — 현재 동작 기록)" do
+    sign_in_as users(:delta)
+    invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                      due_on: Date.new(2026, 10, 27))
+    finished_at = Time.zone.parse("2026-11-09 14:00")
+    refused_at = Time.zone.parse("2026-11-09 15:00")
+    invoice.update_column(:sequence_finished_at, finished_at)
+    invoice.client.update_column(:refused_at, refused_at)
+
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      patch suspend_reminders_app_invoice_path(invoice)
+      assert_response :see_other
+      assert_redirected_to app_invoice_path(invoice)
+      assert_equal "이 청구서의 자동 안내를 보류했습니다. 예정된 발송은 취소됩니다.", flash[:notice]
+
+      # 보류 마킹 뒤의 수동 발송 요청도 REFUSED가 우선이다 — 사유가 SUSPENDED로 바뀌지 않는다.
+      with_solapi_client(@fake) do
+        post remind_app_invoice_path(invoice)
+      end
+      assert_response :see_other
+    end
+
+    invoice.reload
+    assert invoice.reminders_suspended?                             # 현재 동작 — 보류 마킹은 남는다
+    assert_equal finished_at, invoice.sequence_finished_at          # 종결 상태 불변
+    assert_equal refused_at, invoice.client.reload.refused_at       # 거부 상태 불변
+
+    log = MessageLog.where(invoice_id: invoice.id).sole
+    assert_equal "REFUSED", log.error_code                          # 발송 영향 없음 — 거부 가드 우선
+    assert_empty @fake.calls
   end
 
   test "발송 창 밖 수동 발송은 재예약 안내 flash로 수렴한다 (REM-3·B-2)" do
@@ -295,6 +341,11 @@ class App::InvoicesRemindersTest < ActionDispatch::IntegrationTest
     invoice.update_column(:sequence_finished_at, Time.zone.parse("2026-11-09 14:00"))
 
     travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      # W-5(a) — 수신 거부하지 않은 종결 청구에 「안내 다시 보내기」가 보인다는 양성 단언
+      # (플랜 시나리오 3의 「버튼 노출」 — 분기 조건이 잘못 바뀌어도 잡아낸다)
+      get app_invoice_path(invoice)
+      assert_select "button", text: "안내 다시 보내기"
+
       post restart_reminders_app_invoice_path(invoice)
     end
     assert_response :see_other
@@ -317,6 +368,274 @@ class App::InvoicesRemindersTest < ActionDispatch::IntegrationTest
     assert_equal "다시 보낼 수 있는 남은 단계가 없어 진행하지 않았습니다. 필요하면 개별 안내를 직접 확인해 주세요.",
                  flash[:alert]
     assert invoice.reload.sequence_finished?                        # 마킹 유지 — 재해소 없음
+  end
+
+  # ── VIEW-7 — 수신 거부한 거래처의 청구는 재개할 수 없다(채무자 의사 — 되돌리는 경로 없음) ──
+
+  test "수신 거부한 거래처의 종결 청구 화면에는 재개 버튼이 없고 거부 안내 배너가 있다 (VIEW-7)" do
+    sign_in_as users(:delta)
+    invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                      due_on: Date.new(2026, 10, 27))
+    invoice.update_column(:sequence_finished_at, Time.zone.parse("2026-11-09 14:00"))
+    invoice.client.update_column(:refused_at, Time.zone.parse("2026-11-09 15:00"))
+
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      get app_invoice_path(invoice)
+    end
+    assert_response :ok
+    assert_no_match(/안내 다시 보내기/, response.body)              # 버튼·보조 문구 모두 미노출
+    assert_match(/이 거래처가 추가 안내 수신을 거부했습니다/, response.body)  # 거부 배너가 사유 설명
+  end
+
+  test "수신 거부한 거래처의 종결 청구 재개 요청은 상태 변경 없이 사유 안내로 거부된다 (VIEW-7·REM-12)" do
+    sign_in_as users(:delta)
+    invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                      due_on: Date.new(2026, 10, 27))
+    invoice.update_columns(
+      reminders_suspended_at: Time.zone.parse("2026-11-09 13:00"),
+      sequence_finished_at: Time.zone.parse("2026-11-09 14:00")
+    )
+    invoice.client.update_column(:refused_at, Time.zone.parse("2026-11-09 15:00"))
+
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      post restart_reminders_app_invoice_path(invoice)
+    end
+    assert_response :see_other
+    assert_redirected_to app_invoice_path(invoice)
+    assert_equal "이 거래처가 추가 안내 수신을 거부하여 자동 안내를 다시 진행할 수 없습니다.",
+                 flash[:alert]
+    # W-5(b) — 세 마킹의 보존을 직접 본다(가드가 쓰기보다 앞서 상태 변경이 없음).
+    invoice.reload
+    assert_equal Time.zone.parse("2026-11-09 13:00"), invoice.reminders_suspended_at
+    assert_equal Time.zone.parse("2026-11-09 14:00"), invoice.sequence_finished_at
+    assert_equal Time.zone.parse("2026-11-09 15:00"), invoice.client.reload.refused_at
+  end
+
+  # 보류·수신 거부 겹침 — 거래처가 거부한 뒤 청구에 보류·종결 마킹이 남은 상태(구멍 A).
+  # 재개 버튼도 다시 보내기 버튼도 노출하지 않는다(거부 배너가 사유를 설명).
+  test "수신 거부한 거래처의 보류 중 청구 화면에는 재개·다시 보내기 버튼이 없다 (VIEW-7 — 겹침)" do
+    sign_in_as users(:delta)
+    invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                      due_on: Date.new(2026, 10, 27))
+    invoice.update_columns(
+      reminders_suspended_at: Time.zone.parse("2026-11-09 14:00"),
+      sequence_finished_at: Time.zone.parse("2026-11-09 14:30")
+    )
+    invoice.client.update_column(:refused_at, Time.zone.parse("2026-11-09 15:00"))
+
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      get app_invoice_path(invoice)
+    end
+    assert_response :ok
+    assert_no_match(/안내 재개하기/, response.body)                  # 보류 재개 버튼 미노출
+    assert_no_match(/안내 다시 보내기/, response.body)               # 종결 재시도 버튼도 미노출
+    assert_match(/이 거래처가 추가 안내 수신을 거부했습니다/, response.body)  # 거부 배너가 사유 설명
+  end
+
+  test "수신 거부한 거래처의 보류 중 청구 재개 요청은 상태 변경 없이 사유 안내로 거부된다 (VIEW-7·REM-7)" do
+    sign_in_as users(:delta)
+    invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                      due_on: Date.new(2026, 10, 27))
+    invoice.update_columns(
+      reminders_suspended_at: Time.zone.parse("2026-11-09 14:00"),
+      sequence_finished_at: Time.zone.parse("2026-11-09 14:30")
+    )
+    invoice.client.update_column(:refused_at, Time.zone.parse("2026-11-09 15:00"))
+
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      patch resume_reminders_app_invoice_path(invoice)
+    end
+    assert_response :see_other
+    assert_redirected_to app_invoice_path(invoice)
+    assert_equal "이 거래처가 추가 안내 수신을 거부하여 자동 안내를 재개할 수 없습니다.",
+                 flash[:alert]
+    invoice.reload
+    assert invoice.reminders_suspended?                             # 보류 마킹 유지 — 상태 변경 없음
+    assert invoice.sequence_finished?                               # 종결 마킹도 유지
+  end
+
+  # ── PLAN-3·Q28·W-4 — 상한 도달 청구의 화면(종결 마킹은 없다 — 배지·안내 상자로 표시하고
+  #    버튼 행은 숨긴다. 상한 판정은 컨트롤러 컨텍스트(@reminder_cap_reached) 경유) ──
+
+  test "상한 도달 청구 화면은 상한 안내 상자·배지를 보이고 발송 버튼 행을 숨긴다 (PLAN-3·Q28·W-4)" do
+    sign_in_as users(:gamma)                                        # Free — 무료 플랜 문구 숨김도 함께 검증
+    invoice = create_reminder_invoice(user: users(:gamma), client: clients(:gamma_main),
+                                      due_on: Date.new(2026, 11, 27))
+    5.times do
+      MessageLog.create!(invoice: invoice, user: invoice.user, template_key: "issue_notice",
+                         recipient_role: :debtor, status: :sent, origin: :manual)
+    end
+
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      get app_invoice_path(invoice)
+    end
+    assert_response :ok
+    assert_match(/발송 상한에 도달했습니다/, response.body)          # 상한 안내 상자
+    assert_match(/입금을 기록하면 나가는 안내/, response.body)
+    assert_match(/상한 도달/, response.body)                        # 상태 배지 — 「자동 안내 중」 대체
+    assert_no_match(/지금 1통 보내기/, response.body)
+    assert_no_match(/안내 보류하기/, response.body)
+    assert_no_match(/다음 안내:/, response.body)
+    assert_no_match(/무료 플랜은 자동 발송이 없습니다/, response.body) # 막힌 버튼 권유 방지
+  end
+
+  test "상한 전 청구 화면은 기존대로 발송 버튼 행을 보인다 (W-4 회귀)" do
+    sign_in_as users(:gamma)
+    invoice = create_reminder_invoice(user: users(:gamma), client: clients(:gamma_main),
+                                      due_on: Date.new(2026, 11, 27))
+
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      get app_invoice_path(invoice)
+    end
+    assert_response :ok
+    assert_match(/지금 1통 보내기/, response.body)
+    assert_match(/안내 보류하기/, response.body)
+    assert_no_match(/상한 도달/, response.body)
+  end
+
+  # 마감 리뷰 W-3(2026-11-26) — 자동 1회성(partial_paid 등·Q10 집계 밖)만으로 수동 상한
+  # (채무자 향 sent 전체 5통)에만 걸린 청구는 「상한 도달」 표시가 없는데 「지금 1통 보내기」가
+  # 보이고 누르면 CAP_REACHED로 막혔다(죽은 버튼). 직접 발송 버튼·「다음 안내」 표기·무료
+  # 플랜 문구를 숨기고 한 줄 안내로 대체한다(「안내 보류하기」는 유지 — 발송 조작이 아니다).
+  test "수동 상한만 도달한 청구 화면은 직접 발송 버튼·다음 안내를 숨기고 한 줄 안내를 보인다 (PLAN-3·W-3)" do
+    sign_in_as users(:gamma)                                        # Free — 무료 플랜 문구 숨김도 함께 검증
+    invoice = create_reminder_invoice(user: users(:gamma), client: clients(:gamma_main),
+                                      due_on: Date.new(2026, 11, 27))
+    5.times do
+      MessageLog.create!(invoice: invoice, user: invoice.user, template_key: "partial_paid",
+                         recipient_role: :debtor, status: :sent)    # 자동 1회성 5통 — 수동 상한만 도달
+    end
+    assert invoice.manual_reminder_cap_reached?
+    assert_not invoice.reminder_cap_reached?                        # 자동 상한 집계는 미도달(Q10)
+
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      get app_invoice_path(invoice)
+    end
+    assert_response :ok
+    assert_no_match(/지금 1통 보내기/, response.body)               # 막힌 버튼 숨김
+    assert_no_match(/다음 안내:/, response.body)                    # 라벨 숨김
+    assert_match(/직접 안내는 청구 건당 5통을 모두 보내 더 보낼 수 없습니다/, response.body)
+    assert_no_match(/발송 상한에 도달했습니다/, response.body)      # 자동 상한 표시는 아니다
+    assert_no_match(/상한 도달/, response.body)                     # 배지도 미노출
+    assert_no_match(/무료 플랜은 자동 발송이 없습니다/, response.body) # 막힌 버튼 권유 방지
+    assert_match(/안내 보류하기/, response.body)                    # 보류하기는 유지
+  end
+
+  test "상한 도달한 수금 완료 청구 화면에는 상한 안내 상자·배지가 없다 (미수 청구 한정)" do
+    sign_in_as users(:gamma)
+    invoice = create_reminder_invoice(user: users(:gamma), client: clients(:gamma_main),
+                                      due_on: Date.new(2026, 11, 27))
+    invoice.mark_paid!                                               # INV-4 — 상한 도달 뒤 마감된 청구
+    5.times do
+      MessageLog.create!(invoice: invoice, user: invoice.user, template_key: "issue_notice",
+                         recipient_role: :debtor, status: :sent, origin: :manual)
+    end
+
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      get app_invoice_path(invoice)
+    end
+    assert_response :ok
+    assert_no_match(/발송 상한에 도달했습니다/, response.body)       # 완납 청구는 발송 대상이 아니다
+    assert_no_match(/상한 도달/, response.body)                      # 배지도 미노출
+  end
+
+  # 마지막 수정 반례(Tester 2026-11-26) — 배너 우선순위(거부 → 상한 → 보류 → 종결)의 조합
+  # 검증. 상한 도달 분기는 보류·종결 분기보다 앞서고, 상한 도달 시 버튼 행 자체가
+  # 렌더되지 않아 재개·보류·직접 발송·다시 보내기 조작이 모두 사라진다.
+  test "상한 도달 + 청구 건 보류가 겹친 청구 화면은 상한 상자만 보이고 발송·재개·보류 버튼이 없다 (PLAN-3·Q28·REM-7)" do
+    sign_in_as users(:gamma)
+    invoice = create_reminder_invoice(user: users(:gamma), client: clients(:gamma_main),
+                                      due_on: Date.new(2026, 11, 27))
+    invoice.update_column(:reminders_suspended_at, Time.zone.parse("2026-11-09 14:00"))
+    5.times do
+      MessageLog.create!(invoice: invoice, user: invoice.user, template_key: "issue_notice",
+                         recipient_role: :debtor, status: :sent, origin: :manual)
+    end
+    assert invoice.reminder_cap_reached?
+    assert invoice.reminders_suspended?
+
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      get app_invoice_path(invoice)
+    end
+    assert_response :ok
+    assert_match(/발송 상한에 도달했습니다/, response.body)          # 상한 상자 — 보류 배너보다 우선
+    assert_no_match(/자동 안내가 보류 중입니다/, response.body)
+    assert_no_match(/안내 재개하기/, response.body)
+    assert_no_match(/안내 보류하기/, response.body)
+    assert_no_match(/지금 1통 보내기/, response.body)
+    assert_no_match(/다음 안내:/, response.body)
+  end
+
+  test "상한 도달 + 수신 거부가 겹친 청구 화면은 거부 안내가 먼저이고 상한 상자·버튼이 없다 (VIEW-7·PLAN-3)" do
+    sign_in_as users(:delta)
+    invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                      due_on: Date.new(2026, 11, 27))
+    invoice.client.update_column(:refused_at, Time.zone.parse("2026-11-09 15:00"))
+    5.times do
+      MessageLog.create!(invoice: invoice, user: invoice.user, template_key: "issue_notice",
+                         recipient_role: :debtor, status: :sent, origin: :manual)
+    end
+    assert invoice.reminder_cap_reached?
+
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      get app_invoice_path(invoice)
+    end
+    assert_response :ok
+    assert_match(/이 거래처가 추가 안내 수신을 거부했습니다/, response.body)  # 배너 1순위 — 거부 안내
+    assert_no_match(/발송 상한에 도달했습니다/, response.body)       # 상한 상자는 렌더되지 않는다
+    assert_no_match(/안내 재개하기/, response.body)
+    assert_no_match(/안내 보류하기/, response.body)
+    assert_no_match(/지금 1통 보내기/, response.body)
+    assert_no_match(/다음 안내:/, response.body)
+  end
+
+  test "상한 도달 + 종결(수신 거부 아님)이 겹친 청구 화면은 상한 상자를 보이고 다시 보내기 버튼이 없다 (PLAN-3·REM-12)" do
+    sign_in_as users(:delta)
+    invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                      due_on: Date.new(2026, 10, 27))
+    invoice.update_column(:sequence_finished_at, Time.zone.parse("2026-11-09 14:00"))
+    5.times do
+      MessageLog.create!(invoice: invoice, user: invoice.user, template_key: "issue_notice",
+                         recipient_role: :debtor, status: :sent, origin: :manual)
+    end
+    assert invoice.reminder_cap_reached?
+    assert invoice.sequence_finished?
+
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      get app_invoice_path(invoice)
+    end
+    assert_response :ok
+    assert_match(/발송 상한에 도달했습니다/, response.body)          # 상한 상자 — 종결 상자보다 우선
+    assert_no_match(/정기 안내를 마무리했습니다/, response.body)
+    assert_no_match(/안내 다시 보내기/, response.body)
+    assert_no_match(/지금 1통 보내기/, response.body)
+    assert_no_match(/다음 안내:/, response.body)
+  end
+
+  # ── 리뷰 §5-3 — 거래처 단위 보류 + 청구 종결 겹침. 「안내 다시 보내기」가 보였지만
+  #    거래처 보류가 남아 발송이 없었다(「다시 진행합니다」 안내가 거짓). 버튼을 숨기고,
+  #    거래처를 재개하면 실제 발송이 가능해지므로 다시 보인다. ──
+
+  test "거래처 단위 보류가 겹친 종결 청구 화면에는 다시 보내기 버튼이 없고 보류 안내가 보인다 (리뷰 §5-3)" do
+    sign_in_as users(:delta)
+    invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                      due_on: Date.new(2026, 10, 27))
+    invoice.update_column(:sequence_finished_at, Time.zone.parse("2026-11-09 14:00"))
+    invoice.client.update_column(:reminders_suspended_at, Time.zone.parse("2026-11-09 15:00"))
+
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      get app_invoice_path(invoice)
+      assert_response :ok
+      assert_no_match(/안내 다시 보내기/, response.body)            # 거래처 보류가 남아 발송이 없다
+      assert_match(/거래처 단위로 보류 중입니다/, response.body)     # 배너가 사유·재개 경로를 설명
+
+      # 거래처를 재개하면 버튼이 다시 보인다(재개 뒤 종결 해소 시 실제 발송이 일어난다)
+      patch resume_reminders_app_client_path(invoice.client)
+      assert_response :see_other
+      get app_invoice_path(invoice)
+      assert_response :ok
+      assert_select "button", text: "안내 다시 보내기"
+    end
   end
 
   # ── SHARE-6 — 발행 안내 선택(발행 폼 옵션) ──

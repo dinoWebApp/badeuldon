@@ -9,13 +9,7 @@ require "application_system_test_case"
 class AppInvoicePdfTest < ApplicationSystemTestCase
   fixtures :users, :clients, :invoices
 
-  def log_in_as(user, password: "password")
-    visit new_session_path
-    fill_in "이메일", with: user.email
-    fill_in "비밀번호", with: password
-    click_button "로그인"
-    assert_text "로그인되었습니다."
-  end
+  # 로그인은 공용 log_in_as(ApplicationSystemTestCase — W-7 경화, dom_click_button 제출)를 쓴다.
 
   test "paid 청구 상세에서 수금완료 증빙 PDF를 받는다 (PAY-6·Q17)" do
     invoice = invoices(:delta_paid)

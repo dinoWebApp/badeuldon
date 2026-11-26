@@ -35,10 +35,18 @@ module Reminders
     # 반환: :sent / :failed / :skipped / :rescheduled(창 밖 — 다음 평일 09시로 재예약) /
     # :duplicate(이미 발송됐거나 다른 실행이 진행 중 — SEC-5 흡수)
     def call
+      # 이미 발송된 자동 단계는 재예약하지 않는다(W-1 마감 리뷰 — REM-3 재예약분 실행 정합
+      # 2026-11-26). 창 판정(outside_window?)이 먼저면 스캔 시각이 회원 허용 시간 밖일 때
+      # 이미 sent인 단계에도 예약 슬롯이 생기고, 다음 날 실행은 step_sent?로 duplicate가
+      # 되어 슬롯이 영구 pending으로 남는다(유령 「예정」 행). 수동·U1 향·1회성(partial_paid)
+      # 은 이 판정 밖이다 — claim_log 이후의 기존 경로가 그대로 처리한다. 창 안의 정상 경로는
+      # claim_log가 같은 판정(step_sent?)을 하므로 동작 변화가 없다.
+      return :duplicate if auto_sequence_step? && step_sent?
       return reschedule! if debtor? && outside_window?
 
       log = claim_log
       return :duplicate unless log
+      mark_execution_started!(log)
 
       failure = guard_failure
       return skip!(log, failure) if failure
@@ -51,8 +59,10 @@ module Reminders
     # ── 발송 슬롯 확보(SEC-5) ─────────────────────────────────────────────────
     # 자동 채무자 발송의 멱등 판정("이미 이 단계를 보냈는가")은 origin 무관으로 본다 —
     # 수동 재발송이 보낸 단계를 자동 스캔이 다시 보내지 않는다(SEC-5 동일 청구·동일 단계
-    # 1회). 수동(REM-8)은 재발송이 허용되어 멱등 판정 밖이며 이력을 누적하고, U1 향 이벤트
-    # 알림(scheduled_at 없음)은 이벤트마다 1통이 정상이므로 중복 판정 없이 새 이력을 만든다.
+    # 1회). 수동(REM-8)은 재발송이 허용되어 멱등 판정 밖이며 이력을 누적한다 — 단, 창 밖
+    # 재예약분이 남긴 pending 예약 슬롯(REM-3 선기록)은 예외로 재사용해 이력을 늘리지 않는다
+    # (new_log!의 유니크 복구 — 재예약분 실행 정합 2026-11-26). U1 향 이벤트 알림
+    # (scheduled_at 없음)은 이벤트마다 1통이 정상이므로 중복 판정 없이 새 이력을 만든다.
     # 사전통보류(scheduled_at 지정)는 같은 예정시각의 재실행만 흡수한다(스텝별 반복이 정상).
     # Q23(2026-11-16 확정) — partial_paid도 이벤트성이다: 부분입금이 추가로 발생할 때마다
     # 재발송이 정상이므로(1회성 발송 — PLAN-3 상한 집계 밖 유지, Q10) sent·스텝 중복 판정을
@@ -66,7 +76,22 @@ module Reminders
       return nil if step_sent?  # 다른 경로(수동 재발송 등)가 이미 이 단계를 발송함 — 재발송 금지
       return nil if log && in_flight?(log)
 
-      log || new_log!  # failed·skipped·부실 pending — 갱신 경로로 재시도
+      # 예약 슬롯 우선(REM-3 재예약분 실행 정합 — 2026-11-26) — 갱신 경로 대상(failed·skipped)
+      # 보다 pending 슬롯이 남아 있으면 그 슬롯을 실행한다. 더 오래된 failed·skipped 이력을
+      # 재사용하면 발송 자체는 일어나도 예약 슬롯이 영구 pending으로 남는다(발송 이력의
+      # 「발송 예정」 유령 행·이후 reschedule! 예약 흡수). 슬롯이 방금 갱신됐다면 다른 실행이
+      # 발송 중이므로 duplicate로 흡수한다(SEC-5).
+      # 슬롯 우선은 채무자 향 부분 유니크 인덱스(debtor×pending — 같은 청구·템플릿의 pending
+      # 슬롯 0 또는 1행) 전제다. U1 향 예정 알림에는 그 인덱스가 없어 다른 예정 시각의
+      # pending 이력이 공존할 수 있고(예: 전날 실행 크래시 잔여) 멱등 규칙은 "같은 예정 시각의
+      # 재실행만 흡수"(find_existing_log의 scheduled_at 필터)이므로 예정 시각 무관 슬롯
+      # 재사용을 하지 않는다(6차 한정 — 2026-11-26) — 재사용하면 오늘 scheduled_at의 이력이
+      # 남지 않아 잡 재시도 시 같은 알림이 재발송된다(SEC-5·P4). U1 향은 아래에서
+      # log || new_log!의 5차 이전 경로를 그대로 탄다.
+      slot = find_pending_slot if debtor?
+      return nil if slot && in_flight?(slot)
+
+      slot || log || new_log!  # failed·skipped·부실 pending — 갱신 경로로 재시도
     end
 
     def find_existing_log
@@ -74,6 +99,18 @@ module Reminders
                                recipient_role: @recipient_role)
       scope = scope.where(scheduled_at: @scheduled_at) if user_role?
       scope.order(:id).first
+    end
+
+    # 같은 청구·템플릿·역할의 pending 슬롯(예약 슬롯 포함). 부분 유니크 인덱스(debtor×pending)가
+    # "동시 진행 슬롯 1개"를 보장하므로 0 또는 1행이다. new_log!의 유니크 위반 복구와 갱신
+    # 경로의 슬롯 우선에서 사용한다. U1 향은 인덱스 대상이 아니라 예약 슬롯 개념이 없다 —
+    # 호출 전제가 어긋나도 nil로 수렴시킨다(방어).
+    def find_pending_slot
+      return nil unless debtor?
+
+      MessageLog.where(invoice_id: @invoice.id, template_key: @template_key,
+                       recipient_role: @recipient_role, status: :pending)
+                .order(:id).first
     end
 
     # SEC-5 — origin 무관 sent 판정은 채무자 향에 한정한다. U1 향은 단계별 반복이 정상
@@ -91,15 +128,43 @@ module Reminders
                          template_key: @template_key, status: :pending,
                          scheduled_at: @scheduled_at)
     rescue ActiveRecord::RecordNotUnique
-      # 경합 — 선점자가 처리 중이다. 이미 발송됐거나 진행 중이면 흡수, 그 외(실패·스킵)는 갱신 경로.
-      log = find_existing_log
-      return nil if log.nil? || log.sent? || in_flight?(log)
+      # 유니크 위반이 뜻하는 것은 "같은 청구·템플릿(채무자)의 pending 슬롯이 이미 있다"는
+      # 것(부분 유니크 인덱스 — debtor×pending)이다. 복구는 가장 오래된 이력이 아니라 그
+      # 슬롯을 찾아 돌려준다 — 창 밖 재예약(예약 슬롯 선기록, REM-3)분의 실행이 과거 sent
+      # 이력을 "이미 보냄"으로 착각해 흡수하고 예약 슬롯을 영구 pending으로 남기던 결함의
+      # 수정(재예약분 실행 정합 — 2026-11-26). 수동 발송은 재발송이 허용되므로(REM-8) 같은
+      # 템플릿의 sent 이력이 있어도 슬롯을 발송해야 회원 안내("다음 평일 오전 9시에
+      # 발송됩니다")와 일치한다. 슬롯이 없거나(경합에서 이미 처리됨) 진행 중이면 duplicate로
+      # 흡수하고, 그 외에는 슬롯을 갱신 경로로 이어 발송한다.
+      slot = find_pending_slot
+      return nil if slot.nil? || in_flight?(slot)
 
-      log
+      slot
     end
 
+    # 선점 슬롯의 진행 중 판정(SEC-5). pending이고 최근 IN_FLIGHT_WINDOW 안에 갱신된 행을
+    # "다른 실행이 발송 중"으로 본다. 예약 슬롯(scheduled_at 있음)은 한 단계를 더 거친다 —
+    # updated_at >= scheduled_at(실행 시작 표시가 있을 때)만 진행 중이다(C-1 마감 리뷰 —
+    # 재예약분 실행 정합 2026-11-26). 예약 슬롯은 접수 시각에 생성되므로 창 시작 직전 1분에
+    # 접수된 슬롯(예: 08:59:30 접수·09:00 예약)은 updated_at < scheduled_at이라 진행 중이
+    # 아니게 되고, 그렇지 않으면 다음 실행이 :duplicate로 흡수돼 슬롯이 영구 pending으로
+    # 남았다. 실행 시작 표시(mark_execution_started!의 touch) 뒤에는 updated_at >=
+    # scheduled_at이 돼 1분 창이 다시 유효해진다 — 같은 예약 슬롯에 대한 두 번째 실행은
+    # duplicate로 흡수된다(SEC-5). U1 향 예정 알림(오늘 09시 예약·09시 생성)은 생성 직후
+    # updated_at >= scheduled_at이라 기존과 같이 생성 후 1분간 진행 중 취급이다.
     def in_flight?(log)
-      log.pending? && log.updated_at > IN_FLIGHT_WINDOW.ago
+      return false unless log.pending?
+      return false unless log.updated_at > IN_FLIGHT_WINDOW.ago
+      return true if log.scheduled_at.blank?
+
+      log.updated_at >= log.scheduled_at
+    end
+
+    # 예약 슬롯의 실행 시작 표시(C-1) — touch로 updated_at을 실행 시점으로 올려 in_flight?의
+    # "진행 중" 근거를 만든다. 예약 슬롯(scheduled_at 있음)만 표시한다 — 표시가 없는 슬롯
+    # (즉시 발송 신규 이력 등)의 1분 창 동작은 바꾸지 않는다.
+    def mark_execution_started!(log)
+      log.touch if log.scheduled_at.present?
     end
 
     # ── 가드(스킵 사유의 단일 출처) ───────────────────────────────────────────
@@ -121,9 +186,10 @@ module Reminders
         # PLAN-3 "하드리밋(수동 포함)"·REM-8 "동일 템플릿 수동 발송·상한 내" — 수동 발송은
         # 템플릿 무관으로 상한을 적용한다(Phase 6 C-1). 수동 issue_notice 반복 선택이 1회성
         # 전제를 깨고 총량 5통을 넘기는 우회를 차단한다. 수동 집계는 채무자 향 sent 전체(템플릿
-        # 무관 — 시퀀스성·1회성 혼합 총량도 5통을 넘지 않게 한다). 자동 시퀀스성은 기존대로
-        # sequence_step? 한정, 자동 1회성 3종(issue_notice·partial_paid·paid_thanks)은 기존대로
-        # 집계 밖이다(Q10과의 긴장은 오케스트레이터가 PRD에 기록 예정).
+        # 무관 — 시퀀스성·1회성 혼합 총량도 5통을 넘지 않게 한다). 자동 시퀀스성의 집계는
+        # cap_reached?(Q28 — 시퀀스성 origin 무관 + 수동 템플릿 무관 합산)로, 수동 발송이
+        # 많은 청구의 다음 자동 단계도 5통에서 막힌다(Q11). 자동 1회성 3종(issue_notice·
+        # partial_paid·paid_thanks)은 이벤트성이라 양쪽 집계 모두 밖이다(Q10).
         return "CAP_REACHED" if @origin == "manual" && manual_cap_reached?
         return "CAP_REACHED" if sequence_step? && cap_reached?
       elsif @invoice.user.phone.blank?
@@ -150,14 +216,23 @@ module Reminders
       debtor? && @template_key == "partial_paid"
     end
 
+    # PLAN-3·Q28 — 자동 시퀀스 단계의 상한 판정. 판정의 단일 출처는
+    # Invoice#reminder_cap_reached?(집계는 MessageLog.cap_sent_count — 채무자 향 sent 중
+    # 시퀀스성 템플릿 origin 무관 + 수동 발송 템플릿 무관 — Q11)다. 사전통보·재개 판정
+    # (DispatchService#steps_due_today)과 상세 화면 컨텍스트도 같은 모델 메서드에 위임하므로
+    # 이곳에서 집계 로직을 복제하지 않는다. 자동 1회성 3종은 sequence_step?가 아니어도 되고
+    # 집계에도 없다(Q10 — 이벤트성 발송은 상한과 무관).
     def cap_reached?
-      MessageLog.sequence_sent_count(@invoice.id) >= MessageLog::SEQUENCE_CAP
+      @invoice.reminder_cap_reached?
     end
 
     # 수동 발송(Phase 6 C-1)의 상한 집계 — 채무자 향 sent 전체(템플릿 무관). PLAN-3 하드리밋.
+    # 자동 상한(cap_reached?·Q28)과 달리 origin·템플릿 구분 없는 총량이다. 판정의 단일 출처는
+    # Invoice#manual_reminder_cap_reached?다 — 상세 화면의 「지금 1통 보내기」·「다음 안내」
+    # 숨김 판정(RemindersContext @manual_cap_reached)도 같은 메서드에 위임한다(W-3 마감 리뷰
+    # 2026-11-26 — 자동 1회성만으로 수동 상한에 걸린 청구의 죽은 버튼 방지).
     def manual_cap_reached?
-      MessageLog.where(invoice_id: @invoice.id, recipient_role: :debtor, status: :sent)
-                .count >= MessageLog::SEQUENCE_CAP
+      @invoice.manual_reminder_cap_reached?
     end
 
     # ── 가드 실패 기록 ──────────────────────────────────────────────────────

@@ -144,6 +144,24 @@ class Invoice < ApplicationRecord
     !reminders_suspended? && !sequence_finished? && client&.reminders_active?
   end
 
+  # PLAN-3·Q28 — 청구 건당 발송 상한(5통) 도달 여부. 집계(MessageLog.cap_sent_count — 채무자
+  # 향 sent 중 시퀀스성 템플릿 origin 무관 + 수동 발송 템플릿 무관)의 판정 단일 출처로
+  # Reminders::SendService 가드·사전통보/재개 판정(steps_due_today)·상세 화면 컨텍스트가
+  # 함께 위임해 쓴다. 상한 도달은 시퀀스를 종결하지 않는다(Q28 — 종결 마킹과 별개 상태).
+  def reminder_cap_reached?
+    MessageLog.cap_sent_count(id) >= MessageLog::SEQUENCE_CAP
+  end
+
+  # PLAN-3·Q11 — 수동 발송 상한(채무자 향 sent 전체 5통 — 템플릿·origin 무관 총량) 도달 여부.
+  # Reminders::SendService#manual_cap_reached? 가드와 상세 화면의 「지금 1통 보내기」·「다음
+  # 안내」 숨김 판정(RemindersContext @manual_cap_reached)이 위임해 쓴다(마감 리뷰 W-3 —
+  # 2026-11-26). 자동 상한(reminder_cap_reached?)과 집계가 다르다 — 자동 1회성(partial_paid
+  # 등·Q10 집계 밖)만으로 도달한 청구는 이 판정에만 걸린다.
+  def manual_reminder_cap_reached?
+    MessageLog.where(invoice_id: id, recipient_role: :debtor, status: :sent)
+              .count >= MessageLog::SEQUENCE_CAP
+  end
+
   # 발행(INV-4 draft→issued) — 채번(INV-1)·토큰(SHARE-1)·유효기간(SHARE-2)을 발급하고
   # PLAN-1 한도를 검사한다. 일별 채번 경합은 고유 인덱스 위반 시 재시도로 흡수한다.
   def issue!

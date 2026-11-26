@@ -71,6 +71,23 @@ module Reminders
       assert_empty u1_logs_for(free_invoice)
     end
 
+    test "상한 도달 청구는 사전통보 대상이 아니다 — 14시 발송이 막히는 건을 예정이라 알리지 않는다 (PLAN-3·Q28·REM-11·W-3)" do
+      invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                        due_on: Date.new(2026, 11, 9))          # D+1 = 11-10 오늘
+      # 수동 발행 안내(issue_notice) 5통 — Q11 집계로 상한 도달(자동 단계는 CAP_REACHED로 막힌다)
+      5.times do
+        MessageLog.create!(invoice: invoice, user: invoice.user, template_key: "issue_notice",
+                           recipient_role: :debtor, status: :sent, origin: :manual)
+      end
+
+      travel_to(Time.zone.parse("2026-11-10 09:00")) do
+        run_prenotice
+      end
+
+      assert_empty u1_logs_for(invoice)                                # noti_prenotice 0건
+      assert_empty @fake.calls                                         # U1 통보 발송 호출 0
+    end
+
     test "noti_due_soon은 만기 임박만 통보하고 자격·플랜은 무관하다 (NOTI-1·설계 판단 10)" do
       eligible = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
                                          due_on: Date.new(2026, 11, 11))          # 내일

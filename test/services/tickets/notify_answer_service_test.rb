@@ -97,7 +97,7 @@ class Tickets::NotifyAnswerServiceTest < ActiveSupport::TestCase
       Tickets::NotifyAnswerService.call(ticket: @ticket)
     end
     invoice = invoices(:delta_overdue) # 시퀀스 상한 집계는 invoice 스코프 — 티켓 행(null) 배제 확인
-    assert_equal 0, MessageLog.sequence_sent_count(invoice.id)
+    assert_equal 0, MessageLog.cap_sent_count(invoice.id)
     refute_includes MessageLog::SEQUENCE_TEMPLATE_KEYS, "noti_ticket_reply"
   end
 end

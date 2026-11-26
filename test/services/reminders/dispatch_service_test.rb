@@ -306,6 +306,73 @@ module Reminders
       end
     end
 
+    test "상한 도달 청구는 발송 예정 스텝이 있어도 재개 불가다 — steps_due_today가 빈 배열로 수렴 (PLAN-3·Q28·W-3)" do
+      invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                        due_on: Date.new(2026, 11, 9))   # D+1 = 11-10 오늘(창 내)
+
+      travel_to(TUESDAY_2PM) do
+        scanner = DispatchService.new
+        # 수동 issue_notice 4통 — 상한 직전이라 아직 재개 가능 판정이 참(경계 4/5)
+        4.times do
+          MessageLog.create!(invoice: invoice, user: invoice.user, template_key: "issue_notice",
+                             recipient_role: :debtor, status: :sent, origin: :manual)
+        end
+        assert_equal true, scanner.restartable?(invoice)
+
+        # 5통째 — Q11 집계로 상한 도달. steps_due_today(사전통보 공용 판정)가 빈 배열을
+        # 반환해 restartable?도 false → 「안내 다시 보내기」 요청은 "남은 단계가 없다"로 수렴.
+        MessageLog.create!(invoice: invoice, user: invoice.user, template_key: "issue_notice",
+                           recipient_role: :debtor, status: :sent, origin: :manual)
+        assert invoice.reminder_cap_reached?
+        assert_empty scanner.steps_due_today(invoice)
+        assert_equal false, scanner.restartable?(invoice)
+      end
+    end
+
+    test "상한 도달 청구의 14시 스캔 자동 단계는 CAP_REACHED skip으로 기록되고 발송이 없다 (PLAN-3·Q28·W-5c)" do
+      invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                        due_on: Date.new(2026, 11, 9))   # D+1 = 11-10 오늘(창 내)
+      # 수동 발행 안내(issue_notice) 5통 — Q11 집계로 상한 도달. 14시 실제 스캔은 steps_due_today의
+      # 상한 수렴을 쓰지 않는다 — SendService 가드가 CAP_REACHED skip 기록을 남겨야 한다(P4).
+      5.times do
+        MessageLog.create!(invoice: invoice, user: invoice.user, template_key: "issue_notice",
+                           recipient_role: :debtor, status: :sent, origin: :manual)
+      end
+
+      travel_to(TUESDAY_2PM) do
+        # setup의 수동 issue_notice 이력 5건은 스캔 결과가 아니므로 제외하고 본다
+        logs = dispatched_logs_for(invoice).where.not(template_key: "issue_notice")
+        assert_log_shapes logs,
+                          [ [ "invoice_notice", "skipped", "PAST_WINDOW" ],
+                            [ "confirm_d1", "skipped", "CAP_REACHED" ] ]
+      end
+      assert_empty @fake.calls                                        # 솔라피 호출 0
+    end
+
+    test "steps_due_today는 상한 직전(4통)에는 오늘 스텝을 돌려주고 도달(5통)하면 빈 배열이다 (PLAN-3·Q28 경계)" do
+      invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                        due_on: Date.new(2026, 11, 9))   # D+1 = 11-10 오늘(창 내)
+
+      travel_to(TUESDAY_2PM) do
+        scanner = DispatchService.new
+        # 3출처 혼합 4통 — 수동 1회성 3 + 자동 시퀀스성 1(Q28 합산). confirm_d1은 미발송으로
+        # 둔다 — 오늘 도래 스텝이 경계 판정의 대상이어야 한다.
+        3.times do
+          MessageLog.create!(invoice: invoice, user: invoice.user, template_key: "issue_notice",
+                             recipient_role: :debtor, status: :sent, origin: :manual)
+        end
+        MessageLog.create!(invoice: invoice, user: invoice.user, template_key: "invoice_notice",
+                           recipient_role: :debtor, status: :sent)      # 자동 시퀀스성(origin 기본 auto)
+        assert_equal 4, MessageLog.cap_sent_count(invoice.id)
+        assert_equal [ "confirm_d1" ], scanner.steps_due_today(invoice) # 상한 직전 — 오늘 스텝 존재
+
+        MessageLog.create!(invoice: invoice, user: invoice.user, template_key: "issue_notice",
+                           recipient_role: :debtor, status: :sent, origin: :manual)
+        assert invoice.reminder_cap_reached?
+        assert_empty scanner.steps_due_today(invoice)                   # 도달 — 사전통보·재개 공용 수렴
+      end
+    end
+
     test "manual_step_key는 시점 버킷·약속 트랙·열람 분기·nil 창의 단일 출처다 (W-1·REM-8·C-2)" do
       # 기준일 11-10 — "(내일)" 문구 템플릿은 전날(D-1)에만 선택하고, 그 외 만기 전 구간은
       # SHARE-6 발행 안내(issue_notice — 어느 날 보내도 내용이 참, due >= today 한정)로 대체한다.

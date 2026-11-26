@@ -61,14 +61,25 @@ class App::ClientsController < App::BaseController
                 notice: "이 거래처의 자동 안내를 보류했습니다. 모든 청구서에 적용됩니다."
   end
 
-  # REM-7 — 거래처 단위 보류 재개. 수신거부(refused_at)는 재개 대상이 아니다(VIEW-7 — 채무자 의사).
+  # REM-7 — 거래처 단위 보류 재개. VIEW-7 — 수신거부(refused_at) 거래처는 재개 대상이 아니다
+  # (채무자 의사 표현이라 U1이 되돌리는 경로가 없고, 보류를 해소해도 발송이 없다 — 상태 변경
+  # 없이 사유 안내로 거부한다).
   def resume_reminders
+    return redirect_resume_refused if @client.refused?
+
     @client.update_column(:reminders_suspended_at, nil)
     redirect_to app_client_path(@client), status: :see_other,
                 notice: "이 거래처의 자동 안내를 재개했습니다."
   end
 
   private
+
+  # VIEW-7 — 수신 거부 거래처의 재개 요청 수렴. 상태 변경 없이 상세로 돌려보내고 사유를
+  # 안내한다(거부 접수 안내가 뷰에 이미 있다).
+  def redirect_resume_refused
+    redirect_to app_client_path(@client), status: :see_other,
+                alert: "이 거래처가 추가 안내 수신을 거부하여 자동 안내를 재개할 수 없습니다."
+  end
 
   def set_client
     @client = Current.user.clients.find(params[:id])

@@ -538,6 +538,57 @@ class InvoiceTest < ActiveSupport::TestCase
     end
   end
 
+  test "reminder_cap_reached?는 상한 집계 4통에서 거짓·5통에서 참이다(PLAN-3·Q28 — 경계 4/5)" do
+    invoice = invoices(:delta_issued)
+    assert_not invoice.reminder_cap_reached?                      # 집계 0 — 미도달
+
+    4.times do |i|
+      MessageLog.create!(invoice: invoice, user: users(:delta),
+                         template_key: "confirm_d1", status: :sent)
+    end
+    assert_not invoice.reload.reminder_cap_reached?               # 4통 — 상한 직전
+
+    # 집계 밖 행(U1 향·skipped)은 경계에 영향을 주지 않는다(PLAN-3 집계 정의)
+    MessageLog.create!(invoice: invoice, user: users(:delta),
+                       template_key: "noti_prenotice", recipient_role: :user, status: :sent)
+    MessageLog.create!(invoice: invoice, user: users(:delta),
+                       template_key: "final_d14", status: :skipped, error_code: "CAP_REACHED")
+    assert_not invoice.reload.reminder_cap_reached?
+
+    MessageLog.create!(invoice: invoice, user: users(:delta),
+                       template_key: "requeue_d7", status: :sent, origin: :manual)
+    assert invoice.reload.reminder_cap_reached?                   # 5통 — 도달
+  end
+
+  # 마감 리뷰 W-3(2026-11-26) — 수동 상한(채무자 향 sent 전체 5통·템플릿 무관 — Q11)은
+  # 자동 상한(reminder_cap_reached?·Q28)과 집계가 다르다. 자동 1회성(partial_paid 등·Q10
+  # 집계 밖)만으로 도달한 청구는 이 판정에만 걸린다 — SendService 가드와 상세 화면의
+  # 「지금 1통 보내기」 숨김이 함께 위임하는 단일 출처다.
+  test "manual_reminder_cap_reached?는 채무자 향 sent 전체 5통에서 참이고 자동 상한 집계와 무관하다(PLAN-3·Q11·W-3)" do
+    invoice = invoices(:delta_issued)
+    assert_not invoice.manual_reminder_cap_reached?               # 집계 0 — 미도달
+
+    4.times do
+      MessageLog.create!(invoice: invoice, user: users(:delta),
+                         template_key: "partial_paid", recipient_role: :debtor, status: :sent)
+    end
+    assert_not invoice.reload.manual_reminder_cap_reached?        # 4통 — 상한 직전
+    assert_not invoice.reload.reminder_cap_reached?               # 1회성은 자동 집계 밖(Q10)
+
+    # U1 향·skipped 행은 수동 집계에도 무영향이다(채무자 향 sent만)
+    MessageLog.create!(invoice: invoice, user: users(:delta),
+                       template_key: "noti_prenotice", recipient_role: :user, status: :sent)
+    MessageLog.create!(invoice: invoice, user: users(:delta),
+                       template_key: "confirm_d1", recipient_role: :debtor,
+                       status: :skipped, error_code: "CAP_REACHED")
+    assert_not invoice.reload.manual_reminder_cap_reached?
+
+    MessageLog.create!(invoice: invoice, user: users(:delta),
+                       template_key: "partial_paid", recipient_role: :debtor, status: :sent)
+    assert invoice.reload.manual_reminder_cap_reached?            # 5통 — 수동 상한 도달
+    assert_not invoice.reload.reminder_cap_reached?               # 자동 상한 집계는 여전히 0
+  end
+
   private
 
   # 발행 가능한 최소 속성 — user·client·만기일·품목 행(수량·단가). due_on은 명시값(프리필 재계산과 구분).

@@ -21,13 +21,9 @@ class AppInvoiceRemindersTest < ApplicationSystemTestCase
 
   fixtures :users, :clients, :invoices, :subscriptions, :payment_passes
 
-  def log_in_as(user, password: "password")
-    visit new_session_path
-    fill_in "이메일", with: user.email
-    fill_in "비밀번호", with: password
-    click_button "로그인"
-    assert_text "로그인되었습니다."
-  end
+  # log_in_as는 공용 케이스(test/application_system_test_case.rb — W-7 경화 2026-11-26)의
+  # 정의를 쓴다. chromedriver 합성 클릭 드롭으로 로그인 제출이 빠지는 플레이크가 관측됐어서
+  # 제출을 dom_click_button(DOM 레벨 클릭)으로 수행한다 — 이 파일의 자체 정의는 제거했다.
 
   test "상세 화면은 자동 안내 현황·다음 안내 라벨을 보여주고 수동 발송이 이력을 남긴다 (REM-6·8)" do
     invoice = invoices(:delta_issued)                                   # 만기 10-01 → final_d14 구간
@@ -113,6 +109,122 @@ class AppInvoiceRemindersTest < ApplicationSystemTestCase
       assert_text "발송 이력"
       assert_text "발행 안내"                                              # 이력 행 라벨 — template_key 정합
       assert_equal "issue_notice", fake.calls.sole[:template_key]
+    end
+  end
+
+  # VIEW-7 — 수신 거부한 거래처의 청구는 재개할 수 없다(채무자 의사 — U1이 되돌리는 경로 없음).
+  # 종결 청구라도 「안내 다시 보내기」를 노출하지 않고 거부 접수 배너가 사유를 설명한다.
+  test "수신 거부한 거래처의 종결 청구는 재개 버튼 없이 거부 안내만 보여준다 (VIEW-7)" do
+    invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                      due_on: Date.new(2026, 10, 27))
+    invoice.update_columns(sequence_finished_at: Time.zone.parse("2026-11-09 14:00"))
+    invoice.client.update_column(:refused_at, Time.zone.parse("2026-11-09 15:00"))
+
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      log_in_as users(:delta)
+      visit app_invoice_path(invoice)
+      wait_for_turbo
+
+      assert_text "이 거래처가 추가 안내 수신을 거부했습니다"               # 거부 배너 — 사유 설명
+      assert_no_text "안내 다시 보내기"                                    # 재개 버튼·보조 문구 미노출
+      assert_no_button "안내 다시 보내기"
+    end
+  end
+
+  # VIEW-7 — 보류·수신 거부 겹침: 거래처가 거부한 뒤 청구에 보류·종결 마킹이 남은 상태에서도
+  # 「안내 재개하기」가 노출되지 않는다(재개해도 REFUSED 가드로 발송이 없다 — 죽은 버튼 방지).
+  test "수신 거부한 거래처의 보류 중 청구는 재개 버튼 없이 거부 안내만 보여준다 (VIEW-7 — 겹침)" do
+    invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                      due_on: Date.new(2026, 10, 27))
+    invoice.update_columns(
+      reminders_suspended_at: Time.zone.parse("2026-11-09 14:00"),
+      sequence_finished_at: Time.zone.parse("2026-11-09 14:30")
+    )
+    invoice.client.update_column(:refused_at, Time.zone.parse("2026-11-09 15:00"))
+
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      log_in_as users(:delta)
+      visit app_invoice_path(invoice)
+      wait_for_turbo
+
+      assert_text "이 거래처가 추가 안내 수신을 거부했습니다"               # 거부 배너가 우선 — 사유 설명
+      assert_no_text "안내 재개하기"                                       # 보류 재개 버튼 미노출
+      assert_no_text "안내 다시 보내기"
+      assert_no_button "안내 재개하기"
+    end
+  end
+
+  # PLAN-3·Q28·W-4 — 상한 도달 청구 상세(브라우저). 상한 안내 상자·「상한 도달」 배지를 보이고
+  # 막힌 발송 버튼과 「다음 안내」 라벨을 노출하지 않는다(죽은 버튼 방지 — 컨트롤러 테스트와
+  # 같은 판정을 실제 브라우저 렌더로 재확인).
+  test "상한 도달 청구 상세는 상한 안내 상자·배지를 보이고 발송 버튼·다음 안내 라벨을 숨긴다 (PLAN-3·Q28)" do
+    invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                      due_on: Date.new(2026, 11, 27))
+    5.times do
+      MessageLog.create!(invoice: invoice, user: invoice.user, template_key: "issue_notice",
+                         recipient_role: :debtor, status: :sent, origin: :manual)
+    end
+
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      log_in_as users(:delta)
+      visit app_invoice_path(invoice)
+      wait_for_turbo
+
+      assert_text "발송 상한에 도달했습니다"                               # 상한 안내 상자
+      assert_text "입금을 기록하면 나가는 안내"                             # 자동 1회성은 계속 발송된다(Q10)
+      assert_text "상한 도달"                                              # 상태 배지(중립) — 「자동 안내 중」 대체
+      assert_no_text "지금 1통 보내기"                                     # 직접 발송 버튼 숨김
+      assert_no_button "지금 1통 보내기"
+      assert_no_text "안내 보류하기"                                       # 보류 버튼 숨김
+      assert_no_text "다음 안내:"                                          # 수동 발송 산정 라벨 숨김
+    end
+  end
+
+  # 마지막 수정 반례(Tester 2026-11-26) — 수동 상한만 도달한 청구 상세(브라우저). 자동 상한과
+  # 달리 상자·배지가 없고(「자동 안내 중」 배지 유지), 활성 분기 안에서 「지금 1통 보내기」
+  # 버튼과 「다음 안내:」 라벨만 한 줄 안내로 대체된다(「안내 보류하기」는 유지 — 보류는
+  # 발송 조작이 아니다). 컨트롤러 테스트(PLAN-3·W-3)와 같은 판정을 실제 브라우저 렌더로 재확인.
+  test "수동 상한만 도달한 청구 상세는 보류하기와 한 줄 안내를 보이고 직접 발송 버튼·다음 안내 라벨을 숨긴다 (PLAN-3·W-3)" do
+    invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                      due_on: Date.new(2026, 11, 27))
+    5.times do
+      MessageLog.create!(invoice: invoice, user: invoice.user, template_key: "partial_paid",
+                         recipient_role: :debtor, status: :sent)          # 자동 1회성 5통 — 수동 상한만 도달
+    end
+
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      log_in_as users(:delta)                                             # 공용 헬퍼 — DOM 클릭 제출
+      visit app_invoice_path(invoice)
+      wait_for_turbo
+
+      assert_text "자동 안내 중"                                           # 자동 상한이 아니라 진행 배지 유지
+      assert_text "안내 보류하기"                                          # 보류 버튼은 유지
+      assert_text "직접 안내는 청구 건당 5통을 모두 보내 더 보낼 수 없습니다"  # 한 줄 안내
+      assert_no_text "지금 1통 보내기"                                     # 직접 발송 버튼 숨김
+      assert_no_text "다음 안내:"                                          # 라벨 숨김
+      assert_no_text "발송 상한에 도달했습니다"                            # 자동 상한 표시는 아니다
+    end
+  end
+
+  # VIEW-7·W-1 — 거래처 목록 카드(브라우저). 수신 거부 + 거래처 보류 겹침 카드에는 재개·보류
+  # 버튼이 모두 없고 「수신 거부」 배지가 사유를 설명한다(죽은 버튼 방지 — W-1 수정의
+  # 실제 브라우저 렌더 재확인).
+  test "수신 거부 + 보류가 겹친 거래처 목록 카드는 재개·보류 버튼 없이 수신 거부 배지를 보여준다 (VIEW-7·W-1)" do
+    client = clients(:delta_main)                                          # delta의 유일 거래처 — 카드 단독
+    client.update_columns(
+      reminders_suspended_at: Time.zone.parse("2026-11-09 14:00"),
+      refused_at: Time.zone.parse("2026-11-09 15:00")
+    )
+
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      log_in_as users(:delta)
+      visit app_clients_path
+      wait_for_turbo
+
+      assert_text "수신 거부"                                              # 거부 배지 — 사유 설명
+      assert_no_button "재개"                                              # 죽은 버튼 미노출(W-1)
+      assert_no_button "보류"                                              # 거부는 액션 없음 — 보류 버튼도 미노출
+      assert_link "수정"                                                   # 편집 링크는 그대로(button_to 아님)
     end
   end
 end

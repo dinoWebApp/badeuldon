@@ -159,8 +159,12 @@ class App::InvoicesController < App::BaseController
                 notice: "이 청구서의 자동 안내를 보류했습니다. 예정된 발송은 취소됩니다."
   end
 
-  # REM-7 — 청구 건 보류 재개. 거래처 단위 보류·수신거부는 별도 상태다(화면 배지로 안내).
+  # REM-7 — 청구 건 보류 재개. 거래처 단위 보류는 별도 상태다(화면 배지로 안내).
+  # VIEW-7 — 거래처 수신 거부 분은 재개 대상이 아니다(보류를 해소해도 REFUSED 가드로 발송이
+  # 영원히 없다 — 상태 변경 없이 사유 안내로 거부한다).
   def resume_reminders
+    return redirect_resume_refused if @invoice.client.refused?
+
     @invoice.update_column(:reminders_suspended_at, nil)
     redirect_to app_invoice_path(@invoice), status: :see_other,
                 notice: "이 청구서의 자동 안내를 재개했습니다. 다음 단계부터 이어집니다."
@@ -198,7 +202,12 @@ class App::InvoicesController < App::BaseController
   # DispatchService 논리로 미발송 스텝부터 이어서 산정한다(소급 창 밖 스텝은 PAST_WINDOW로
   # 차단 — 무한 소급 없음). 보낼 스텝이 남지 않았으면 재개해도 발송이 없으므로 해소하지
   # 않고 안내한다(restartable? — DispatchService 공개 판정).
+  # VIEW-7 — 거래처 수신 거부 분은 재개 대상이 아니다(refused_at은 채무자 의사라 U1이
+  # 되돌리는 경로가 없고, 지우면 reminders_dispatchable에서 영구 제외된 채 "다시 진행"
+  # 안내만 준다 — 상태 변경 없이 사유 안내로 거부한다).
   def restart_reminders
+    return redirect_restart_refused if @invoice.client.refused?
+
     if Reminders::DispatchService.new.restartable?(@invoice)
       @invoice.restart_sequence!
       redirect_to app_invoice_path(@invoice), status: :see_other,
@@ -342,6 +351,20 @@ class App::InvoicesController < App::BaseController
   # 않고(종결 마킹 유지) 상태를 그대로 안내한다.
   def restart_unavailable_notice
     "다시 보낼 수 있는 남은 단계가 없어 진행하지 않았습니다. 필요하면 개별 안내를 직접 확인해 주세요."
+  end
+
+  # VIEW-7 — 수신 거부 거래처의 청구 보류 재개 요청 수렴. 상태 변경 없이 같은 화면으로
+  # 돌려보내고 사유를 안내한다(거부 접수 배너가 뷰에 이미 있어 추가 문구 노출은 없다).
+  def redirect_resume_refused
+    redirect_to app_invoice_path(@invoice), status: :see_other,
+                alert: "이 거래처가 추가 안내 수신을 거부하여 자동 안내를 재개할 수 없습니다."
+  end
+
+  # VIEW-7 — 수신 거부 거래처의 재개 요청 수렴. 상태 변경 없이 같은 화면으로 돌려보내고
+  # 사유를 안내한다(거부 접수 배너가 뷰에 이미 있어 추가 문구 노출은 없다).
+  def redirect_restart_refused
+    redirect_to app_invoice_path(@invoice), status: :see_other,
+                alert: "이 거래처가 추가 안내 수신을 거부하여 자동 안내를 다시 진행할 수 없습니다."
   end
 
   # SHARE-2 — 재발급은 링크 보유 건만 조회한다(초안·무효 제외 — INV-6).

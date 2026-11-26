@@ -153,7 +153,7 @@ class TaxInvoices::NotifyIssuedServiceTest < ActiveSupport::TestCase
     with_solapi_client @fake do
       TaxInvoices::NotifyIssuedService.call(tax_invoice: @tax_invoice)
     end
-    assert_equal 0, MessageLog.sequence_sent_count(@invoice.id)
+    assert_equal 0, MessageLog.cap_sent_count(@invoice.id)
     refute_includes MessageLog::SEQUENCE_TEMPLATE_KEYS, "noti_tax_issued"
   end
 end
