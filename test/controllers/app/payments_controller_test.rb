@@ -183,6 +183,22 @@ class App::PaymentsControllerTest < ActionDispatch::IntegrationTest
     assert_match(/1원/, audit.detail)
   end
 
+  # ADMIN-2·Q32 — 컨트롤러 계층 E2E: CF-Connecting-IP 헤더(ClientIp.of)가 과다입금 감사까지 전달.
+  test "CF-Connecting-IP 헤더가 있으면 과다입금 감사에 그 IP가 기록된다 (ADMIN-2·Q32)" do
+    travel_to(Time.zone.parse("2026-10-12 09:00")) do
+      sign_in_as users(:delta)
+      invoice = invoices(:delta_issued)
+
+      post app_invoice_payments_path(invoice),
+           params: { payment: { amount: "300000", paid_on: "2026-10-12" } },
+           headers: { "CF-Connecting-IP" => "203.0.113.12" }
+      assert_response :see_other
+    end
+
+    audit = AuditLog.find_by!(action: "payment_over_recorded", target_id: invoices(:delta_issued).id)
+    assert_equal "203.0.113.12", audit.ip
+  end
+
   test "0·음수·쉼표·소수 금액은 422로 거부되고 미기록이다 (금액 무결성)" do
     travel_to(Time.zone.parse("2026-10-12 09:00")) do
       sign_in_as users(:delta)

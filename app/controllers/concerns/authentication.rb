@@ -47,7 +47,7 @@ module Authentication
     end
 
     def start_new_session_for(user)
-      user.sessions.create!(user_agent: request.user_agent, ip_address: request.remote_ip).tap do |session|
+      user.sessions.create!(user_agent: request.user_agent, ip_address: ClientIp.of(request)).tap do |session|
         Current.session = session
         cookies.signed[:session_id] = {
           value: session.id, expires: SESSION_COOKIE_MAX_AGE, httponly: true, same_site: :lax

@@ -343,6 +343,24 @@ module Reminders
       assert_empty @fake.calls
     end
 
+    test "상속 거래처의 채무자 발송도 REFUSED로 차단한다 — 상속 마킹도 같은 가드를 탄다 (VIEW-7·Q30)" do
+      invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                        due_on: Date.new(2026, 11, 9))
+      # 같은 회원·같은 번호 형제의 접수 거부를 번호 단위 상속(콜백)으로 물려받은 거래처 —
+      # 컨트롤러·반복 청구가 인큐를 건너뛰더라도(W-1) REFUSED 가드는 최종 방어선으로 유지된다
+      sibling = users(:delta).clients.create!(name: "델타상속원본", contact_name: "덜원본",
+                                              phone: "010-3333-7777")
+      mark_refused(sibling, at: Time.zone.parse("2026-11-09 15:00"))
+      invoice.client.save!                                       # 번호 무변경 저장 — 상속
+      assert invoice.client.reload.refused?
+
+      travel_to(TUESDAY_10AM) do
+        assert_equal :skipped, send_debtor(invoice, "confirm_d1")
+      end
+      assert_equal "REFUSED", debtor_logs(invoice).sole.error_code
+      assert_empty @fake.calls                                   # 실발송 0건
+    end
+
     test "청구·거래처 보류는 채무자 발송에 SUSPENDED로 차단한다 (REM-7·1회성 유지)" do
       invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
                                         due_on: Date.new(2026, 11, 9))

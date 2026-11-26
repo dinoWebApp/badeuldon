@@ -79,16 +79,21 @@ class App::BillingsControllerTest < ActionDispatch::IntegrationTest
 
   test "보유 수금 패스는 잔여·유효기간 요약으로 렌더되고 만료 패스는 제외된다 (PLAN-4)" do
     travel_to(Time.zone.parse("2026-10-15 09:00")) do
+      # C-1 — 공용 픽스처 패스(delta_active_pass, 만료 2026-12-30)의 의존 제거:
+      # 같은 방식으로 테스트가 직접 만든 90일 패스로 교체해 날짜 폭탄을 없앤다.
+      users(:delta).payment_passes.destroy_all
       users(:delta).payment_passes.create!(total_uses: 10, remaining_uses: 7,
                                            expires_at: 30.days.from_now)
       users(:delta).payment_passes.create!(total_uses: 10, remaining_uses: 10,
                                            expires_at: 1.second.ago)  # 만료 — 목록 제외
+      users(:delta).payment_passes.create!(total_uses: 10, remaining_uses: 10,
+                                           expires_at: 90.days.from_now)
       sign_in_as users(:delta)
       get app_billing_path
 
       assert_response :success
       assert_select "li", text: /잔여 7\/10 · .*까지/, count: 1
-      assert_select "li", text: /잔여 10\/10 · 2026-12-30까지/, count: 1  # fixture 패스
+      assert_select "li", text: /잔여 10\/10 · 2027-01-13까지/, count: 1  # 생성 패스(2026-10-15 + 90일)
       assert_select "p", text: "보유한 수금 패스가 없습니다.", count: 0
     end
   end

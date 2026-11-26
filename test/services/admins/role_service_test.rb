@@ -128,4 +128,48 @@ class Admins::RoleServiceTest < ActiveSupport::TestCase
   def audits_with_action(action)
     AuditLog.where(action: action, admin_id: [ @owner.id, @staff.id ])
   end
+
+  # ADMIN-2·Q32 — 컨트롤러가 넘긴 요청자 IP(ClientIp.of)가 감사 기록(정상·거부 경로 모두)까지
+  # 전달되는지 고정. 인자 없는 기존 호출(runner·기존 테스트)은 nil로 하위호환된다.
+  test "ip를 넘기면 롤 변경 감사에 요청자 IP가 기록된다 (ADMIN-2·Q32)" do
+    result = Admins::RoleService.change_role!(admin: @staff, actor: @owner, role: :staff, ip: "203.0.113.7")
+
+    assert_predicate result, :success?
+    assert_equal "203.0.113.7", audits_with_action("admin_role_change").order(:id).last.ip
+  end
+
+  test "ip를 넘기면 staff 거부 기록에도 요청자 IP가 기록된다 (ADMIN-2·Q32)" do
+    result = Admins::RoleService.record_denied!(
+      actor: @staff, action: "admin_console_denied", ip: "203.0.113.7"
+    )
+
+    assert_not_predicate result, :success?
+    assert_equal "203.0.113.7", AuditLog.find_by!(action: "admin_console_denied").ip
+  end
+
+  test "ip를 넘기지 않은 기존 호출의 감사는 ip가 nil로 유지된다 (하위호환)" do
+    Admins::RoleService.change_role!(admin: @staff, actor: @owner, role: :staff)
+
+    assert_nil audits_with_action("admin_role_change").order(:id).last.ip
+  end
+
+  # 리뷰 3 — staff가 인스턴스 진입점(change_role!·unlock!·create_admin!)을 직접 호출할 때의
+  # 내부 denial→record_denial 경로에도 ip가 전달되는지 고정(record_denied! 클래스 메서드와 별개 경로).
+  test "staff가 change_role!을 ip와 함께 호출하면 내부 denial 감사에도 ip가 기록된다 (ADMIN-2·Q32)" do
+    result = Admins::RoleService.change_role!(admin: @newbie, actor: @staff, role: :staff, ip: "203.0.113.7")
+
+    assert_not_predicate result, :success?
+    assert_equal "203.0.113.7", AuditLog.find_by!(action: "admin_role_denied").ip
+  end
+
+  test "staff가 unlock!·create_admin!을 ip와 함께 호출하면 denial 감사에 ip가 기록된다 (ADMIN-2·Q32)" do
+    Admins::RoleService.unlock!(admin: @owner, actor: @staff, ip: "203.0.113.8")
+    Admins::RoleService.create_admin!(
+      actor: @staff, email: "denied@example.com", password: "password1234", role: :staff, ip: "203.0.113.9"
+    )
+
+    assert_equal "203.0.113.8", AuditLog.find_by!(action: "admin_unlock_denied").ip
+    assert_equal "203.0.113.9", AuditLog.find_by!(action: "admin_create_denied").ip
+    assert_nil Admin.find_by(email: "denied@example.com")
+  end
 end

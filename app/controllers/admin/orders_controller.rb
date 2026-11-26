@@ -23,7 +23,8 @@ class Admin::OrdersController < Admin::BaseController
   # 뚫고 나온 예외도 마지막 안전망으로 흡수한다 — PG 취소 뒤 500으로 새어 나가지 않게 함).
   def refund
     result = Orders::RefundService.new(admin: current_admin, order: @order,
-                                       reason: refund_params[:refund_reason]).call
+                                       reason: refund_params[:refund_reason],
+                                       ip: ClientIp.of(request)).call
     result.success? ? refund_succeeded(result) : render_refund_failure(result.errors.first)
   rescue StandardError => e
     Rails.logger.error("[Admin::OrdersController#refund] #{e.class}: #{e.message}")

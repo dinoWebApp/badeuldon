@@ -497,7 +497,7 @@ class InvoiceTest < ActiveSupport::TestCase
     promised = invoices(:delta_promised)
     partially = invoices(:delta_partially_paid)
     issued.update_column(:reminders_suspended_at, Time.zone.parse("2026-10-12 09:00"))
-    viewed.client.update_column(:refused_at, Time.zone.parse("2026-10-12 09:00"))
+    mark_refused(viewed.client, at: Time.zone.parse("2026-10-12 09:00"))
     promised.update_column(:sequence_finished_at, Time.zone.parse("2026-10-12 09:00"))
     partially.client.update_column(:reminders_suspended_at, Time.zone.parse("2026-10-12 09:00"))
 

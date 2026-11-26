@@ -69,7 +69,7 @@ class Admin::TicketsController < Admin::BaseController
     ticket = Ticket.find(params[:id])
     ticket.mark_closed!
     AuditLogs::RecordService.call(admin: Current.admin, action: "ticket_close", target: ticket,
-                                  detail: "티켓 종료 — #{ticket.title}")
+                                  detail: "티켓 종료 — #{ticket.title}", ip: ClientIp.of(request))
     redirect_to admin_tickets_path, status: :see_other, notice: "문의가 종료되었습니다."
   end
 end

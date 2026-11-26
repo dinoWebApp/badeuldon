@@ -23,7 +23,7 @@ class Admin::SalesRepsController < Admin::BaseController
       AuditLogs::RecordService.call(admin: current_admin, action: "sales_rep_created",
                                     target: @sales_rep,
                                     detail: "#{@sales_rep.email}(#{@sales_rep.role}) · 초기 코드 #{code&.code}",
-                                    ip: request.remote_ip)
+                                    ip: ClientIp.of(request))
       redirect_to admin_sales_reps_path, status: :see_other,
                   notice: "영업 직원이 생성되었습니다. 초기 추천 코드: #{code&.code}"
     else
@@ -39,7 +39,7 @@ class Admin::SalesRepsController < Admin::BaseController
       AuditLogs::RecordService.call(admin: current_admin, action: "sales_rep_updated",
                                     target: @sales_rep,
                                     detail: "#{@sales_rep.email}(#{@sales_rep.role}) 요율 #{@sales_rep.effective_rate}%",
-                                    ip: request.remote_ip)
+                                    ip: ClientIp.of(request))
       redirect_to admin_sales_reps_path, status: :see_other, notice: "영업 직원 정보가 수정되었습니다."
     else
       render :edit, status: :unprocessable_entity
@@ -54,7 +54,7 @@ class Admin::SalesRepsController < Admin::BaseController
     @sales_rep.sales_rep_sessions.destroy_all if @sales_rep.suspended?
     AuditLogs::RecordService.call(admin: current_admin,
                                   action: @sales_rep.suspended? ? "sales_rep_suspended" : "sales_rep_resumed",
-                                  target: @sales_rep, detail: @sales_rep.email, ip: request.remote_ip)
+                                  target: @sales_rep, detail: @sales_rep.email, ip: ClientIp.of(request))
     redirect_to admin_sales_reps_path, status: :see_other,
                 notice: (@sales_rep.suspended? ? "정지 처리했습니다(세션 파기)." : "정지를 해제했습니다.")
   end
@@ -66,7 +66,7 @@ class Admin::SalesRepsController < Admin::BaseController
     @sales_rep.unlock!
     AuditLogs::RecordService.call(admin: current_admin, action: "sales_rep_unlocked",
                                   target: @sales_rep, detail: @sales_rep.email,
-                                  ip: request.remote_ip)
+                                  ip: ClientIp.of(request))
     redirect_to admin_sales_reps_path, status: :see_other, notice: "잠금을 해제했습니다."
   end
 
@@ -77,7 +77,7 @@ class Admin::SalesRepsController < Admin::BaseController
     AuditLogs::RecordService.call(admin: current_admin, action: "sales_rep_code_rotated",
                                   target: @sales_rep,
                                   detail: "#{@sales_rep.email} · #{code&.code || '당일 발급분 존재(무변경)'}",
-                                  ip: request.remote_ip)
+                                  ip: ClientIp.of(request))
     if code
       redirect_to admin_sales_reps_path, status: :see_other, notice: "새 추천 코드: #{code.code}"
     else

@@ -53,4 +53,21 @@ class Payments::RecordServiceTest < ActiveSupport::TestCase
     assert_equal 1, AuditLog.where(action: "payment_over_recorded", target_type: "Invoice", target_id: invoice.id).count,
                  "감사는 첫 과다입금 마감 1회뿐"
   end
+
+  # ADMIN-2·Q32 — 컨트롤러가 넘긴 요청자 IP(ClientIp.of)가 감사 로그까지 전달되는지 고정.
+  test "ip를 넘기면 과다입금 감사 로그에 요청자 IP가 기록된다 (ADMIN-2·Q32)" do
+    invoice = invoices(:delta_issued)
+    Payments::RecordService.new(invoice:, amount: 250_000, paid_on: Date.current, ip: "203.0.113.7").call
+
+    audit = AuditLog.find_by(action: "payment_over_recorded", target_type: "Invoice", target_id: invoice.id)
+    assert_equal "203.0.113.7", audit.ip
+  end
+
+  test "ip를 넘기지 않은 기존 호출의 감사 로그는 ip가 nil로 유지된다 (하위호환)" do
+    invoice = invoices(:delta_issued)
+    Payments::RecordService.new(invoice:, amount: 260_000, paid_on: Date.current).call
+
+    audit = AuditLog.find_by(action: "payment_over_recorded", target_type: "Invoice", target_id: invoice.id)
+    assert_nil audit.ip
+  end
 end

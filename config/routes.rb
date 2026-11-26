@@ -14,7 +14,7 @@ Rails.application.routes.draw do
   # ── 표면 ② 대시보드(/app) — 로그인 U1 전용. require_authentication 기본 가드 적용(공개 예외 없음) ──
   namespace :app do
     root to: "dashboards#show"                  # DASH-1/2/4 — /app 진입 셸
-    resource :profile, only: %i[ edit update ]  # AUTH-1.3 최초 프로필 설정(/app/profile)
+    resource :profile, only: %i[ edit update destroy ]  # AUTH-1.3 최초 프로필 설정(/app/profile) · AUTH-1.5 회원 탈퇴(DELETE)
     resource :notification_settings, only: :update  # NOTI-2 주간 다이제스트 토글 (PATCH /app/notification_settings)
     resources :clients do                       # CLIENT-1 — 거래처 CRUD
       member do

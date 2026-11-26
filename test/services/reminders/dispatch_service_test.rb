@@ -431,5 +431,89 @@ module Reminders
         assert_nil scanner.manual_step_key(promise_due_day) # 약속 당일 + 만기 도과 — 동일 창(C-2)
       end
     end
+
+    # ── scheduled_today_keys(DASH-2·Q31 — 만기 예고 포함 오늘 발송 스텝 전체) ──
+
+    test "scheduled_today_keys는 만기 예고를 포함한 오늘 발송 스텝 전체를 돌려준다 (DASH-2·Q31)" do
+      due_tomorrow = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                              due_on: Date.new(2026, 11, 11))
+
+      travel_to(TUESDAY_2PM) do
+        scanner = DispatchService.new
+        # 내일 만기 — 만기 예고(invoice_notice·D-1)가 오늘 도래. steps_due_today는 사전통보
+        # 밖이라 빈 배열 — 두 산정의 차이가 만기 예고 하나다.
+        assert_equal [ "invoice_notice" ], scanner.scheduled_today_keys(due_tomorrow)
+        assert_empty scanner.steps_due_today(due_tomorrow)
+      end
+    end
+
+    test "scheduled_today_keys는 어제 만기 미열람 청구에서 confirm_d1만 돌려준다 — 이미 보낸 스텝 제외 (SEC-5)" do
+      due_yesterday = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                              due_on: Date.new(2026, 11, 9))
+
+      travel_to(TUESDAY_2PM) do
+        scanner = DispatchService.new
+        # 만기 예고는 이미 보낸 것으로 둔다(origin 무관 — 수동분도 제외) → 오늘은 D+1 확인 안내만
+        MessageLog.create!(invoice: due_yesterday, user: due_yesterday.user, template_key: "invoice_notice",
+                           recipient_role: :debtor, status: :sent)
+        assert_equal [ "confirm_d1" ], scanner.scheduled_today_keys(due_yesterday)
+
+        MessageLog.create!(invoice: due_yesterday, user: due_yesterday.user, template_key: "confirm_d1",
+                           recipient_role: :debtor, status: :sent)
+        assert_empty scanner.scheduled_today_keys(due_yesterday)   # 보낸 스텝까지 제외
+      end
+    end
+
+    test "scheduled_today_keys는 소급 창을 경과한 스텝을 제외한다 (REM-3)" do
+      overdue = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                        due_on: Date.new(2026, 10, 25))  # 전 스텝 nominal의 창이 11-09에 종료
+
+      travel_to(TUESDAY_2PM) do
+        assert_empty DispatchService.new.scheduled_today_keys(overdue)
+      end
+    end
+
+    test "scheduled_today_keys는 상한 도달 청구에서 빈 배열이다 (PLAN-3·Q28 — 카드에 거짓 예정 금지)" do
+      invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                        due_on: Date.new(2026, 11, 11))   # D-1 = 오늘(창 내)
+
+      travel_to(TUESDAY_2PM) do
+        scanner = DispatchService.new
+        assert_equal [ "invoice_notice" ], scanner.scheduled_today_keys(invoice)
+
+        5.times do
+          MessageLog.create!(invoice: invoice, user: invoice.user, template_key: "issue_notice",
+                             recipient_role: :debtor, status: :sent, origin: :manual)
+        end
+        assert invoice.reminder_cap_reached?
+        assert_empty scanner.scheduled_today_keys(invoice)
+      end
+    end
+
+    test "scheduled_today_keys는 약속 전날 안내를 포함하고 steps_due_today는 제외한다 (DASH-2·REM-11)" do
+      invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                        due_on: Date.new(2026, 11, 11))
+
+      travel_to(TUESDAY_2PM) do
+        # 약속일 당일 시나리오 — date_selected는 당일 허용(결정 #3)
+        create_promise(invoice, kind: :date_selected, promised_on: Date.new(2026, 11, 10))
+        scanner = DispatchService.new
+        assert_equal [ "promise_d1" ], scanner.scheduled_today_keys(invoice)
+        assert_empty scanner.steps_due_today(invoice)   # promise_d1은 사전통보(REM-11) 밖
+      end
+    end
+
+    test "연체 단계에서는 scheduled_today_keys와 steps_due_today가 같은 결과다 (이원화 방지 회귀)" do
+      invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                        due_on: Date.new(2026, 11, 9))
+
+      travel_to(TUESDAY_2PM) do
+        MessageLog.create!(invoice: invoice, user: invoice.user, template_key: "invoice_notice",
+                           recipient_role: :debtor, status: :sent)
+        scanner = DispatchService.new
+        assert_equal [ "confirm_d1" ], scanner.scheduled_today_keys(invoice)
+        assert_equal scanner.scheduled_today_keys(invoice), scanner.steps_due_today(invoice)
+      end
+    end
   end
 end

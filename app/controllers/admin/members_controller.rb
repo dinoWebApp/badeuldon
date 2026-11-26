@@ -16,7 +16,9 @@ class Admin::MembersController < Admin::BaseController
   end
 
   def toggle_suspension
-    result = Admins::MemberAdminService.toggle_suspension!(admin: current_admin, user: User.find(params[:id]))
+    result = Admins::MemberAdminService.toggle_suspension!(
+      admin: current_admin, user: User.find(params[:id]), ip: ClientIp.of(request)
+    )
     redirect_to admin_member_path(params[:id]), status: :see_other,
                 notice: (result.message if result.success?),
                 alert: (result.errors.first unless result.success?)
@@ -24,7 +26,8 @@ class Admin::MembersController < Admin::BaseController
 
   def change_plan
     result = Admins::MemberAdminService.change_plan!(
-      admin: current_admin, user: User.find(params[:id]), plan_params: plan_change_params
+      admin: current_admin, user: User.find(params[:id]), plan_params: plan_change_params,
+      ip: ClientIp.of(request)
     )
     redirect_to admin_member_path(params[:id]), status: :see_other,
                 notice: (result.message if result.success?),
@@ -35,7 +38,8 @@ class Admin::MembersController < Admin::BaseController
   # 트랜잭션 삭제를 담당한다. 성공은 목록으로, 실패는 상세로 되돌린다(가드 사유 alert).
   def destroy
     result = Admins::AccountPurgeService.call(
-      admin: current_admin, user: User.find(params[:id]), confirm_email: params[:confirm_email]
+      admin: current_admin, user: User.find(params[:id]), confirm_email: params[:confirm_email],
+      ip: ClientIp.of(request)
     )
     if result.success?
       redirect_to admin_members_path, status: :see_other, notice: result.message

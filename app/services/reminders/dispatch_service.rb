@@ -10,10 +10,11 @@
 # - 소급 창(REM-3): 스텝은 nominal 날짜부터 다음 평일까지만 발송(토·일 스텝의 자연 이연·장애
 #   다음날 회복 허용). 넘어간 스텝은 PAST_WINDOW로 1회만 기록해 업그레이드 등으로 인한 과거
 #   스텝 일괄 소급 발송을 차단한다.
-# 스텝 산정의 단일 출처 — 오늘 발송 예정 판정(steps_due_today — 사전통보 REM-11 공용), 수동
-# 발송 산정(manual_step_key — REM-8), 재개 가능 판정(restartable? — REM-12/13)이 모두
-# call의 발송 스캔과 같은 steps_for·소급 창 판정을 공유한다(C-2·W-1 — 이원화 차단).
-# 단 steps_due_today는 여기에 상한 도달 필터(PLAN-3·Q28 — 도달 청구는 빈 배열)를 더한
+# 스텝 산정의 단일 출처 — 오늘 발송 스텝 전체(scheduled_today_keys — DASH-2 카드·Q31 공용),
+# 그 중 사전통보 대상(steps_due_today — REM-11 공용), 수동 발송 산정(manual_step_key —
+# REM-8), 재개 가능 판정(restartable? — REM-12/13)이 모두 call의 발송 스캔과 같은
+# steps_for·소급 창 판정을 공유한다(C-2·W-1 — 이원화 차단).
+# 단 scheduled_today_keys는 여기에 상한 도달 필터(PLAN-3·Q28 — 도달 청구는 빈 배열)를 더한
 # 산정이라 call의 스캔과 완전히 같지는 않다 — 14시 실제 스캔은 상한을 SendService 가드의
 # CAP_REACHED skip 기록으로 남긴다(P4·W-3 마감 리뷰 2026-11-26 주석 정정).
 module Reminders
@@ -27,6 +28,14 @@ module Reminders
     # "연체 단계" 명세(REM-11)에 없다. promise_overdue는 발송이 실제 일어나는 도과 단계라
     # 취소 창(REM-11) 보장을 위해 포함한다.
     PRENOTICE_KEYS = (%w[ requeue_d7 final_d14 promise_overdue ] + CONFIRM_KEYS).freeze
+    # ── 발송 스캔 스케줄 상수(DASH-2 — 2026-11-26 리뷰 C-1·C-2 반영) ────────────────
+    # config/recurring.yml의 reminders_dispatch 발송 잡("0 14 * * 1-5 Asia/Seoul")과 같아야
+    # 하는 값 — 「오늘 발송 예정」 카드가 다음 스캔을 비춰 본 실제 예정 시각을 산정할 때 쓴다
+    # (Dashboards::ReminderActionsService — TIME-1 KST). 어긋나면 카드와 실제 발송 모집합이
+    # 갈라지므로 test/services/dashboards/reminder_actions_service_test.rb의 대조 테스트가
+    # 설정 드리프트를 실패로 잡는다.
+    SCAN_HOUR = 14
+    SCAN_WDAYS = [ 1, 2, 3, 4, 5 ].freeze
 
     # client — 솔라피 래퍼 주입 지점(W-7 — 자동 스캔 경로까지 stub 주입 가능하게
     # perform_send가 SendService로 전달). 미주입 시 SendService가 기본 래퍼를 지연 생성한다.
@@ -40,21 +49,19 @@ module Reminders
 
     # ── 공개 산정 진입점(발송 스캔과 동일 논리 — 이원화 금지) ──────────────────
 
-    # 오늘(소급 창 포함) 발송 예정인 연체·도과 단계의 template_key 목록 — PrenoticeService의
-    # 공용 판정점(REM-11·C-2). 발송 스캔(call)이 실제 발송에 쓰는 steps_for·소급 창 판정과
-    # 같은 산정이므로 주말 nominal의 월요일 소급분도 09시 사전통보가 커버한다. 이미 발송된
-    # 단계(origin 무관 — 수동 재발송분 포함)는 예정이 없으므로 제외한다.
-    # 상한 도달 청구(PLAN-3·Q28 — Invoice#reminder_cap_reached?)는 발송 예정 스텝이 있어도
-    # 빈 배열을 반환한다 — 09시 사전통보(REM-11)가 "오늘 보낼 예정"이라는 거짓 안내가 되는
-    # 것을 막고(W-3), 재개 가능 판정(restartable?)도 false로 수렴해 「안내 다시 보내기」
-    # 요청이 "남은 단계가 없다" 안내로 정확히 떨어진다. 상한 판정은 스텝 산정 뒤에 둔다 —
-    # 발송 예정 스텝이 없는 청구(대다수)는 상한 조회 없이 통과한다. 14시 실제 스캔(call)은
-    # 이 판정을 쓰지 않는다 — 상한 도달 단계는 SendService 가드가 CAP_REACHED skip으로
-    # 기록해야 한다(P4 — 스킵도 발송 이력).
-    def steps_due_today(invoice)
+    # 오늘(소급 창 포함) 발송될 시퀀스 스텝의 template_key 전체 — DASH-2 「오늘 발송 예정」 카드의
+    # 공용 판정점(DASH-2·Q31 — 2026-11-26). 발송 스캔(call)이 실제 발송에 쓰는 steps_for·
+    # 소급 창 판정과 같은 산정이며 PRENOTICE_KEYS 필터가 없어 만기 예고(invoice_notice)·
+    # 약속 전날(promise_d1)까지 포함한다 — 화면의 "오늘 나갈 안내"가 14시 실제 발송과 같은
+    # 모집합이 되게 한다(REM-11 당일 보류 창의 화면 진입점). 이미 발송된 단계(origin 무관 —
+    # 수동 재발송분 포함)는 예정이 없으므로 제외한다. 상한 도달 청구(PLAN-3·Q28 —
+    # Invoice#reminder_cap_reached?)는 발송 예정 스텝이 있어도 빈 배열을 반환한다 — 14시
+    # 스캔이 CAP_REACHED skip으로 기록할 뿐 발송하지 않는 청구를 카드에 "예정"으로 보이지
+    # 않게 한다. 상한 판정은 스텝 산정 뒤에 둔다 — 발송 예정 스텝이 없는 청구(대다수)는
+    # 상한 조회 없이 통과한다.
+    def scheduled_today_keys(invoice)
       today = Date.current
       due_steps = steps_for(invoice).filter_map do |template_key, nominal_on|
-        next unless PRENOTICE_KEYS.include?(template_key)
         next if step_sent?(invoice, template_key)
 
         template_key if nominal_on <= today && today <= window_end(nominal_on)
@@ -62,6 +69,15 @@ module Reminders
       return [] if due_steps.any? && invoice.reminder_cap_reached?
 
       due_steps
+    end
+
+    # 오늘(소급 창 포함) 발송 예정인 연체·도과 단계의 template_key 목록 — PrenoticeService의
+    # 공용 판정점(REM-11·C-2). 오늘 발송 스텝 전체(scheduled_today_keys)에서 사전통보 대상
+    # 키(PRENOTICE_KEYS)만 골라낸 산출이며 동작·결과는 종전과 같다 — 주말 nominal의 월요일
+    # 소급분도 09시 사전통보가 커버하고, 상한 도달 청구는 scheduled_today_keys가 이미 빈
+    # 배열로 수렴하므로 재개 가능 판정(restartable?)도 false로 떨어진다.
+    def steps_due_today(invoice)
+      scheduled_today_keys(invoice).select { |template_key| PRENOTICE_KEYS.include?(template_key) }
     end
 
     # 수동 재개(REM-12·13) 가능 판정 — 종결 해소 시 발송될 미발송 스텝이 소급 창 내에 남아

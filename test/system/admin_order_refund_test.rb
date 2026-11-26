@@ -20,6 +20,11 @@ class AdminOrderRefundTest < ApplicationSystemTestCase
   test "관리자가 주문 상세에서 사유를 넣고 환불을 실행하면 완료 표시가 된다 (ADMIN-11·PLAN-9)" do
     setup_admin_totp_secrets
     order = orders(:delta_pass_order)
+    # X-1 — 공용 픽스처 패스(delta_active_pass, 만료 2026-12-30)의 usable 의존 제거:
+    # 만료일이 실행일과 무관하게 미래인 패스로 교체한다(시스템 테스트는 travel_to 대신
+    # 상대 만료일 — app_profile_withdrawal_test와 같은 방식).
+    users(:delta).payment_passes.destroy_all
+    users(:delta).payment_passes.create!(total_uses: 10, remaining_uses: 10, expires_at: 90.days.from_now)
 
     login_admin(admins(:ops))
     visit admin_order_path(order)

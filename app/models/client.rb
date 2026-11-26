@@ -28,11 +28,36 @@ class Client < ApplicationRecord
   def corp_num
     business_number.to_s.gsub(/\D/, "").presence
   end
+
+  # VIEW-7(Q30) — 하이픈 유무 차이를 흡수한 번호 비교 키. 형식 검증이 숫자·하이픈만 허용하므로
+  # delete("-") 결과와 same_phone_digits 스코프의 SQL replace(phone, '-', '')가 같은 함수다
+  # (전파·상속의 번호 정규화는 이 키와 스코프로 단일화 — 리뷰 W-4).
+  def phone_digits
+    phone.to_s.delete("-")
+  end
+
+  # VIEW-7(Q30 — 2026-11-26) — 수신 거부는 거래처 행이 아니라 번호에 고정된다(refused_phone —
+  # 거부 접수·전파 시점의 번호). 같은 회원의 다른 거래처가 같은 번호로 수신 거부된 이력이 있으면
+  # 모든 저장에서 그 거부 시각을 물려받는다 — 거부 후 같은 번호를 새 거래처로 등록해 발송을 다시
+  # 받는 우회를 막는다(P1). 행의 번호를 바꿔도 그 행은 거부 상태로 남지만(채무자 의사) 새 번호로
+  # 상속을 퍼뜨리지 않는다 — 상속 원천 판정은 행의 현재 번호가 아닌 refused_phone 기준이다. 등록 자체는 막지 않는다(청구서 발행·링크 직접 전달 가능 — 발송
+  # 차단은 SendService의 REFUSED 가드가 client.refused?로 처리). 되돌림 없음: 이미 기록된
+  # refused_at은 지우지 않는다(채무자 의사 표현).
+  before_save :inherit_refusal_from_same_phone
+
+  # 이번 저장에서 수신 거부를 상속했는지(App::ClientsController의 고지 문구 분기에 사용).
+  attr_reader :refusal_inherited
   normalizes :email, with: ->(email) { email.strip.downcase }
 
   # REM — 거래처 단위 발송 스캔 필터: 수신거부·보류가 없는 거래처. Invoice.reminders_dispatchable의
   # merge(Client.reminders_active)로 쓰인다(채무자 발송 모집합에서 한 번에 제외).
   scope :reminders_active, -> { where(refused_at: nil, reminders_suspended_at: nil) }
+
+  # VIEW-7(Q30·리뷰 W-4) — 하이픈을 제외한 번호 일치(전파의 단일 비교 기준 — 전파 대상은
+  # 현재 그 번호를 가진 미거부 행). digits는 Client#phone_digits 산출값을 받는다. 형식 검증이
+  # 숫자·하이픈만 허용하므로 SQL replace와 Ruby delete("-")가 항상 같은 키를 만든다.
+  # 상속(inherit_refusal_from_same_phone)은 refused_phone 기준으로 판정한다(이 스코프 미사용).
+  scope :same_phone_digits, ->(digits) { where("replace(phone, '-', '') = ?", digits) }
 
   # CLIENT-1(P4·REM-6) — 발행 이력이 있는 거래처의 삭제 차단. 발행 계열 청구(draft 이외 상태)가
   # 존재하면 message_logs 소실로 이어지므로 P4(모든 발신은 기록·임의 삭제 불가)에 반해 삭제를
@@ -68,6 +93,30 @@ class Client < ApplicationRecord
   end
 
   private
+
+  # before_save — 검증을 통과한 모든 저장에서 동작한다(형식 검증 뒤라 번호는 숫자·하이픈만).
+  # 이미 refused_at이 있으면 유지한다. 상속 원천 판정은 형제 행의 현재 번호가 아니라
+  # refused_phone(거부 시점 번호) 기준 — 거부된 행이 번호를 바꿔도 새 번호로 상속을
+  # 퍼뜨리지 않는다(VIEW-7·Q30 — 2026-11-26 refused_phone 도입).
+  private def inherit_refusal_from_same_phone
+    @refusal_inherited = false
+    return if refused_at.present? || user.nil?
+
+    siblings = user.clients.where.not(refused_at: nil)
+                             .where.not(id: id) # 신규(id nil)는 전체가 후보 — IS NOT NULL로 전수 매칭
+    # 상속 원천은 refused_phone(거부 시점 번호) 일치뿐이다 — 행의 번호 변경을 따라가지 않는
+    # 단일 기준(레거시 nil 폴백 제거 — VIEW-7 2026-11-26). 거부 시점 번호가 기록되지 않은
+    # 거부 행은 상속의 원천이 되지 않는다(운영 데이터에 그런 행은 없다 — 마이그레이션 소급
+    # 20261126050721·접수·전파 쓰기(RegisterService)가 refused_phone을 전부 채운다). 그런 행
+    # 자체는 여전히 거부 상태로 발송이 막힌다(refused?는 행 단위) — 상속만 하지 않는, 더 적게
+    # 차단하는 안전한 방향이다.
+    source = siblings.where(refused_phone: phone_digits).first
+    return if source.nil?
+
+    self.refused_at = source.refused_at
+    self.refused_phone = phone_digits # source.refused_phone과 같은 값 — 거부 시점 번호 기록
+    @refusal_inherited = true
+  end
 
   # 한도 판정과 UI 분기(컨트롤러 @limit_reached)가 같은 구독 판정점(User#client_limit_reached?)을
   # 공유하며, FREE_CLIENT_LIMIT은 폴백·문구 표기의 단일 지점으로 유지된다(하위 호환).

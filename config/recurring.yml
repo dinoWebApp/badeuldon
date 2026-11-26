@@ -58,6 +58,16 @@ production:
   sales_monthly_settlement:
     class: Sales::MonthlySettlementJob
     schedule: "5 0 1 * * Asia/Seoul"
+  # AUTH-9 — 휴대폰 인증 기록 파기(개인정보 파기 의무). 생성 24시간 경과 행 전량 삭제
+  # (PhoneVerification.purgeable — 단일 출처). 매일 04:30 KST(TIME-1) — 기존 잡과 시간대 미중복.
+  phone_verifications_purge:
+    class: PhoneVerifications::PurgeJob
+    schedule: "30 4 * * * Asia/Seoul"
+  # AUTH-1.5·Q33 — 탈퇴 회원 결제 기록 비식별 사본 파기(5년 경과 — RETENTION 단일 출처).
+  # 매일 04:35 KST — 04:30 휴대폰 인증 파기 잡과 5분 간격.
+  withdrawn_payment_records_purge:
+    class: WithdrawnPaymentRecords::PurgeJob
+    schedule: "35 4 * * * Asia/Seoul"
 
 development:
   subscription_trial_expiry:
@@ -96,4 +106,12 @@ development:
   sales_monthly_settlement:
     class: Sales::MonthlySettlementJob
     schedule: "5 0 1 * * Asia/Seoul"
+  # AUTH-9 휴대폰 인증 기록 파기(production 블록 주석 참조).
+  phone_verifications_purge:
+    class: PhoneVerifications::PurgeJob
+    schedule: "30 4 * * * Asia/Seoul"
+  # AUTH-1.5·Q33 탈퇴 회원 결제 기록 비식별 사본 파기(production 블록 주석 참조).
+  withdrawn_payment_records_purge:
+    class: WithdrawnPaymentRecords::PurgeJob
+    schedule: "35 4 * * * Asia/Seoul"
 

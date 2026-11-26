@@ -47,6 +47,23 @@ class App::SubscriptionsCouponTest < ActionDispatch::IntegrationTest
     assert_equal "SAVE2000", audit.detail
   end
 
+  test "coupon_redeemed 감사에 요청 IP가 기록된다 (W-2 — CF 헤더 우선)" do
+    user = users(:gamma)
+    subscription = user.create_subscription!(plan: :free)
+    subscription.update!(coupon_id: coupons(:amount_coupon).id)
+    sign_in_as user
+
+    with_portone_client(FakePortOneClient.new(issue_billing_key: { billingKey: "tok_billing_coupon_ip" })) do
+      patch app_subscription_path, params: { issue_token: "issue_card_coupon_ip" },
+            headers: { "CF-Connecting-IP" => "203.0.113.42" }
+    end
+
+    assert_redirected_to app_billing_path
+    audit = AuditLog.find_by(action: "coupon_redeemed")
+    assert_not_nil audit
+    assert_equal "203.0.113.42", audit.ip
+  end
+
   test "쿠폰 예약 없이 카드 등록 성공하면 감사가 기록되지 않는다" do
     user = users(:gamma)
     user.create_subscription!(plan: :free)

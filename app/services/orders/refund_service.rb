@@ -34,11 +34,15 @@ module Orders
     # 실패 처리한다.
     FULL_CANCELLED_STATUSES = %w[CANCELLED].freeze
 
-    def initialize(admin:, order:, reason:, client: PortOne::ClientService.new)
+    # ip(ADMIN-2·Q32) — 컨트롤러가 ClientIp.of(request)로 넘긴 요청자 IP. 시도(attempt)·
+    # 실패(failed)·완료(refund) 감사 3종에 그대로 전달되며, 인자 없는 호출(runner·기존
+    # 테스트)은 nil로 기록된다.
+    def initialize(admin:, order:, reason:, client: PortOne::ClientService.new, ip: nil)
       @admin = admin
       @order = order
       @reason = reason.to_s.strip
       @client = client
+      @ip = ip
     end
 
     def call
@@ -80,7 +84,7 @@ module Orders
     def record_attempt_audit!
       ActiveRecord::Base.transaction do
         AuditLogs::RecordService.call(admin: @admin, action: "order_refund_attempt",
-                                      target: @order, detail: "PG 취소 요청 직전 — 사유: #{@reason}")
+                                      target: @order, detail: "PG 취소 요청 직전 — 사유: #{@reason}", ip: @ip)
       end
       true
     rescue StandardError => e
@@ -238,7 +242,7 @@ module Orders
     # 기록). 감사 기록 자체가 실패해도 실패 Result는 유지한다(상태는 미정산으로 남는다).
     def fail_with_audit(message)
       AuditLogs::RecordService.call(admin: @admin, action: "order_refund_failed",
-                                    target: @order, detail: "#{@reason} — 정산 미완료: #{message}")
+                                    target: @order, detail: "#{@reason} — 정산 미완료: #{message}", ip: @ip)
       failure(message)
     rescue StandardError => e
       Rails.logger.error("[Orders::RefundService] 환불 실패 감사 기록 실패 #{e.class}: #{e.message}")
@@ -319,7 +323,7 @@ module Orders
 
     # ADMIN-2 — 기존 action "order_refund"를 그대로 쓴다(기존 감사 로그·화면과 정합).
     def record_audit!(summary)
-      AuditLogs::RecordService.call(admin: @admin, action: "order_refund", target: @order,
+      AuditLogs::RecordService.call(admin: @admin, action: "order_refund", target: @order, ip: @ip,
                                     detail: "#{@reason} — 환불 금액 #{@order.amount}원 · #{summary}")
     end
 

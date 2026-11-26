@@ -3,8 +3,8 @@
 # date_selected) 접수 시 issued|viewed→promised 조건부 원자 전이를 수행하고(Invoice#
 # mark_promised! — mark_viewed! 패턴), 입금 완료 회신·문의는 상태를 바꾸지 않는다(PROMISE-7 —
 # 수금 마감은 U1 확인으로만). 발송 중단 계열 응답은 같은 트랜잭션에서 즉시 마킹한다 —
-# paid_report는 해당 청구 일시정지(REM-7·PROMISE-7), refusal은 거래처 번호 단위 수신거부 +
-# 해당 청구 시퀀스 종결(VIEW-7 즉시 중단). 약속 재스케줄(PROMISE-3)의 발송은 DispatchService가
+# paid_report는 해당 청구 일시정지(REM-7·PROMISE-7), refusal은 같은 회원 안 번호 단위 수신거부
+# (같은 번호 거래처 전파 — VIEW-7·Q30) + 해당 청구 시퀀스 종결. 약속 재스케줄(PROMISE-3)의 발송은 DispatchService가
 # 최신 약속 기준으로 무상태 재계산한다. U1 향 알림(noti_promise·noti_deposit_reply·
 # noti_inquiry·noti_refusal)은 커밋 후 인큐하며 REM-3 창 없이 즉시 발송된다(확정 해석 3).
 # 실패는 InvalidResponse로 예외화하고 실패 Promise(errors 포함)를 싣는다 — 컨트롤러가 422
@@ -50,14 +50,35 @@ module Promises
     # 발송 중단 계열 응답의 상태 마킹 — 응답 기록과 중단이 항상 함께 확정되게 같은 트랜잭션에
     # 둔다. update_column은 타임스탬프 마킹만 수행하는 의도된 우회다(본문 불변·검증 재실행 불필요).
     # - paid_report(PROMISE-7): 해당 청구 즉시 일시정지 — 마감은 U1 확인으로만 확정된다.
-    # - refusal(VIEW-7): 거래처 번호 단위 수신거부(전 청구 즉시 중단) + 해당 청구 시퀀스 종결.
+    # - refusal(VIEW-7·Q30): 같은 회원 안 번호 단위 수신거부(접수 거래처 + 같은 번호 전파 —
+    #   전 청구 즉시 중단) + 해당 청구 시퀀스 종결.
     def apply_reminder_state(promise)
       if promise.paid_report?
         @invoice.update_column(:reminders_suspended_at, Time.current) unless @invoice.reminders_suspended?
       elsif promise.refusal?
-        @invoice.client.update_column(:refused_at, Time.current) unless @invoice.client.refused?
+        client = @invoice.client
+        refused_at = Time.current
+        unless client.refused?
+          client.update_columns(refused_at: refused_at, refused_phone: client.phone_digits)
+        end
+        propagate_refusal_to_same_phone(client, refused_at)
         @invoice.finish_sequence!
       end
+    end
+
+    # VIEW-7(Q30 — 2026-11-26) — 수신 거부는 같은 회원 안에서 번호 단위로 적용된다. 접수된
+    # 거래처 마킹 뒤, 같은 회원·같은 번호(하이픈 제외 숫자 비교 — Client.same_phone_digits
+    # 스코프 단일 출처, 리뷰 W-4)·아직 미거부인 다른 거래처에 refused_at과 refused_phone을
+    # 전파한다. 전파 대상은 같은 번호행이므로 refused_phone 값이 같지만 각 행에 명시해
+    # 상속·전파 판정의 기준(거부 시점 번호)을 행마다 보장한다. 다른 회원의 같은 번호·같은
+    # 회원의 다른 번호는 건드리지 않는다. update_all은 접수 마킹과 같은 성격의 타임스탬프
+    # 마킹(검증·콜백 우회)이며 call의 트랜잭션 안에서 함께 확정된다.
+    def propagate_refusal_to_same_phone(client, refused_at)
+      Client.where(user_id: client.user_id)
+            .where.not(id: client.id)
+            .where(refused_at: nil)
+            .same_phone_digits(client.phone_digits)
+            .update_all(refused_at: refused_at, refused_phone: client.phone_digits)
     end
 
     # U1 향 즉시 알림(PERF-1·NOTI-1) — 트랜잭션 커밋 후 인큐한다. U1 향이므로 REM-3 창을

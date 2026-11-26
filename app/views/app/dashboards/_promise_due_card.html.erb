@@ -1,0 +1,21 @@
+<%# DASH-2·Q31 — 「약속일 도래」 카드(local: row = Dashboards::PromisesDueTodayQuery::Row).
+    최신 약속의 약속일이 오늘인 미수 청구. 액션은 청구서 상세의 원클릭 마감(PAY-1)으로 이어진다.
+    뱃지·아이콘은 중립(stone) — DESIGN-2 대기·약속 문법(2026-11-26 리뷰 W-2 반영). %>
+<article class="flex flex-col gap-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm transition duration-200 hover:shadow-md sm:flex-row sm:items-center sm:gap-5 sm:p-6">
+  <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-stone-500" aria-hidden="true">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-6 w-6">
+      <path stroke-linecap="round" stroke-linejoin="round" d="<%= dash_action_icon_path("promise_due") %>" />
+    </svg>
+  </div>
+  <div class="min-w-0 flex-1">
+    <%= dash_action_badge("promise_due") %>
+    <h3 class="mt-2 truncate text-base font-bold text-stone-800">
+      <%= row.invoice.client.name %> · <span class="tabular-nums"><%= won(row.invoice.total_amount) %></span>
+    </h3>
+    <p class="mt-1.5 text-sm leading-relaxed text-stone-500">
+      오늘 입금하기로 한 약속이 있습니다. 입금되었으면 마감해 주세요.
+    </p>
+  </div>
+  <%= link_to "청구서 확인", app_invoice_path(row.invoice),
+        class: "inline-flex min-h-11 shrink-0 items-center justify-center self-start rounded-xl border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-600 transition duration-150 hover:border-stone-400 hover:text-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 sm:self-center" %>
+</article>

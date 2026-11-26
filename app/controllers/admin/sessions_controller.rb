@@ -73,7 +73,7 @@ class Admin::SessionsController < Admin::BaseController
   def handle_failed_login(admin)
     if admin
       newly_locked = admin.record_failed_attempt!
-      AuditLogs::RecordService.call(admin:, action: "login_failed", ip: request.remote_ip)
+      AuditLogs::RecordService.call(admin:, action: "login_failed", ip: ClientIp.of(request))
       notify_lockout(admin) if newly_locked
     end
     flash.now[:alert] = "이메일 또는 비밀번호가 올바르지 않습니다."
@@ -82,7 +82,7 @@ class Admin::SessionsController < Admin::BaseController
 
   # AUTH-7.3 — 신규 잠금 시점에만 통보 메일 + lockout 감사(1회 보장 — 모델은 상태 전환만).
   def notify_lockout(admin)
-    AuditLogs::RecordService.call(admin:, action: "lockout", ip: request.remote_ip)
+    AuditLogs::RecordService.call(admin:, action: "lockout", ip: ClientIp.of(request))
     AdminMailer.locked_out(admin).deliver_later
   end
 
@@ -152,10 +152,10 @@ class Admin::SessionsController < Admin::BaseController
   # 순서 고정(리뷰 C-2): notify_new_ip는 last_login_ip 기록 전에 판정해야 한다.
   def issue_session(admin)
     admin.reset_failed_attempts!
-    admin_session = AdminSession.issue_for!(admin, ip: request.remote_ip)
+    admin_session = AdminSession.issue_for!(admin, ip: ClientIp.of(request))
     notify_new_ip(admin)
-    admin.update_columns(last_login_at: Time.current, last_login_ip: request.remote_ip)
-    AuditLogs::RecordService.call(admin:, action: "login_success", ip: request.remote_ip)
+    admin.update_columns(last_login_at: Time.current, last_login_ip: ClientIp.of(request))
+    AuditLogs::RecordService.call(admin:, action: "login_success", ip: ClientIp.of(request))
     clear_pending
     session[:admin_session_token] = admin_session.token
     redirect_to admin_root_path, status: :see_other, notice: "관리자로 로그인되었습니다."
@@ -164,9 +164,9 @@ class Admin::SessionsController < Admin::BaseController
   # AUTH-7.4 — 직전 로그인 IP와 다르면 신규 IP 로그인 통보 + 감사 기록(최소 구현).
   # 첫 로그인(직전 IP 없음)은 통보하지 않는다.
   def notify_new_ip(admin)
-    return if admin.last_login_ip.blank? || admin.last_login_ip == request.remote_ip
+    return if admin.last_login_ip.blank? || admin.last_login_ip == ClientIp.of(request)
 
-    AdminMailer.new_login(admin, request.remote_ip).deliver_later
-    AuditLogs::RecordService.call(admin:, action: "new_ip_login", ip: request.remote_ip)
+    AdminMailer.new_login(admin, ClientIp.of(request)).deliver_later
+    AuditLogs::RecordService.call(admin:, action: "new_ip_login", ip: ClientIp.of(request))
   end
 end

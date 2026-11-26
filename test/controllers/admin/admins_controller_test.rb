@@ -124,4 +124,28 @@ class Admin::AdminsControllerTest < ActionDispatch::IntegrationTest
     assert_not_predicate @newbie.reload, :locked?
     assert_equal 1, AuditLog.where(action: "admin_unlock").count
   end
+
+  # ADMIN-2·Q32 — 컨트롤러 계층 E2E: CF-Connecting-IP 헤더(ClientIp.of)가 관리자 콘솔
+  # 감사(생성·롤 변경·잠금 해제)까지 전달되는지 고정. 서비스 단위 테스트는 ip 인자만 본다.
+  test "CF-Connecting-IP 헤더가 있으면 생성·롤 변경·잠금 해제 감사에 그 IP가 기록된다 (ADMIN-2·Q32)" do
+    admin_login(@owner)
+    cf_headers = { "CF-Connecting-IP" => "203.0.113.7" }
+
+    post admin_admins_path, params: {
+      admin: { email: "cfe2e@example.com", password: "password1234", role: "staff" }
+    }, headers: cf_headers
+    assert_redirected_to admin_admins_path
+    created = Admin.find_by!(email: "cfe2e@example.com")
+
+    patch change_role_admin_admin_path(created), params: { admin: { role: "owner" } }, headers: cf_headers
+    assert_redirected_to admin_admins_path
+
+    created.update!(locked_at: Time.current, failed_attempts: 5)
+    patch unlock_admin_admin_path(created), headers: cf_headers
+    assert_redirected_to admin_admins_path
+
+    assert_equal "203.0.113.7", AuditLog.find_by!(action: "admin_create", target_id: created.id).ip
+    assert_equal "203.0.113.7", AuditLog.find_by!(action: "admin_role_change", target_id: created.id).ip
+    assert_equal "203.0.113.7", AuditLog.find_by!(action: "admin_unlock", target_id: created.id).ip
+  end
 end

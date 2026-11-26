@@ -321,6 +321,117 @@ class App::ClientsControllerTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "Free 플랜은 거래처 5개까지입니다."
   end
 
+  # ── VIEW-7(Q30) — 수신 거부 상속 등록·수정 고지 ──
+
+  test "거부 이력이 있는 번호의 등록은 고지 문구로 303 안내되고 거부 상태로 생성된다 (VIEW-7·Q30)" do
+    sign_in_as users(:gamma)
+    users(:gamma).clients.create!(name: "기존 거부 거래처", contact_name: "김기존",
+                                  phone: "010-7777-8888")
+    mark_refused(users(:gamma).clients.last, at: Time.zone.parse("2026-10-12 09:00"))
+
+    assert_difference -> { users(:gamma).clients.count }, 1 do
+      post app_clients_path, params: { client: {
+        name: "재등록 거래처", contact_name: "김재등록", phone: "01077778888"
+      } }
+    end
+    assert_response :see_other
+    assert_redirected_to app_clients_path
+    assert_equal "거래처가 등록되었습니다. 이 번호는 과거에 추가 안내 수신을 거부하여 " \
+                 "받을돈 명의의 안내는 보내지 않습니다. 청구서 링크는 직접 전달해 주세요.",
+      flash[:notice]
+
+    client = users(:gamma).clients.order(:id).last
+    assert_equal "01077778888", client.phone
+    assert client.refused?                                        # 등록은 허용·발송은 차단 상태
+  end
+
+  test "번호를 거부 이력이 있는 번호로 바꾸는 수정은 고지 문구로 303 안내된다 (VIEW-7·Q30)" do
+    sign_in_as users(:gamma)
+    users(:gamma).clients.create!(name: "기존 거부 거래처", contact_name: "김기존",
+                                  phone: "010-1212-3434")
+    mark_refused(users(:gamma).clients.last, at: Time.zone.parse("2026-10-12 09:00"))
+
+    patch app_client_path(clients(:gamma_main)), params: { client: {
+      name: "감마파트너스", contact_name: "감과장", phone: "01012123434"
+    } }
+    assert_response :see_other
+    assert_redirected_to app_clients_path
+    assert_equal "거래처 정보가 수정되었습니다. 이 번호는 과거에 추가 안내 수신을 거부하여 " \
+                 "받을돈 명의의 안내는 보내지 않습니다. 청구서 링크는 직접 전달해 주세요.",
+      flash[:notice]
+    assert clients(:gamma_main).reload.refused?
+  end
+
+  test "상속이 없는 등록·수정은 기존 성공 문구를 유지한다 (VIEW-7·Q30 — 기존 경로 불변)" do
+    sign_in_as users(:gamma)
+    users(:gamma).clients.create!(name: "거부 거래처", contact_name: "김거부",
+                                  phone: "010-5555-4444")
+    mark_refused(users(:gamma).clients.last, at: Time.zone.parse("2026-10-12 09:00"))
+
+    post app_clients_path, params: { client: {
+      name: "다른번호 거래처", contact_name: "김다름", phone: "010-1234-5678"
+    } }
+    assert_response :see_other
+    assert_equal "거래처가 등록되었습니다.", flash[:notice]
+
+    patch app_client_path(clients(:gamma_main)), params: { client: {
+      name: "감마파트너스 갱신", contact_name: "감과장", phone: "010-7777-8888"
+    } }
+    assert_response :see_other
+    assert_equal "거래처 정보가 수정되었습니다.", flash[:notice]
+    assert_not clients(:gamma_main).reload.refused?
+  end
+
+  # ── VIEW-7(Q30) — 상속 거래처의 목록·상세 화면(리뷰 Tester 중점 4) ──
+
+  test "상속 거래처의 목록·상세에는 수신 거부 배지가 보이고 상세에는 재개 버튼이 없다 (VIEW-7·Q30)" do
+    sign_in_as users(:gamma)
+    users(:gamma).clients.create!(name: "감마배지 원본", contact_name: "김원본", phone: "010-8383-8383")
+    mark_refused(users(:gamma).clients.last, at: Time.zone.parse("2026-10-12 09:00"))
+    inherited = users(:gamma).clients.create!(name: "상속배지 거래처", contact_name: "김상속",
+                                              phone: "01083838383")
+    assert inherited.reload.refused?
+
+    get app_clients_path
+    assert_response :success
+    # 목록 카드 배지 — 상속 마킹도 「수신 거부」로 표기(orange 톤 span)
+    assert_select "span.bg-orange-50.text-orange-600", text: "수신 거부"
+
+    get app_client_path(inherited)
+    assert_response :success
+    assert_select "span.bg-orange-50.text-orange-600", text: "수신 거부"   # 상세 배지
+    assert_match(/이 거래처가 추가 안내 수신을 거부했습니다/, response.body)  # 거부 안내 문구
+    assert_no_match(/안내 재개하기/, response.body)                        # 재개 경로 없다(VIEW-7)
+    assert_no_match(/안내 보류하기/, response.body)                        # 거부는 보류보다 앞선다
+  end
+
+  # Tester 보강(2026-11-26 — 리뷰 Tester 중점 4) — 위 시나리오들은 공용 헬퍼 mark_refused
+  # (refused_at+refused_phone 동시 — 접수 마킹과 같은 형태)의 원천을 쓴다. 레거시 단독 마킹
+  # (refused_phone nil) 행은 상속의 원천이 아니다(2026-11-26 폴백 제거 — client_test 참조).
+  test "refused_phone이 채워진 원천의 상속 등록도 고지 문구로 303 안내된다 (VIEW-7·Q30 — 1순위 경로)" do
+    sign_in_as users(:gamma)
+    users(:gamma).clients.create!(name: "1순위 원본", contact_name: "김1순위", phone: "010-7676-7676")
+    users(:gamma).clients.last.update_columns(
+      refused_at: Time.zone.parse("2026-10-12 09:00"), refused_phone: "01076767676"
+    )
+
+    post app_clients_path, params: { client: {
+      name: "1순위 재등록", contact_name: "김재등록", phone: "01076767676"
+    } }
+    assert_response :see_other
+    assert_redirected_to app_clients_path
+    assert_equal "거래처가 등록되었습니다. 이 번호는 과거에 추가 안내 수신을 거부하여 " \
+                 "받을돈 명의의 안내는 보내지 않습니다. 청구서 링크는 직접 전달해 주세요.",
+      flash[:notice]
+    inherited = users(:gamma).clients.order(:id).last
+    assert inherited.reload.refused?
+    assert_equal "01076767676", inherited.refused_phone           # 상속 행도 거부 시점 번호를 기록
+
+    get app_clients_path
+    assert_response :ok
+    assert_select "span.bg-orange-50.text-orange-600", text: "수신 거부"
+  end
+
   private
 
   # AUTH-1.3 가드 — alpha는 프로필 미완료라 /app 진입이 차단된다. PLAN-1 한도 fixtures 검증을 위해

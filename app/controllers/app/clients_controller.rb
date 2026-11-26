@@ -1,7 +1,8 @@
 # 거래처 관리(CLIENT-1) — 표면 ② 표준 CRUD. 조회·변경은 모두 Current.user.clients로 스코프해
 # 타 사용자 데이터 접근을 차단하며, Free 거래처 한도(PLAN-1)는 Client 모델 검증으로 강제한다.
 # F-REM — 거래처 단위 발송 보류/재개(REM-7)의 member 전환을 담당한다. 수신거부(VIEW-7)는
-# 채무자 의사 표현이라 U1이 되돌릴 수 없으며(제품 원칙 P1), 재개 경로도 두지 않는다.
+# 채무자 의사 표현이라 U1이 되돌릴 수 없으며(제품 원칙 P1), 재개 경로도 두지 않는다. 등록·수정 시
+# 같은 회원의 같은 번호 거부 이력을 상속하면 고지 문구로 안내한다(VIEW-7·Q30 — Client 모델 콜백).
 class App::ClientsController < App::BaseController
   before_action :set_client, only: %i[ show edit update destroy suspend_reminders resume_reminders ]
 
@@ -24,7 +25,7 @@ class App::ClientsController < App::BaseController
   def create
     @client = Current.user.clients.build(client_params)
     if @client.save
-      redirect_to app_clients_path, status: :see_other, notice: "거래처가 등록되었습니다."
+      redirect_to app_clients_path, status: :see_other, notice: client_saved_notice(@client, created: true)
     else
       # 실패 재렌더에서도 배너·저장 버튼 상태를 목록/신규 화면과 동일하게 유지한다(PLAN-1).
       @limit_reached = Current.user.client_limit_reached?(Current.user.clients.count)
@@ -36,7 +37,7 @@ class App::ClientsController < App::BaseController
 
   def update
     if @client.update(client_params)
-      redirect_to app_clients_path, status: :see_other, notice: "거래처 정보가 수정되었습니다."
+      redirect_to app_clients_path, status: :see_other, notice: client_saved_notice(@client, created: false)
     else
       render :edit, status: :unprocessable_entity
     end
@@ -73,6 +74,16 @@ class App::ClientsController < App::BaseController
   end
 
   private
+
+  # VIEW-7(Q30) — 이번 저장에서 수신 거부를 상속한 거래처는 기존 성공 문구 대신 고지 문구로
+  # 대체한다(등록 자체는 허용 — 청구서 발행·링크 직접 전달은 가능하되 받을돈 명의의 자동
+  # 안내는 나가지 않는다. P1 — 비난 없는 안내 톤).
+  def client_saved_notice(client, created:)
+    prefix = created ? "거래처가 등록되었습니다." : "거래처 정보가 수정되었습니다."
+    return prefix unless client.refusal_inherited
+
+    "#{prefix} 이 번호는 과거에 추가 안내 수신을 거부하여 받을돈 명의의 안내는 보내지 않습니다. 청구서 링크는 직접 전달해 주세요."
+  end
 
   # VIEW-7 — 수신 거부 거래처의 재개 요청 수렴. 상태 변경 없이 상세로 돌려보내고 사유를
   # 안내한다(거부 접수 안내가 뷰에 이미 있다).

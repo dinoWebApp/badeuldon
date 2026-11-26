@@ -23,6 +23,8 @@ class App::ProfilesControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_select "h1", text: "프로필 설정"
     assert_select "input[name='user[display_name]']"
+    # 탈퇴 안내의 결제 기록 보존 고지(Q33 — 방침 §3과 화면의 투명성 정합)
+    assert_includes response.body, "결제 기록은 관계 법령에 따라 회원과 연결되지 않는 형태로 5년간 보관됩니다 (개인정보처리방침 §3)."
     assert_select "input[type=radio][name='user[business_type]']", count: 2
     assert_select "input[name='user[phone]']"
     assert_select "select[name='user[bank_name]']"
@@ -168,5 +170,245 @@ class App::ProfilesControllerTest < ActionDispatch::IntegrationTest
     # 은행명·표시명은 민감정보가 아니므로 평문 유지(과잉 필터링 방지 회귀)
     assert_includes log, "국민은행"
     assert_includes log, "알파스튜디오"
+  end
+
+  # ── AUTH-1.5 회원 탈퇴 ────────────────────────────────────────────────────────
+
+  test "탈퇴 영역은 안내·삭제 대상 8종·확인용 이메일 입력과 상태 요약을 렌더한다 (AUTH-1.5·C-2)" do
+    # C-1 — 공용 픽스처 패스(delta_active_pass, 만료 2026-12-30)의 usable 의존 제거:
+    # 테스트가 직접 만든 90일 패스로 교체해 날짜와 무관하게 "남은 수금 패스 10건"을 고정한다.
+    users(:delta).payment_passes.destroy_all
+    travel_to(Time.zone.parse("2026-10-15 09:00")) do
+      users(:delta).payment_passes.create!(total_uses: 10, remaining_uses: 10, expires_at: 90.days.from_now)
+      sign_in_as users(:delta)
+      get edit_app_profile_path
+      assert_response :success
+      assert_select "h2", text: "회원 탈퇴"
+      # W-3 — 실패 시 이 섹션(#withdrawal 앵커)으로 되돌아온다
+      assert_select "section#withdrawal"
+      assert_match "탈퇴하면 계정과 데이터가 즉시 삭제되어", response.body
+      # C-2 — 삭제되는 항목 8종(연쇄 삭제 범위 전체)·미리 저장 안내
+      assert_select "#withdrawal li", text: "청구서와 청구 링크(발행 중인 링크는 모두 폐기)"
+      assert_select "#withdrawal li", text: "청구서 부속 기록(입금 내역·약속·문의 응답·열람 기록)"
+      assert_select "#withdrawal li", text: "거래처·품목"
+      assert_select "#withdrawal li", text: "발송 이력·문의 내역"
+      assert_select "#withdrawal li", text: "반복 청구 일정"
+      assert_select "#withdrawal li", text: "결제·환불 내역(구독료·수금 패스·내용증명·세금계산서 결제)"
+      assert_select "#withdrawal li", text: "세금계산서 발행 내역"
+      assert_select "#withdrawal li", text: "계정 정보(이메일·휴대폰·프로필)"
+      assert_match "필요한 내역은 탈퇴 전에 미리 저장해 주세요", response.body
+      assert_select "label", text: "확인용 이메일"
+      assert_select "input[name='confirm_email'][autocomplete='email']"
+      # W-3 — 브라우저 pattern으로 공백만 입력 차단
+      assert_select "input[name='confirm_email']" do |input|
+        assert_equal ".*\\S.*", input.first["pattern"]
+        assert_equal "공백 없이 가입한 이메일을 입력해 주세요", input.first["title"]
+      end
+      assert_select "input[type=submit][value='탈퇴합니다']"
+      # 상태 요약 — delta fixtures: 미수 청구 6건(issued·overdue·due_soon·viewed·promised·
+      # partially_paid · 합계 946,000원 — 입금 기록 없음)·위에서 생성한 유효 패스 잔여 10건.
+      # W-4 핵심 구절 <strong> 마크업이 섞이므로 문단 텍스트 기준으로 단언한다.
+      # W-5 — "받을 권리는 그대로 남습니다"로 채권 소멸 오독 방지.
+      # N-3 — 주어·목적어를 명시해 "돈을 받을 수 없다" 오독을 방지한 문구
+      assert_select "#withdrawal p",
+                    text: /미수 청구 6건\(잔액 946,000원\)의 청구 링크가 열리지 않아, 채무자에게 받을돈 명의의 안내를 보내거나 입금 예정일 약속을 받을 수 없습니다/
+      assert_match "받을 권리는 그대로 남습니다", response.body
+      assert_select "#withdrawal p", text: /남은 수금 패스 10건은 소멸되며 환불되지 않습니다/
+      # REM-3 안내 문구 — "주일(주말)" 오타 정정 회귀 고정
+      assert_match "야간·주말 발송은 정책상 불가합니다", response.body
+      assert_no_match /주일/, response.body
+      # delta는 구독 행이 없어 Plus 관련 문구는 없다
+      assert_no_match /Plus\(/, response.body
+      assert_no_match /체험 중인 Plus/, response.body
+    end
+  end
+
+  test "유료 Plus 이용 중 계정에는 즉시 종료·환불 없음·이후 결제 없음을 고지한다 (AUTH-1.5·Q29)" do
+    sign_in_as users(:epsilon) # epsilon_plus_active — 주기 종료 2026-10-31·active(자동 결제 중)
+    get edit_app_profile_path
+    assert_response :success
+    # W-4 — 핵심 구절 굵게(<strong>) markup이 섞이므로 문단 텍스트 기준으로 단언한다
+    assert_select "#withdrawal p", text: /이용 중인 Plus\(10월 31일 종료 예정\)는 즉시 종료됩니다/
+    assert_select "#withdrawal p", text: /남은 기간은 환불되지 않고, 이후 결제는 청구되지 않습니다/
+    # epsilon은 미수 청구·수금 패스가 없어 해당 문구는 없다
+    assert_no_match /미수 청구/, response.body
+    assert_no_match /남은 수금 패스/, response.body
+  end
+
+  test "해지 예약(자동 결제 종료) 상태의 Plus는 남은 기간 환불 없음만 고지한다 (AUTH-1.5·W-5)" do
+    users(:epsilon).subscription.update!(status: :cancelled) # PLAN-5 해지 예약 — 이후 결제 없음
+    sign_in_as users(:epsilon)
+    get edit_app_profile_path
+    assert_response :success
+    assert_select "#withdrawal p", text: /이용 중인 Plus\(10월 31일 종료 예정\)는 즉시 종료됩니다/
+    assert_select "#withdrawal p", text: /남은 기간은 환불되지 않습니다/
+    # 자동 결제가 이미 끝난 상태라 "이후 결제는 청구되지 않습니다" 문구는 나오지 않는다
+    assert_no_match /이후 결제는 청구되지 않습니다/, response.body
+  end
+
+  test "체험 중인 Plus 계정에는 체험 즉시 종료 안내를 표시한다 (AUTH-1.5)" do
+    user = users(:gamma)
+    Subscription.create!(user:, plan: :plus, status: :trialing, trial_ends_at: 7.days.from_now)
+    sign_in_as user
+    get edit_app_profile_path
+    assert_response :success
+    assert_match "체험 중인 Plus는 즉시 종료됩니다", response.body
+    assert_no_match /종료 예정/, response.body
+  end
+
+  test "탈퇴 확인 이메일이 불일치하면 설정 화면 탈퇴 영역으로 되돌아가고 계정·감사 로그가 변하지 않는다 (AUTH-1.5·W-3)" do
+    sign_in_as users(:alpha)
+    delete app_profile_path, params: { confirm_email: "wrong@example.com" }
+    assert_response :see_other
+    assert_redirected_to edit_app_profile_path(anchor: "withdrawal")
+    assert_predicate users(:alpha).reload, :present?
+    assert_equal 0, AuditLog.where(action: "member_withdrawal").count
+    follow_redirect!
+    assert_select "p#alert", text: "이메일이 일치하지 않습니다. 가입한 이메일을 다시 입력해 주세요."
+    # N-1 — 탈퇴 영역 안에서도 같은 안내가 보인다(앵커 복귀 시 상단 alert은 화면 밖)
+    assert_select "#withdrawal [role=alert]",
+                  text: "이메일이 일치하지 않습니다. 가입한 이메일을 다시 입력해 주세요."
+  end
+
+  test "확인용 이메일이 공백만이면 거부되고 탈퇴 영역으로 되돌아간다 (AUTH-1.5·W-3)" do
+    sign_in_as users(:alpha)
+    delete app_profile_path, params: { confirm_email: "   " }
+    assert_response :see_other
+    assert_redirected_to edit_app_profile_path(anchor: "withdrawal")
+    assert_predicate users(:alpha).reload, :present?
+    assert_equal 0, AuditLog.where(action: "member_withdrawal").count
+    follow_redirect!
+    assert_select "p#alert", text: "이메일이 일치하지 않습니다. 가입한 이메일을 다시 입력해 주세요."
+    assert_select "section#withdrawal"
+  end
+
+  test "확인용 이메일이 빈 문자열이면 거부되고 탈퇴 영역으로 되돌아간다 (AUTH-1.5·W-3)" do
+    sign_in_as users(:alpha)
+    delete app_profile_path, params: { confirm_email: "" }
+    assert_response :see_other
+    assert_redirected_to edit_app_profile_path(anchor: "withdrawal")
+    assert_predicate users(:alpha).reload, :present?
+    assert_equal 0, AuditLog.where(action: "member_withdrawal").count
+    follow_redirect!
+    assert_select "p#alert", text: "이메일이 일치하지 않습니다. 가입한 이메일을 다시 입력해 주세요."
+    assert_select "section#withdrawal"
+  end
+
+  test "탈퇴 확인 이메일이 일치하면 회원·세션이 삭제되고 감사 로그와 함께 랜딩으로 안내된다 (AUTH-1.5·ADMIN-2)" do
+    user = users(:alpha)
+    sign_in_as user
+    delete app_profile_path, params: { confirm_email: user.email.upcase } # AUTH-1.4 정규화 허용
+    assert_response :see_other
+    assert_redirected_to root_path
+    assert_not User.exists?(user.id)
+    # 세션 종료 — 연쇄 삭제로 세션 행도 소멸한다
+    assert_equal 0, Session.where(user_id: user.id).count
+    # 감사 로그 — admin nil·이메일 스냅샷(P4 — 삭제 후에도 대상 식별 가능)·탈퇴 시점 요약(W-8)
+    log = AuditLog.find_by!(action: "member_withdrawal", target_type: "User", target_id: user.id)
+    assert_nil log.admin_id
+    assert_match "회원 탈퇴 — 이메일 스냅샷: alpha@example.com", log.detail
+    assert_match "미수 0건(잔액 0원) · Plus: 없음 · 수금 패스 0건", log.detail
+    follow_redirect!
+    assert_select "p#notice", text: "탈퇴가 완료되었습니다. 그동안 이용해 주셔서 감사합니다."
+    # 세션 종료 확인 — /app 재접근은 로그인 화면으로 되돌려진다
+    get app_root_path
+    assert_redirected_to new_session_path
+  end
+
+  test "비로그인 탈퇴 요청은 로그인 화면으로 되돌려지고 계정이 유지된다 (require_authentication)" do
+    delete app_profile_path, params: { confirm_email: users(:alpha).email }
+    assert_redirected_to new_session_path
+    assert_predicate users(:alpha).reload, :present?
+    assert_equal 0, AuditLog.where(action: "member_withdrawal").count
+  end
+
+  # ── AUTH-1.5 보강(05_review §T1·2차 Tester 중점 제안) ─────────────────────────
+
+  test "confirm_email을 배열로 변조한 요청은 303 불일치로 끝나고 계정·데이터가 유지된다 (AUTH-1.5·W-3)" do
+    sign_in_as users(:alpha)
+    # 배열 제출은 confirm_email[]= 형태로 도착한다 — 서비스의 직접 비교(to_s)로는
+    # 회원 이메일과 절대 같아질 수 없어 삭제가 실행되지 않는다(2차 리뷰 ②-b 실측과 동일).
+    delete app_profile_path, params: { confirm_email: [ users(:alpha).email ] }
+    assert_response :see_other
+    assert_redirected_to edit_app_profile_path(anchor: "withdrawal")
+    assert_predicate users(:alpha).reload, :present?
+    assert_equal 0, AuditLog.where(action: "member_withdrawal").count
+    follow_redirect!
+    assert_select "p#alert", text: "이메일이 일치하지 않습니다. 가입한 이메일을 다시 입력해 주세요."
+  end
+
+  test "confirm_email을 해시로 변조한 요청도 303 불일치로 끝나고 계정이 유지된다 (AUTH-1.5·W-3)" do
+    sign_in_as users(:alpha)
+    delete app_profile_path, params: { confirm_email: { email: users(:alpha).email } }
+    assert_response :see_other
+    assert_redirected_to edit_app_profile_path(anchor: "withdrawal")
+    assert_predicate users(:alpha).reload, :present?
+    assert_equal 0, AuditLog.where(action: "member_withdrawal").count
+  end
+
+  test "confirm_email 키가 아예 없는 요청은 400으로 거부되고 계정이 유지된다 (AUTH-1.5·W-3 — 정상 경로 아님)" do
+    sign_in_as users(:alpha)
+    delete app_profile_path
+    assert_response :bad_request
+    assert_predicate users(:alpha).reload, :present?
+    assert_equal 0, AuditLog.where(action: "member_withdrawal").count
+  end
+
+  test "다른 회원의 이메일을 입력하면 거부되고 누구의 계정도 삭제되지 않는다 (AUTH-1.5)" do
+    sign_in_as users(:alpha)
+    delete app_profile_path, params: { confirm_email: users(:beta).email }
+    assert_response :see_other
+    assert_redirected_to edit_app_profile_path(anchor: "withdrawal")
+    assert_predicate users(:alpha).reload, :present?
+    assert_predicate users(:beta).reload, :present?
+    assert_equal 0, AuditLog.where(action: "member_withdrawal").count
+    follow_redirect!
+    assert_select "p#alert", text: "이메일이 일치하지 않습니다. 가입한 이메일을 다시 입력해 주세요."
+  end
+
+  test "부분입금이 있는 미수 청구의 잔액 고지는 입금액을 차감해 표시된다 (AUTH-1.5·DASH-1 계산식)" do
+    user = users(:gamma)
+    invoice = Invoice.new(user: user, client: clients(:gamma_main), status: :draft,
+                          due_on: 30.days.from_now.to_date, tax_mode: :separate,
+                          withholding_enabled: false, issuer_display_name: "부분입금발행자",
+                          bank_name: "신한은행", account_number: "110-234-567890", account_holder: "김감마",
+                          items_attributes: [ { description: "유지보수", quantity: 1, unit_price: 300_000 } ])
+    invoice.save!
+    invoice.issue!
+    Payment.create!(invoice: invoice, amount: 100_000, paid_on: Time.current.to_date)
+    expected_balance = ActiveSupport::NumberHelper.number_to_delimited(
+      invoice.reload.total_amount - 100_000
+    )
+
+    sign_in_as user
+    get edit_app_profile_path
+    assert_response :success
+    assert_select "#withdrawal p", text: /미수 청구 1건\(잔액 #{Regexp.escape(expected_balance)}원\)/
+  end
+
+  test "탈퇴 성공 뒤 같은 요청을 다시 보내면 로그인 화면으로 되돌려지고 감사가 중복 기록되지 않는다 (멱등)" do
+    user = users(:alpha)
+    sign_in_as user
+    delete app_profile_path, params: { confirm_email: user.email }
+    assert_redirected_to root_path
+
+    # 남은 세션이 없어 재요청은 인증 가드가 먼저 받는다 — 404·오류가 아닌 로그인 안내
+    delete app_profile_path, params: { confirm_email: user.email }
+    assert_redirected_to new_session_path
+    assert_equal 1, AuditLog.where(action: "member_withdrawal").count, "재요청은 감사를 추가로 남기지 않는다"
+  end
+
+  test "탈퇴 요청은 CSRF 토큰 없이는 거부된다 (기본 보호 유지 — AUTH-1.5)" do
+    original_protection = ActionController::Base.allow_forgery_protection
+    ActionController::Base.allow_forgery_protection = true
+    begin
+      sign_in_as users(:alpha)
+      delete app_profile_path, params: { confirm_email: users(:alpha).email }
+      assert_response 422
+      assert_predicate users(:alpha).reload, :present?
+      assert_equal 0, AuditLog.where(action: "member_withdrawal").count
+    ensure
+      ActionController::Base.allow_forgery_protection = original_protection
+    end
   end
 end

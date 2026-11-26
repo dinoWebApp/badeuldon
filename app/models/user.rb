@@ -30,6 +30,12 @@ class User < ApplicationRecord
   belongs_to :referred_by_sales_rep, class_name: "SalesRep", optional: true,
                                      inverse_of: :referred_users
 
+  # AUTH-1.5·ADMIN-3(Q33) — 회원 행이 삭제되기 직전에 주문의 식별 불가능한 사본을 남긴다(법정 5년 보존).
+  # prepend: true 는 필수다 — has_many :orders, dependent: :destroy 가 먼저 실행되면 주문이 이미 지워져
+  # 사본이 0건이 된다. 회원 탈퇴(Users::WithdrawalService)·관리자 계정 삭제(Admins::AccountPurgeService)
+  # 두 경로가 모두 user.destroy! 를 쓰므로 여기서 한 번에 보장된다.
+  before_destroy :archive_payment_records, prepend: true
+
   # AUTH-1.3 사업자 유형 — 사업자(business)·프리랜서(freelancer, 3.3% 원천징수 해당).
   # 미선택 허용: 가입 시점엔 결정하지 않고, 프로필 설정(:profile 컨텍스트)에서 필수가 된다.
   enum :business_type, { business: 0, freelancer: 1 }
@@ -42,7 +48,10 @@ class User < ApplicationRecord
 
   # ADMIN-3(Run B 확정) — 계정 상태. suspended면 로그인 차단(SessionsController)이며
   # 정지 전환 시 기존 세션을 전부 파기한다(Admins::MemberAdminService). 해제 가능.
-  # 탈퇴·데이터 파기(AUTH-1.5)는 Run C 재검토 대상 — 본 배치는 정지까지만.
+  # 계정 데이터 파기는 두 경로로 수행된다: 회원 자진 탈퇴(Users::WithdrawalService —
+  # AUTH-1.5·2026-11-26 구현)와 관리자 계정 삭제(Admins::AccountPurgeService — Q13).
+  # 둘 다 아래 dependent: :destroy 연쇄로 행을 지우며 감사 로그(ADMIN-2)만 보존된다.
+  # 정지는 삭제와 별개의 가역 상태다.
   enum :status, { active: 0, suspended: 1 }, default: :active
 
   # AUTH-1.4 — 이메일 필수·고유(DB 고유 인덱스 위반을 500이 아닌 422 검증 실패로 처리)
@@ -209,5 +218,10 @@ class User < ApplicationRecord
 
   def create_free_subscription
     Subscription.create!(user: self, plan: :free)
+  end
+
+  # Q33 — 삭제 직전 주문 비식별 사본 보관(WithdrawnPaymentRecord.archive! — Model→Model 참조만).
+  def archive_payment_records
+    WithdrawnPaymentRecord.archive!(self)
   end
 end

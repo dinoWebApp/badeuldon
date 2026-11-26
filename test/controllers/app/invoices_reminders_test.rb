@@ -183,7 +183,7 @@ class App::InvoicesRemindersTest < ActionDispatch::IntegrationTest
   test "수신거부 거래처의 수동 발송은 가드에 저지되고 사유가 flash로 안내된다 (VIEW-7·REM-8)" do
     sign_in_as users(:delta)
     invoice = invoices(:delta_due_soon)
-    invoice.client.update_column(:refused_at, Time.zone.parse("2026-10-12 09:00"))
+    mark_refused(invoice.client, at: Time.zone.parse("2026-10-12 09:00"))
 
     travel_to(Time.zone.parse("2026-11-10 10:00")) do
       # 버튼은 reminders_active?(수신 거부 배제)로 숨겨진다 — 직접 URL 우회도 아래 가드가 막는다.
@@ -215,7 +215,7 @@ class App::InvoicesRemindersTest < ActionDispatch::IntegrationTest
     finished_at = Time.zone.parse("2026-11-09 14:00")
     refused_at = Time.zone.parse("2026-11-09 15:00")
     invoice.update_column(:sequence_finished_at, finished_at)
-    invoice.client.update_column(:refused_at, refused_at)
+    mark_refused(invoice.client, at: refused_at)
 
     travel_to(Time.zone.parse("2026-11-10 10:00")) do
       patch suspend_reminders_app_invoice_path(invoice)
@@ -377,7 +377,7 @@ class App::InvoicesRemindersTest < ActionDispatch::IntegrationTest
     invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
                                       due_on: Date.new(2026, 10, 27))
     invoice.update_column(:sequence_finished_at, Time.zone.parse("2026-11-09 14:00"))
-    invoice.client.update_column(:refused_at, Time.zone.parse("2026-11-09 15:00"))
+    mark_refused(invoice.client, at: Time.zone.parse("2026-11-09 15:00"))
 
     travel_to(Time.zone.parse("2026-11-10 10:00")) do
       get app_invoice_path(invoice)
@@ -395,7 +395,7 @@ class App::InvoicesRemindersTest < ActionDispatch::IntegrationTest
       reminders_suspended_at: Time.zone.parse("2026-11-09 13:00"),
       sequence_finished_at: Time.zone.parse("2026-11-09 14:00")
     )
-    invoice.client.update_column(:refused_at, Time.zone.parse("2026-11-09 15:00"))
+    mark_refused(invoice.client, at: Time.zone.parse("2026-11-09 15:00"))
 
     travel_to(Time.zone.parse("2026-11-10 10:00")) do
       post restart_reminders_app_invoice_path(invoice)
@@ -421,7 +421,7 @@ class App::InvoicesRemindersTest < ActionDispatch::IntegrationTest
       reminders_suspended_at: Time.zone.parse("2026-11-09 14:00"),
       sequence_finished_at: Time.zone.parse("2026-11-09 14:30")
     )
-    invoice.client.update_column(:refused_at, Time.zone.parse("2026-11-09 15:00"))
+    mark_refused(invoice.client, at: Time.zone.parse("2026-11-09 15:00"))
 
     travel_to(Time.zone.parse("2026-11-10 10:00")) do
       get app_invoice_path(invoice)
@@ -440,7 +440,7 @@ class App::InvoicesRemindersTest < ActionDispatch::IntegrationTest
       reminders_suspended_at: Time.zone.parse("2026-11-09 14:00"),
       sequence_finished_at: Time.zone.parse("2026-11-09 14:30")
     )
-    invoice.client.update_column(:refused_at, Time.zone.parse("2026-11-09 15:00"))
+    mark_refused(invoice.client, at: Time.zone.parse("2026-11-09 15:00"))
 
     travel_to(Time.zone.parse("2026-11-10 10:00")) do
       patch resume_reminders_app_invoice_path(invoice)
@@ -452,6 +452,46 @@ class App::InvoicesRemindersTest < ActionDispatch::IntegrationTest
     invoice.reload
     assert invoice.reminders_suspended?                             # 보류 마킹 유지 — 상태 변경 없음
     assert invoice.sequence_finished?                               # 종결 마킹도 유지
+  end
+
+  # ── VIEW-7(Q30) — 상속 거래처의 청구도 직접 거부와 같은 화면·가드를 탄다(리뷰 Tester 중점 4) ──
+
+  test "상속 거래처의 청구 화면에는 발송·재개 버튼이 없고 재개·재시작 요청은 사유 안내로 거부된다 (VIEW-7·Q30)" do
+    sign_in_as users(:delta)
+    users(:delta).clients.create!(name: "델타거부 원본", contact_name: "덜원본", phone: "010-3131-3131")
+    mark_refused(users(:delta).clients.last, at: Time.zone.parse("2026-11-09 15:00"))
+    inherited = users(:delta).clients.create!(name: "델타상속", contact_name: "덜상속",
+                                              phone: "01031313131")            # 같은 번호 재등록 — 상속
+    assert inherited.reload.refused?
+    invoice = create_reminder_invoice(user: users(:delta), client: inherited,
+                                      due_on: Date.new(2026, 10, 27))
+    invoice.update_columns(
+      reminders_suspended_at: Time.zone.parse("2026-11-09 14:00"),
+      sequence_finished_at: Time.zone.parse("2026-11-09 14:30")
+    )
+
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      get app_invoice_path(invoice)
+    end
+    assert_response :ok
+    assert_match(/수신 거부/, response.body)                    # 자동 안내 현황 배지 — 상속 마킹도
+    assert_match(/이 거래처가 추가 안내 수신을 거부했습니다/, response.body)
+    assert_no_match(/지금 1통 보내기/, response.body)
+    assert_no_match(/안내 재개하기/, response.body)
+    assert_no_match(/안내 다시 보내기/, response.body)
+
+    patch resume_reminders_app_invoice_path(invoice)
+    assert_response :see_other
+    assert_equal "이 거래처가 추가 안내 수신을 거부하여 자동 안내를 재개할 수 없습니다.", flash[:alert]
+    invoice.reload
+    assert_equal Time.zone.parse("2026-11-09 14:00"), invoice.reminders_suspended_at  # 상태 변경 없음
+    assert_equal Time.zone.parse("2026-11-09 15:00"), invoice.client.reload.refused_at
+
+    post restart_reminders_app_invoice_path(invoice)
+    assert_response :see_other
+    assert_equal "이 거래처가 추가 안내 수신을 거부하여 자동 안내를 다시 진행할 수 없습니다.",
+                 flash[:alert]
+    assert_equal Time.zone.parse("2026-11-09 14:30"), invoice.reload.sequence_finished_at
   end
 
   # ── PLAN-3·Q28·W-4 — 상한 도달 청구의 화면(종결 마킹은 없다 — 배지·안내 상자로 표시하고
@@ -570,7 +610,7 @@ class App::InvoicesRemindersTest < ActionDispatch::IntegrationTest
     sign_in_as users(:delta)
     invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
                                       due_on: Date.new(2026, 11, 27))
-    invoice.client.update_column(:refused_at, Time.zone.parse("2026-11-09 15:00"))
+    mark_refused(invoice.client, at: Time.zone.parse("2026-11-09 15:00"))
     5.times do
       MessageLog.create!(invoice: invoice, user: invoice.user, template_key: "issue_notice",
                          recipient_role: :debtor, status: :sent, origin: :manual)

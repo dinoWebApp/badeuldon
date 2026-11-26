@@ -229,6 +229,45 @@ class RecurringInvoices::IssueServiceTest < ActiveSupport::TestCase
     end
   end
 
+  # ── VIEW-7(Q30·리뷰 W-1) — 수신 거부(상속 포함) 거래처의 자동 발행은 첫 안내를 예약하지 않는다 ──
+
+  test "수신 거부 거래처 스케줄 발행은 issue_notice 없이 U1 통보만 인큐한다 (VIEW-7·Q30 — 리뷰 W-1)" do
+    @client.update_column(:refused_at, Time.zone.parse("2026-11-10 06:00"))
+    schedule = create_schedule
+    travel_to(Time.zone.parse("2026-11-10 06:30")) do
+      result = RecurringInvoices::IssueService.new.call(schedule)
+      assert_equal :issued, result[:result]                       # 발행 자체는 계속한다
+
+      enqueued = ActiveJob::Base.queue_adapter.enqueued_jobs
+                .select { |j| j[:job] == Reminders::DeliverJob }
+      assert_equal 1, enqueued.count
+      assert_equal [ result[:invoice].id, "noti_recurring_issued", "user" ], enqueued.first[:args]
+      assert result[:invoice].reload.issued?
+      assert result[:invoice].client.reload.refused?
+    end
+  end
+
+  test "상속 거래처 스케줄 발행도 issue_notice 없이 U1 통보만 인큐한다 (VIEW-7·Q30 — 리뷰 Tester 제안 1)" do
+    # 같은 회원·같은 번호 형제의 거부를 번호 단위 상속(콜백)으로 물려받은 거래처 상정
+    users(:gamma).clients.create!(name: "감마정기 원본", contact_name: "박원본",
+                                  phone: "010-1234-5678")
+    mark_refused(users(:gamma).clients.last, at: Time.zone.parse("2026-11-10 05:00"))
+    @client.save!                                               # 번호 무변경 저장 — 상속 콜백
+    assert @client.reload.refused?
+
+    schedule = create_schedule
+    travel_to(Time.zone.parse("2026-11-10 06:30")) do
+      result = RecurringInvoices::IssueService.new.call(schedule)
+      assert_equal :issued, result[:result]                     # 발행 자체는 계속한다
+
+      enqueued = ActiveJob::Base.queue_adapter.enqueued_jobs
+                .select { |j| j[:job] == Reminders::DeliverJob }
+      assert_equal 1, enqueued.count
+      assert_equal [ result[:invoice].id, "noti_recurring_issued", "user" ], enqueued.first[:args]
+      assert result[:invoice].reload.issued?
+    end
+  end
+
   # ── W-2(NOTI-3 Q15) — held 통보 인큐·등록 전 템플릿 NO_TEMPLATE skip ──
 
   test "W-2 — 보류 시 직전 청구가 있으면 U1 통보(noti_recurring_held)를 인큐한다" do

@@ -299,6 +299,24 @@ module Orders
       assert_equal 1, refund_audits("order_refund_failed", order).count
     end
 
+    # ADMIN-2·Q32 — PG 취소 뒤 확정 실패(fail_with_audit) 경로의 order_refund_failed 감사에도
+    # ip가 기록되는지 고정(C-2 실패 감사와 Q32 ip 전달의 교집합). PARTIAL_CANCELLED는
+    # PG 취소 실행 뒤 재조회 판정에서 실패한다 — fail_with_audit이 도는 최단 경로.
+    test "확정 실패 감사(order_refund_failed)에도 요청자 IP가 기록된다 (ADMIN-2·Q32)" do
+      order = paid_pass_order("order-rf-failed-ip")
+      client = FakePortOneClient.new(
+        get_payment: { id: order.pg_order_id, status: "PARTIAL_CANCELLED",
+                       amount: { paid: order.amount, cancelled: 0 } }
+      )
+
+      result = Orders::RefundService.new(admin: @admin, order: order, reason: "이중 결제 정정",
+                                         client: client, ip: "203.0.113.13").call
+
+      assert_not result.success?
+      failed = refund_audits("order_refund_failed", order).sole
+      assert_equal "203.0.113.13", failed.ip
+    end
+
     test "amount.paid 누락·0·주문 금액 미만은 결제 완료 사실 미확인으로 실패다 (W-3 — fail-closed)" do
       order = paid_pass_order("order-rf-paid-fact")
       base = { id: order.pg_order_id, status: "CANCELLED" }
@@ -570,6 +588,26 @@ module Orders
       yield
     ensure
       PaymentPass.define_singleton_method(:revoke_uses!, original)
+    end
+    # ADMIN-2·Q32 — 컨트롤러가 넘긴 요청자 IP(ClientIp.of)가 시도·완료 감사까지 전달되는지 고정.
+    test "ip를 넘기면 시도·완료 감사에 요청자 IP가 기록된다 (ADMIN-2·Q32)" do
+      order = plus_order("order-rf-ip-1")
+
+      result = Orders::RefundService.new(admin: @admin, order: order, reason: "이중 결제 정정",
+                                         client: ok_client(order), ip: "203.0.113.7").call
+
+      assert result.success?
+      assert_equal "203.0.113.7", refund_audits("order_refund_attempt", order).order(:id).last.ip
+      assert_equal "203.0.113.7", refund_audits("order_refund", order).order(:id).last.ip
+    end
+
+    test "ip를 넘기지 않은 기존 호출의 감사는 ip가 nil로 유지된다 (하위호환)" do
+      order = plus_order("order-rf-ip-2")
+
+      result = refund(order)
+
+      assert result.success?
+      assert_nil refund_audits("order_refund", order).order(:id).last.ip
     end
   end
 end

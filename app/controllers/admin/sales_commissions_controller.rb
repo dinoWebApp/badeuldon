@@ -18,7 +18,7 @@ class Admin::SalesCommissionsController < Admin::BaseController
       AuditLogs::RecordService.call(admin: current_admin, action: "commission_marked_paid",
                                     target: commission,
                                     detail: "#{commission.sales_rep.email} · #{commission.period_label} · #{commission.amount}원",
-                                    ip: request.remote_ip)
+                                    ip: ClientIp.of(request))
       redirect_to admin_sales_commissions_path(year: commission.year, month: commission.month),
                   status: :see_other, notice: "지급 처리했습니다."
     else

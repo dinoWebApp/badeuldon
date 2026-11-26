@@ -93,6 +93,26 @@ class Admins::AccountPurgeServiceTest < ActiveSupport::TestCase
     assert_equal 0, Invoice.where(user_id: @user.id).count
   end
 
+  # 관리자 삭제 경로에서도 결제 기록 보관이 일어난다(W-2 — 회원 탈퇴 경로는
+  # withdrawal_service_test가 담당). paid 주문 1건을 테스트 안에서 직접 생성해
+  # 삭제 성공 뒤 주문 0건·보관 1건(pg_order_id 보존)을 동시에 단언한다.
+  test "paid 주문 보유 계정은 삭제되고 주문은 0건·비식별 보관은 1건 남는다 (AUTH-1.5·ADMIN-3·Q33)" do
+    order = Order.create!(user: @user, product: :collection_pass, status: :paid,
+                          amount: 4_000, pg_order_id: "purge-test-order-1",
+                          pg_payment_id: "pay-purge-test-1", paid_at: Time.current)
+
+    result = Admins::AccountPurgeService.call(admin: @admin, user: @user, confirm_email: @user.email)
+
+    assert result.success?, result.errors.join(", ")
+    assert_not User.exists?(@user.id)
+    assert_equal 0, Order.where(user_id: @user.id).count
+    archived = WithdrawnPaymentRecord.find_by(pg_order_id: "purge-test-order-1")
+    assert_predicate archived, :present?
+    assert_equal order.amount, archived.amount
+    assert_equal "paid", archived.status
+    assert_equal "collection_pass", archived.product
+  end
+
   private
 
   # 품목 1행 초안 생성(검증 통과) — 상태 전이는 블록에서 수행(issue! 등).
@@ -105,5 +125,22 @@ class Admins::AccountPurgeServiceTest < ActiveSupport::TestCase
     invoice.save!
     yield(invoice) if block_given?
     invoice.reload
+  end
+
+  # ADMIN-2·Q32 — 컨트롤러가 넘긴 요청자 IP(ClientIp.of)가 삭제 감사까지 전달되는지 고정.
+  test "ip를 넘기면 계정 삭제 감사에 요청자 IP가 기록된다 (ADMIN-2·Q32)" do
+    result = Admins::AccountPurgeService.call(
+      admin: @admin, user: @user, confirm_email: @user.email, ip: "203.0.113.7"
+    )
+
+    assert result.success?
+    assert_equal "203.0.113.7", AuditLog.find_by(action: "account_purge", target_type: "User", target_id: @user.id).ip
+  end
+
+  test "ip를 넘기지 않은 기존 호출의 삭제 감사는 ip가 nil로 유지된다 (하위호환)" do
+    result = Admins::AccountPurgeService.call(admin: @admin, user: @user, confirm_email: @user.email)
+
+    assert result.success?
+    assert_nil AuditLog.find_by(action: "account_purge", target_type: "User", target_id: @user.id).ip
   end
 end

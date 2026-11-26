@@ -144,6 +144,42 @@ class ViewerControllerTest < ActionDispatch::IntegrationTest
     assert_equal "198.51.100.77", invoice.view_events.sole.ip
   end
 
+  # Q32 — ViewEvent.ip도 ClientIp.of(request)를 탄다(IPAddr.new 기준 판정). 단일 IPv6는
+  # 채택되고 쉼표 목록·무의미 값(콜론만·옥텟 이탈)은 채택되지 않아 remote_ip로 수렴한다.
+  test "단일 IPv6 CF-Connecting-IP는 원문 그대로 기록된다 (SHARE-3·Q32)" do
+    invoice = invoices(:delta_issued)
+
+    get viewer_path(invoice.token), headers: { "User-Agent" => DESKTOP_UA, "CF-Connecting-IP" => "2001:db8::1" }
+    assert_response :success
+
+    assert_equal "2001:db8::1", invoice.view_events.sole.ip
+  end
+
+  test "쉼표 목록 CF-Connecting-IP는 채택되지 않고 remote_ip로 수렴한다 (SHARE-3·Q32)" do
+    invoice = invoices(:delta_issued)
+
+    get viewer_path(invoice.token), headers: {
+      "User-Agent" => DESKTOP_UA, "CF-Connecting-IP" => "1.2.3.4, 5.6.7.8", "REMOTE_ADDR" => "198.51.100.77"
+    }
+    assert_response :success
+
+    assert_equal "198.51.100.77", invoice.view_events.sole.ip
+    assert_not_equal "1.2.3.4, 5.6.7.8", invoice.view_events.sole.ip, "원문 목록이 그대로 기록되면 안 된다"
+  end
+
+  test "콜론만 있는 값·옥텟 이탈 값 CF-Connecting-IP도 remote_ip로 수렴한다 (SHARE-3·Q32)" do
+    invoice = invoices(:delta_issued)
+    [ ":", "999.999.999.999" ].each do |value|
+      get viewer_path(invoice.token), headers: {
+        "User-Agent" => DESKTOP_UA, "CF-Connecting-IP" => value, "REMOTE_ADDR" => "198.51.100.77"
+      }
+      assert_response :success
+
+      assert_equal "198.51.100.77", invoice.view_events.order(:viewed_at, :id).last.ip,
+                   "#{value}은(는) 채택되면 안 된다"
+    end
+  end
+
   test "IPv6 IP는 45자 컬럼 한계 내 그대로 기록된다 (SHARE-3)" do
     invoice = invoices(:delta_issued)
     full_form = "2001:0db8:85a3:0000:0000:8a2e:0370:7334"          # 39자 — IPv6 전체 표기
@@ -255,9 +291,9 @@ class ViewerControllerTest < ActionDispatch::IntegrationTest
   # ── 토큰 매트릭스 — ②~⑤ 무효(VIEW-6 통일) ──
 
   test "만료된 토큰은 VIEW-6 안내와 404로 응답한다 (SHARE-2·VIEW-6)" do
-    invoice = invoices(:delta_issued)                                # 만료 2026-11-30 23:59:59
+    invoice = invoices(:delta_issued)                                # 만료 = 만기일 + 60일 end_of_day (상대값)
 
-    travel_to(Time.zone.parse("2026-12-01 09:00")) do
+    travel_to(invoice.token_expires_at + 1.minute) do
       get viewer_path(invoice.token)
       assert_response :not_found
       assert_select "h1", text: "링크가 만료되었거나 폐기되었습니다."
@@ -308,7 +344,7 @@ class ViewerControllerTest < ActionDispatch::IntegrationTest
     reissued_old = invoices(:delta_promised).token
     invoices(:delta_promised).regenerate_token!
 
-    travel_to(Time.zone.parse("2026-12-01 09:00")) do                # expired 만료 경과
+    travel_to(expired.token_expires_at + 1.minute) do                # expired 만료 경과 (픽스처 상대값)
       bodies = [ expired.token, voided_token, reissued_old, "Z" * 43 ].map do |token|
         get viewer_path(token)
         assert_response :not_found

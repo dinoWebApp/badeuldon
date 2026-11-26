@@ -95,6 +95,16 @@ class Admin::TicketsControllerTest < ActionDispatch::IntegrationTest
     assert_equal @admin.id, audit.admin_id
   end
 
+  test "ticket_close 감사에 요청 IP가 기록된다 (W-2 — CF 헤더 우선)" do
+    admin_sign_in
+
+    patch close_admin_ticket_path(@ticket), headers: { "CF-Connecting-IP" => "203.0.113.51" }
+    assert_response :see_other
+
+    audit = AuditLog.where(action: "ticket_close").sole
+    assert_equal "203.0.113.51", audit.ip
+  end
+
   test "답변 전 강제 종료도 허용 — 운영 정책 (ADMIN-8)" do
     admin_sign_in
     assert @ticket.open?

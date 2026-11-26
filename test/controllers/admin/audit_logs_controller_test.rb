@@ -50,6 +50,30 @@ class Admin::AuditLogsControllerTest < ActionDispatch::IntegrationTest
     assert_select "td", text: /\Aorder_refund\z/, count: 1
   end
 
+  test "행위 필터 선택지에 회원 탈퇴(member_withdrawal)가 있다 (T1·W-1)" do
+    admin_login(@ops)
+
+    get admin_audit_logs_path
+
+    assert_response :success
+    assert_select "select[name=action_filter] option[value=member_withdrawal]", text: "회원 탈퇴"
+  end
+
+  test "60자를 넘는 상세는 잘리는 대신 전문을 title 속성으로 함께 내보낸다 (ADMIN-2·N-4)" do
+    detail = "회원 탈퇴 — 이메일 스냅샷: alpha@example.com · 미수 6건(잔액 946000원) · " \
+             "Plus: 유료(종료 10-31) · 수금 패스 10건"
+    seed_log(admin: @ops, action: "member_withdrawal", detail: detail)
+    admin_login(@ops)
+
+    get admin_audit_logs_path
+
+    assert_response :success
+    # 잘려서 화면에 안 보이는 구간("Plus:" 이후)까지 title로 온전히 싣는다
+    assert_select "td[title]" do |cells|
+      assert_includes cells.map { |cell| cell["title"] }, detail
+    end
+  end
+
   test "무효 날짜 파라미터는 500이 아닌 200으로 필터를 생략한다 (W-2)" do
     seed_log(admin: @ops, action: "order_refund")
     admin_login(@ops)

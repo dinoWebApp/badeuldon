@@ -15,7 +15,7 @@ class RegistrationsController < ApplicationController
   # 1분 1회·1시간 3회는 PhoneVerifications::SendService가 DB 이력 기준으로 판정).
   # W-5 — 국내 이동통신은 CGNAT로 다수 사용자가 출발 IP를 공유하므로 IP당 한도는 20회/1시간으로
   # 완화한다(번호당 DB 이력 한도가 1차 방어선).
-  rate_limit to: 20, within: 1.hour, by: -> { request.remote_ip }, only: %i[ send_phone_code verify_phone_code ],
+  rate_limit to: 20, within: 1.hour, by: -> { ClientIp.of(request) }, only: %i[ send_phone_code verify_phone_code ],
              with: -> { render_rate_limited }
 
   def new
@@ -120,7 +120,7 @@ class RegistrationsController < ApplicationController
     Rails.logger.error("[RegistrationsController] referral attach failed user=#{@user.id} #{e.class}: #{e.message}")
     AuditLogs::RecordService.call(admin: nil, action: attach_failure_action,
                                   target: @user, detail: "#{e.class}: #{e.message}",
-                                  ip: request.remote_ip)
+                                  ip: ClientIp.of(request))
   end
 
   # 어트리뷰션 실패(누락 시 수수료 영구 소실 위험)와 쿠폰 부착 실패(정가 폴백)를 감사 action으로 구분.

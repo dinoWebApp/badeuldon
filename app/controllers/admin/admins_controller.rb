@@ -17,7 +17,7 @@ class Admin::AdminsController < Admin::BaseController
   def create
     result = Admins::RoleService.create_admin!(
       actor: current_admin, email: admin_params[:email],
-      password: admin_params[:password], role: admin_params[:role]
+      password: admin_params[:password], role: admin_params[:role], ip: ClientIp.of(request)
     )
     if result.success?
       redirect_to admin_admins_path, status: :see_other, notice: result.message
@@ -32,7 +32,8 @@ class Admin::AdminsController < Admin::BaseController
 
   def change_role
     result = Admins::RoleService.change_role!(
-      admin: Admin.find(params[:id]), actor: current_admin, role: admin_params[:role]
+      admin: Admin.find(params[:id]), actor: current_admin, role: admin_params[:role],
+      ip: ClientIp.of(request)
     )
     redirect_to admin_admins_path, status: :see_other,
                 notice: (result.message if result.success?),
@@ -40,7 +41,8 @@ class Admin::AdminsController < Admin::BaseController
   end
 
   def unlock
-    result = Admins::RoleService.unlock!(admin: Admin.find(params[:id]), actor: current_admin)
+    result = Admins::RoleService.unlock!(admin: Admin.find(params[:id]), actor: current_admin,
+                                         ip: ClientIp.of(request))
     redirect_to admin_admins_path, status: :see_other,
                 notice: (result.message if result.success?),
                 alert: (result.errors.first unless result.success?)

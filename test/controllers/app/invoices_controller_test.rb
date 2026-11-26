@@ -7,6 +7,8 @@ require "test_helper"
 # 날짜 파생 어설션(연체·뱃지·만기)은 travel_to로 2026-10-12(KST) 기준일을 고정한다(TIME-1).
 # fixtures 청구서는 전부 delta 소유 — gamma·alpha·beta는 0건(대시보드 빈 상태·삭제 검증용).
 class App::InvoicesControllerTest < ActionDispatch::IntegrationTest
+  include ActiveJob::TestHelper # SHARE-6·VIEW-7 — 발행 안내 인큐 검증(실호출 없이 enqueue만)
+
   # fixtures 청구서는 전부 delta 소유(프로필 완료 상태). alpha·beta는 기존 테스트가 사용자·거래처
   # 삭제(FK 연쇄)를 검증하므로 청구서 fixtures를 두면 안 되고, gamma는 대시보드 빈 상태 검증용으로 0건을 유지한다.
 
@@ -254,6 +256,113 @@ class App::InvoicesControllerTest < ActionDispatch::IntegrationTest
     assert_equal Date.new(2026, 11, 21), invoice.due_on       # 발행일(10-22)+30 재계산
     assert_equal Time.zone.local(2027, 1, 20).end_of_day.to_i, invoice.token_expires_at.to_i  # 만기+60일
     assert_not_nil invoice.issued_at
+  end
+
+  # ── SHARE-6·VIEW-7(Q30·리뷰 W-1) — 수신 거부(상속 포함) 거래처의 첫 안내 ──
+
+  test "미거부 거래처의 발행은 첫 안내(issue_notice)를 인큐한다 (SHARE-6 — 기존 경로 회귀 고정)" do
+    sign_in_as users(:gamma)
+    invoice = create_gamma_draft
+
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      assert_enqueued_with job: Reminders::DeliverJob,
+                           args: [ invoice.id, "issue_notice", "debtor" ] do
+        patch issue_app_invoice_path(invoice), params: { send_notice: "1" }
+      end
+    end
+    assert_response :see_other
+    assert_equal "청구서가 발행되었습니다. 거래처에게 받을돈 명의의 첫 안내를 보냅니다.", flash[:notice]
+    assert invoice.reload.issued?
+  end
+
+  test "수신 거부 거래처의 발행은 첫 안내를 인큐하지 않고 직접 전달을 안내한다 (VIEW-7·Q30 — 리뷰 W-1)" do
+    sign_in_as users(:gamma)
+    mark_refused(clients(:gamma_main), at: Time.zone.parse("2026-11-10 06:00"))
+    invoice = create_gamma_draft
+
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      assert_no_enqueued_jobs only: Reminders::DeliverJob do
+        patch issue_app_invoice_path(invoice), params: { send_notice: "1" }  # 체크를 눌러도 인큐하지 않는다
+      end
+    end
+    assert_response :see_other
+    assert_redirected_to app_invoice_path(invoice)
+    assert_equal "청구서가 발행되었습니다. 이 거래처는 추가 안내 수신을 거부하여 " \
+                 "첫 안내는 보내지 않습니다. 링크를 복사해 거래처에 직접 전달하세요.",
+      flash[:notice]
+    assert invoice.reload.issued?                              # 발행 자체는 계속한다(링크 유효)
+  end
+
+  test "수신 거부 거래처의 초안 상세는 첫 안내 체크박스 대신 안내를 렌더한다 (VIEW-7·Q30 — 리뷰 W-1)" do
+    sign_in_as users(:delta)
+    mark_refused(clients(:delta_main), at: Time.zone.parse("2026-10-12 09:00"))
+    get app_invoice_path(invoices(:delta_draft))
+    assert_response :success
+
+    assert_select "input[name=send_notice]", count: 0          # 체크박스·hidden 쌍 모두 미노출
+    assert_select "span", text: "받을돈 명의로 첫 안내 보내기", count: 0
+    assert_select "p", text: "이 거래처는 추가 안내 수신을 거부하여 받을돈 명의의 첫 안내는 보내지 않습니다"
+    assert_select "p", text: "청구서 링크를 복사해 직접 전달해 주세요."
+    assert_select "form[action=?]", issue_app_invoice_path(invoices(:delta_draft)) do
+      assert_select "input[type=submit][data-turbo-confirm='발행 후에는 내용을 수정할 수 없습니다. 발행하시겠습니까?']",
+                    value: "발행하기", count: 1                # 발행 액션 자체는 유지
+    end
+  end
+
+  # ── VIEW-7(Q30) — 상속 거래처의 청구 발행까지(리뷰 Tester 중점 1 — W-1 반영 결과) ──
+
+  test "상속 거래처의 초안 상세는 첫 안내 체크박스 대신 안내를 렌더하고 발행은 인큐 없이 직접 전달 안내로 끝난다 (VIEW-7·Q30)" do
+    sign_in_as users(:gamma)
+    users(:gamma).clients.create!(name: "직접거부 원본", contact_name: "김원본", phone: "010-6666-5555")
+    mark_refused(users(:gamma).clients.last, at: Time.zone.parse("2026-11-10 06:00"))
+    inherited = users(:gamma).clients.create!(name: "상속 거래처", contact_name: "김상속",
+                                              phone: "01066665555")            # 같은 번호 재등록 — 상속
+    assert inherited.reload.refused?
+
+    post app_invoices_path, params: draft_params(client_id: inherited.id, due_on: "2026-12-10",
+                                                 rows: [ row ])
+    assert_response :see_other
+    invoice = Invoice.order(:id).last
+    get app_invoice_path(invoice)
+    assert_response :success
+    assert_select "input[name=send_notice]", count: 0          # 체크박스·hidden 쌍 모두 미노출(상속 경로)
+    assert_select "p", text: "이 거래처는 추가 안내 수신을 거부하여 받을돈 명의의 첫 안내는 보내지 않습니다"
+    assert_select "p", text: "청구서 링크를 복사해 직접 전달해 주세요."
+
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      assert_no_enqueued_jobs only: Reminders::DeliverJob do
+        patch issue_app_invoice_path(invoice), params: { send_notice: "1" }  # 체크를 눌러도 인큐 없다
+      end
+    end
+    assert_response :see_other
+    assert_redirected_to app_invoice_path(invoice)
+    assert_equal "청구서가 발행되었습니다. 이 거래처는 추가 안내 수신을 거부하여 " \
+                 "첫 안내는 보내지 않습니다. 링크를 복사해 거래처에 직접 전달하세요.",
+      flash[:notice]
+    assert invoice.reload.issued?                              # 발행 자체는 계속한다(링크 유효)
+  end
+
+  test "다른 회원이 같은 번호로 등록·발행하면 상속 없이 정상 발행된다 (VIEW-7·Q30 — 회원 간 격리·리뷰 제안 5)" do
+    users(:gamma).clients.create!(name: "감마거부 원본", contact_name: "김거부", phone: "010-4242-4242")
+    mark_refused(users(:gamma).clients.last, at: Time.zone.parse("2026-11-10 06:00"))
+    sign_in_as users(:delta)
+    delta_client = users(:delta).clients.create!(name: "델타동일번호", contact_name: "덜동일",
+                                                 phone: "010-4242-4242")
+    assert_not delta_client.reload.refused?                    # 상속 없음 — 회원 간 결합 금지
+
+    post app_invoices_path, params: draft_params(client_id: delta_client.id, due_on: "2026-12-10",
+                                                 rows: [ row ])
+    assert_response :see_other
+    invoice = Invoice.order(:id).last
+    travel_to(Time.zone.parse("2026-11-10 10:00")) do
+      assert_enqueued_with job: Reminders::DeliverJob,
+                           args: [ invoice.id, "issue_notice", "debtor" ] do
+        patch issue_app_invoice_path(invoice), params: { send_notice: "1" }
+      end
+    end
+    assert_response :see_other
+    assert_equal "청구서가 발행되었습니다. 거래처에게 받을돈 명의의 첫 안내를 보냅니다.", flash[:notice]
+    assert invoice.reload.issued?
   end
 
   test "발행본 edit·update·destroy·issue 접근은 모두 404다 (INV-5 draft 스코프)" do
@@ -541,22 +650,25 @@ class App::InvoicesControllerTest < ActionDispatch::IntegrationTest
   test "만료 임박·만료 표기는 유효기간 7일 전·경과로 분기한다 (SHARE-2)" do
     sign_in_as users(:delta)
 
-    travel_to(Time.zone.parse("2026-11-24 09:00")) do                # 만료 7일 이내(11-30 기준)
-      get app_invoice_path(invoices(:delta_issued))
+    invoice = invoices(:delta_issued)                                # 만료 = 만기일 + 60일 end_of_day (상대값)
+    expires_on = invoice.token_expires_at.to_date
+
+    travel_to(invoice.token_expires_at - 6.days) do                  # 만료 7일 이내(판정은 시각 단위 — 헬퍼 LINK_EXPIRY_SOON_DAYS)
+      get app_invoice_path(invoice)
       assert_response :success
       assert_select "span", text: "만료 임박", count: 1
-      assert_select "p", text: "2026-11-30까지 열람할 수 있습니다."
+      assert_select "p", text: "#{expires_on.strftime('%Y-%m-%d')}까지 열람할 수 있습니다."
     end
 
-    travel_to(Time.zone.parse("2026-12-01 09:00")) do                # 유효기간 경과
-      get app_invoice_path(invoices(:delta_issued))
+    travel_to(invoice.token_expires_at + 1.minute) do                # 유효기간 경과
+      get app_invoice_path(invoice)
       assert_response :success
       assert_select "span", text: "링크 만료", count: 1
       assert_select "p", text: "유효기간(만기일 + 60일)이 지났습니다."
     end
 
-    travel_to(Time.zone.parse("2026-10-12 09:00")) do                # 정상 구간 — 표기 없음
-      get app_invoice_path(invoices(:delta_issued))
+    travel_to(invoice.token_expires_at - 20.days) do                 # 정상 구간 — 표기 없음
+      get app_invoice_path(invoice)
       assert_response :success
       assert_select "span", text: "만료 임박", count: 0
       assert_select "span", text: "링크 만료", count: 0

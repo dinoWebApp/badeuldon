@@ -1,0 +1,7 @@
+<%# DASH-2·Q31 — 종류별 5건 초과 안내(local: label — 종류명, extra — 표시분 외 남은 건수).
+    초과분까지 총건수를 알려주고 청구서 목록으로 안내한다(/app 목록 — DASH-4와 같은 표면). %>
+<p class="rounded-xl border border-dashed border-stone-300 bg-white/60 px-5 py-3 text-sm leading-relaxed text-stone-500 sm:col-span-2">
+  <%= label %> 5건 외에 <%= extra %>건이 더 있습니다.
+  <%= link_to "청구서 목록에서 확인", app_invoices_path,
+        class: "font-bold text-emerald-800 transition duration-150 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+</p>

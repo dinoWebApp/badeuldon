@@ -8,7 +8,8 @@
       <%= select_tag :action_filter,
             options_for_select([ [ "전체", "" ], "login_success", "login_failed", "lockout",
                                  "new_ip_login", "password_reset", "member_plan_change",
-                                 "member_suspend", "member_unsuspend" ].to_h { |v| v.is_a?(Array) ? v : [ v, v ] },
+                                 "member_suspend", "member_unsuspend",
+                                 [ "회원 탈퇴", "member_withdrawal" ] ].to_h { |v| v.is_a?(Array) ? v : [ v, v ] },
                                params[:action_filter]),
             class: "border border-stone-300 rounded px-2 py-1.5 text-sm" %>
     </div>
@@ -49,7 +50,8 @@
           <td class="py-2 pr-4"><%= log.admin&.email || "사용자" %></td>
           <td class="py-2 pr-4"><%= log.action %></td>
           <td class="py-2 pr-4"><%= log.target_type %>#<%= log.target_id %></td>
-          <td class="py-2 pr-4"><%= truncate(log.detail, length: 60) %></td>
+          <%# N-4 — 목록만 있고 상세 화면이 없어 잘린 전문을 title 속성으로 함께 내보낸다 %>
+          <td class="py-2 pr-4" title="<%= log.detail %>"><%= truncate(log.detail, length: 60) %></td>
           <td class="py-2 text-stone-500"><%= log.ip %></td>
         </tr>
       <% end %>

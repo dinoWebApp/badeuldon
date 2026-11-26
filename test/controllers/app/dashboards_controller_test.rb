@@ -1,11 +1,14 @@
 require "test_helper"
+require_relative "../../test_helpers/reminder_factories"
 
 # 표면 ② /app 대시보드 — DASH-1 실데이터 요약 카드(미수 총액·연체 건수·금액·7일 내 만기),
 # DASH-4 목록(연체일 내림차순 상위 5건), ONB-1 CTA 실링크·보유 전환, 사이드바·헤더 크롬,
 # AUTH-1 비인증 가드, AUTH-1.3 미완료 프로필 가드(03 §4.1), SURF-3 noindex.
 # 시나리오 기준: _workspace/03_implementation.md(ONB-1·DASH 전환), 05_review.md 「Tester 중점 §6」.
 # 집계·경계일 검증은 travel_to로 2026-10-12(KST) 기준일을 고정한다(TIME-1).
+# DASH-2·Q31(2026-11-26) — 다섯 종 PRD 순서·종류별 5건 상한("외 N건") 검증을 추가한다.
 class App::DashboardsControllerTest < ActionDispatch::IntegrationTest
+  include ReminderFactories
   test "비인증 /app 접근은 302로 로그인 화면에 리다이렉트된다 (AUTH-1)" do
     get app_root_path
     assert_response :redirect
@@ -228,6 +231,117 @@ class App::DashboardsControllerTest < ActionDispatch::IntegrationTest
       assert_select "input[name=_method][value=delete]", count: 1
       assert_select "button[data-turbo-confirm]", text: "로그아웃", count: 1
       assert_select "button[data-turbo-confirm='로그아웃하시겠습니까?']", count: 1
+    end
+  end
+
+  # ── DASH-2·Q31(2026-11-26) — 나머지 세 종: PRD 순서·종류별 5건 상한 ──
+
+  test "DASH-2 오늘의 액션은 다섯 종을 PRD 순서대로 표시한다 (DASH-2·Q31)" do
+    travel_to(Time.zone.parse("2026-10-12 09:00")) do
+      # delta — 수금 패스 보유(자격 있음 — REM-8). 오늘 발송 예정·약속일 도래는 신규 생성,
+      # 미열람 방치는 fixtures(delta_issued 41일·delta_due_soon 11일), 마감 대기·답변 대기는 fixtures.
+      users(:delta).payment_passes.create!(total_uses: 10, remaining_uses: 10,
+                                           expires_at: Time.zone.parse("2026-12-30 23:59:59 +0900"))
+      create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                              due_on: Date.current + 1)                 # 만기 예고(D-1) 오늘 도래
+      promise_invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                                due_on: Date.current + 18)
+      promise_invoice.promises.create!(kind: :date_selected, promised_on: Date.current)
+
+      sign_in_as users(:delta)
+      get app_root_path
+      assert_response :success
+
+      # PRD DASH-2 순서: 오늘 발송 예정 → 약속일 도래 → 미열람 방치 → 마감 대기 → 답변 대기
+      labels = [ "오늘 발송 예정", "약속일 도래", "미열람", "마감 대기", "답변 대기" ]
+      positions = labels.map { |label| response.body.index(label) }
+      missing = labels.zip(positions).select { |_, pos| pos.nil? }.map(&:first)
+      assert positions.all?, "다섯 종 배지가 모두 렌더되어야 한다 — 누락: #{missing.inspect}"
+      assert_equal positions.sort, positions, "PRD 순서로 배치되어야 한다"
+    end
+  end
+
+  test "DASH-2 종류별 카드는 5건까지만 표시하고 초과분은 외 N건 안내로 준다 (DASH-2·Q31)" do
+    travel_to(Time.zone.parse("2026-10-12 09:00")) do
+      6.times do |index|
+        invoice = seed_invoice(label: "idle-#{index}", due_on: Date.current + 30, rows: [ [ 1, 10_000 ] ])
+        invoice.update_columns(issued_at: Time.zone.parse("2026-10-05 10:00"))  # 7일 경과 미열람
+      end
+
+      sign_in_as users(:gamma)
+      get app_root_path
+      assert_response :success
+
+      assert_select "span", text: "미열람", count: 5
+      assert_select "p", text: /미열람 5건 외에 1건이 더 있습니다/ do
+        assert_select "a", text: "청구서 목록에서 확인", count: 1
+      end
+    end
+  end
+
+  test "오늘 발송 예정은 정확히 5건이면 외 N건 노트가 없고 6건이면 노트가 생긴다 (DASH-2·Q31·W-3)" do
+    travel_to(Time.zone.parse("2026-10-12 09:00")) do
+      # delta — 수금 패스 보유(자격 있음 — REM-8). 월요일 오전이라 다음 스캔은 오늘 14시.
+      users(:delta).payment_passes.create!(total_uses: 10, remaining_uses: 10,
+                                           expires_at: Time.zone.parse("2026-12-30 23:59:59 +0900"))
+      5.times do |index|
+        create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                due_on: Date.current + 1)   # 만기 예고(D-1)가 오늘 도래
+      end
+
+      sign_in_as users(:delta)
+      get app_root_path
+      assert_response :success
+      assert_select "span", text: "오늘 발송 예정", count: 5
+      assert_select "p", text: /오늘 발송 예정 5건 외에/, count: 0
+
+      create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                              due_on: Date.current + 1)
+      get app_root_path
+      assert_select "span", text: "오늘 발송 예정", count: 5
+      assert_select "p", text: /오늘 발송 예정 5건 외에 1건이 더 있습니다/, count: 1
+    end
+  end
+
+  test "약속일 도래는 정확히 5건이면 외 N건 노트가 없고 6건이면 노트가 생긴다 (DASH-2·Q31·W-3)" do
+    travel_to(Time.zone.parse("2026-10-12 09:00")) do
+      5.times do
+        invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                          due_on: Date.current + 5)
+        invoice.promises.create!(kind: :date_selected, promised_on: Date.current)
+      end
+
+      sign_in_as users(:delta)
+      get app_root_path
+      assert_response :success
+      assert_select "span", text: "약속일 도래", count: 5
+      assert_select "p", text: /약속일 도래 5건 외에/, count: 0
+
+      invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                        due_on: Date.current + 5)
+      invoice.promises.create!(kind: :date_selected, promised_on: Date.current)
+      get app_root_path
+      assert_select "span", text: "약속일 도래", count: 5
+      assert_select "p", text: /약속일 도래 5건 외에 1건이 더 있습니다/, count: 1
+    end
+  end
+
+  test "발송 실행 점유 중(scheduled_at 없는 pending)인 청구가 있어도 대시보드는 200으로 렌더한다 (DASH-2·W-2)" do
+    travel_to(Time.zone.parse("2026-10-12 09:00")) do
+      users(:delta).payment_passes.create!(total_uses: 10, remaining_uses: 10,
+                                           expires_at: Time.zone.parse("2026-12-30 23:59:59 +0900"))
+      invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
+                                        due_on: Date.current + 1)   # 만기 예고(D-1)가 오늘 도래
+      # 14시 스캔의 창 내 즉시 발송이 이력을 점유한 상태 — scheduled_at 없는 pending(SendService
+      # new_log!·mark_execution_started!). nil 가드가 없으면 send_at 판정의 nil >= Time.current로
+      # 500이 난다.
+      MessageLog.create!(invoice: invoice, user: invoice.user, template_key: "invoice_notice",
+                         recipient_role: :debtor, status: :pending)
+
+      sign_in_as users(:delta)
+      get app_root_path
+      assert_response :success
+      assert_select "span", text: "오늘 발송 예정", count: 1
     end
   end
 

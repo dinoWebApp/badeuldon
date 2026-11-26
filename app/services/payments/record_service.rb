@@ -28,11 +28,14 @@ module Payments
     # 않음)로, 남은 잔액 전체를 서버 기준값으로 계산한다. 빈 문자열은 전액으로 승격하지 않고
     # 모델 검증(입금 금액 미입력)으로 보낸다. 상한·미래 날짜 차단은 Payment 모델 담당이며
     # 기준 시각은 KST(Date.current — TIME-1)다. notify_thanks는 PAY-4 감사 알림 옵션(기본 켬).
-    def initialize(invoice:, amount:, paid_on:, notify_thanks: true)
+    # ip는 감사 로그(ADMIN-2·Q32 — 과다입금 초과분 감사)용 요청자 IP다. 컨트롤러가
+    # ClientIp.of(request)로 넘기며, 인자 없는 호출(runner·기존 테스트)은 nil로 기록된다.
+    def initialize(invoice:, amount:, paid_on:, notify_thanks: true, ip: nil)
       @invoice = invoice
       @amount = amount
       @paid_on = paid_on
       @notify_thanks = notify_thanks
+      @ip = ip
     end
 
     # 과다입금의 초과분(원). 마감 플래시 문구·감사 비고에 쓴다 — 정상·부분입금 경로는 0.
@@ -99,7 +102,7 @@ module Payments
     # 트랜잭션 확정 후 호출되며 target은 청구서(마감 기록의 소유체)다.
     def audit_over_record
       AuditLogs::RecordService.call(
-        action: "payment_over_recorded", target: @invoice,
+        action: "payment_over_recorded", target: @invoice, ip: @ip,
         detail: "과다입금 초과분 #{delimited(over_amount)}원 — 잔액 0 처리·수금 마감. 환불은 오프라인 안내"
       )
     end

@@ -1,6 +1,7 @@
 require "test_helper"
 require_relative "../../test_helpers/fake_solapi_client"
 require_relative "../../test_helpers/solapi_stubbing"
+require_relative "../../test_helpers/reminder_factories"
 
 module Promises
   # 응답 접수 단일 진입점(F-PROMISE) — 4종 접수·INV-4 issued|viewed→promised 원자 전이·
@@ -12,8 +13,9 @@ module Promises
   class RegisterServiceTest < ActiveSupport::TestCase
     include ActiveJob::TestHelper
     include SolapiStubbing
+    include ReminderFactories
 
-    fixtures :invoices, :promises
+    fixtures :invoices, :promises, :users, :clients, :subscriptions, :payment_passes
 
     # ── 약속 2종 — INV-4 전이를 동반한다 ──
 
@@ -215,6 +217,175 @@ module Promises
                                       promised_on: Date.new(1999, 1, 1)).call
         assert_equal Date.new(2026, 10, 16), promise.reload.promised_on
       end
+    end
+
+    # ── F-REM — 수신 거부 전파(VIEW-7·Q30 — 같은 회원 안에서 번호 단위) ──
+
+    test "refusal 접수는 같은 회원·같은 번호 거래처 전부에 거부를 전파한다 (VIEW-7·Q30)" do
+      invoice = invoices(:delta_issued)                          # delta_main — 010-3333-7777
+      sibling = users(:delta).clients.create!(name: "델타지점", contact_name: "덜지점",
+                                              phone: "01033337777")            # 하이픈 없는 같은 번호
+      other_number = users(:delta).clients.create!(name: "델타다른번호", contact_name: "덜다름",
+                                                   phone: "010-8888-9999")
+
+      travel_to(Time.zone.parse("2026-10-14 10:00")) do
+        assert_enqueued_with job: Reminders::DeliverJob,
+                             args: [ invoice.id, "noti_refusal", "user" ] do
+          RegisterService.new(invoice: invoice, kind: :refusal).call
+        end
+      end
+
+      assert invoice.client.reload.refused?                      # 접수 거래처 마킹(기존)
+      assert_equal "01033337777", invoice.client.reload.refused_phone # 거부 시점 번호 저장
+      assert sibling.reload.refused?                             # 하이픈 형식이 달라도 전파
+      assert_equal invoice.client.reload.refused_at, sibling.reload.refused_at
+      assert_equal "01033337777", sibling.reload.refused_phone   # 전파 행에도 거부 시점 번호 명시
+      assert_not other_number.reload.refused?                    # 다른 번호는 무영향
+      assert_nil other_number.reload.refused_phone
+    end
+
+    test "refusal 전파는 다른 회원의 같은 번호 거래처에는 영향을 주지 않는다 (VIEW-7·Q30)" do
+      invoice = invoices(:delta_issued)                          # delta — 010-3333-7777
+      stranger = users(:gamma).clients.create!(name: "감마동일번호", contact_name: "감동일",
+                                               phone: "010-3333-7777")
+
+      travel_to(Time.zone.parse("2026-10-14 10:00")) do
+        RegisterService.new(invoice: invoice, kind: :refusal).call
+      end
+
+      assert invoice.client.reload.refused?
+      assert_not stranger.reload.refused?                        # 회원 간 결합 금지
+    end
+
+    test "refusal 전파는 같은 회원의 다른 번호 거래처에는 영향을 주지 않는다 (VIEW-7·Q30)" do
+      invoice = invoices(:delta_issued)
+      same_user_other_number = users(:delta).clients.create!(name: "델타다른번호", contact_name: "덜다름",
+                                                             phone: "010-8888-9999")
+
+      travel_to(Time.zone.parse("2026-10-14 10:00")) do
+        RegisterService.new(invoice: invoice, kind: :refusal).call
+      end
+
+      assert invoice.client.reload.refused?
+      assert_not same_user_other_number.reload.refused?
+    end
+
+    test "refusal 전파는 같은 회원·같은 번호의 여러 건을 전부 마킹한다 (VIEW-7·Q30 — 리뷰 W-5·Tester 제안 2)" do
+      invoice = invoices(:delta_issued)                          # delta_main — 010-3333-7777
+      siblings = 3.times.map do |index|
+        users(:delta).clients.create!(name: "델타형제#{index}", contact_name: "덜형제",
+                                      phone: index.even? ? "01033337777" : "010-3333-7777")
+      end
+
+      travel_to(Time.zone.parse("2026-10-14 10:00")) do
+        RegisterService.new(invoice: invoice, kind: :refusal).call
+      end
+
+      siblings.each do |sibling|
+        assert sibling.reload.refused?, "#{sibling.name}이(가) 전파 누락됐다"
+        assert_equal invoice.client.reload.refused_at, sibling.reload.refused_at
+        assert_equal "01033337777", sibling.reload.refused_phone # 전파 행 전수 refused_phone 보장
+      end
+    end
+
+    test "refusal 전파는 이미 거부된 형제의 접수 시각을 덮지 않는다 (VIEW-7·Q30 — 리뷰 W-5①)" do
+      invoice = invoices(:delta_issued)
+      earlier = users(:delta).clients.create!(name: "먼저거부 형제", contact_name: "덜먼저",
+                                              phone: "010-3333-7777")
+      earlier_at = Time.zone.parse("2026-10-01 09:00")
+      earlier.update_column(:refused_at, earlier_at)
+
+      travel_to(Time.zone.parse("2026-10-14 10:00")) do
+        RegisterService.new(invoice: invoice, kind: :refusal).call
+      end
+
+      assert_equal earlier_at, earlier.reload.refused_at         # 선(先) 접수 시각 유지
+      assert_equal Time.zone.parse("2026-10-14 10:00"), invoice.client.reload.refused_at
+    end
+
+    test "refusal 재접수는 멱등이다 — refused_at이 갱신되지 않는다 (VIEW-7·Q30 — 리뷰 제안 2)" do
+      invoice = invoices(:delta_issued)
+
+      travel_to(Time.zone.parse("2026-10-14 10:00")) do
+        RegisterService.new(invoice: invoice, kind: :refusal).call
+      end
+      first_refused_at = invoice.client.reload.refused_at
+
+      travel_to(Time.zone.parse("2026-10-15 10:00")) do
+        RegisterService.new(invoice: invoice, kind: :refusal).call  # 같은 번호 재접수(의사 재확인)
+      end
+
+      assert_equal first_refused_at, invoice.client.reload.refused_at  # 접수 시각 불변
+      assert invoice.reload.sequence_finished?                       # 종결 마킹도 유지
+    end
+
+    test "번호를 바꾼 거부 행의 재접수는 현재 번호만 전파하고 거부 시점 번호는 불변이다 (VIEW-7·Q30 — 리뷰 Tester 1·5-d)" do
+      invoice = invoices(:delta_issued)                              # delta_main — 010-3333-7777(A)
+      refused_at = Time.zone.parse("2026-10-14 10:00")
+      # 형제를 먼저 만든다(거부 마킹 전 — 상속 콜백에 걸리지 않게)
+      sibling_a = users(:delta).clients.create!(name: "옛번호 형제", contact_name: "덜옛번호",
+                                                phone: "010-3333-7777")          # 번호 A
+      sibling_b = users(:delta).clients.create!(name: "새번호 형제", contact_name: "덜새번호",
+                                                phone: "010-8888-9999")          # 번호 B
+      invoice.client.update_columns(refused_at: refused_at, refused_phone: "01033337777")
+      invoice.client.update_column(:phone, "010-8888-9999")        # 거부 상태로 번호 이동(A→B)
+
+      travel_to(Time.zone.parse("2026-10-20 10:00")) do
+        assert_enqueued_with job: Reminders::DeliverJob,
+                             args: [ invoice.id, "noti_refusal", "user" ] do
+          RegisterService.new(invoice: invoice, kind: :refusal).call  # B 링크에서의 재접수
+        end
+      end
+
+      assert_equal refused_at, invoice.client.reload.refused_at      # 접수 마킹 스킵 — 불변
+      assert_equal "01033337777", invoice.client.reload.refused_phone # 거부 시점 번호(A)도 불변
+      assert sibling_b.reload.refused?                               # 현재 번호(B)만 전파 대상
+      assert_equal Time.zone.parse("2026-10-20 10:00"), sibling_b.reload.refused_at
+      assert_equal "01088889999", sibling_b.reload.refused_phone     # 전파 행의 거부 시점 번호 = B
+      assert_not sibling_a.reload.refused?                           # 번호 A 행은 무영향
+      assert_nil sibling_a.reload.refused_phone
+    end
+
+    test "refusal 전파로 거부된 거래처의 다른 청구 발송은 REFUSED skip으로 기록된다 (VIEW-7·Q30·P4)" do
+      fake = FakeSolapiClient.new
+      invoice = invoices(:delta_issued)                              # delta_main — 010-3333-7777
+      sibling = users(:delta).clients.create!(name: "델타전파 형제", contact_name: "덜전파",
+                                              phone: "010-3333-7777")
+      sibling_invoice = create_reminder_invoice(user: users(:delta), client: sibling,
+                                                due_on: Date.new(2026, 11, 9))
+
+      travel_to(Time.zone.parse("2026-10-14 10:00")) do
+        RegisterService.new(invoice: invoice, kind: :refusal).call
+      end
+
+      assert sibling.reload.refused?                                 # 전파 마킹
+      travel_to(Time.zone.parse("2026-10-15 10:00")) do              # 평일 창 내 — 가드만 판정한다
+        result = Reminders::SendService.new(invoice: sibling_invoice, template_key: "confirm_d1",
+                                            recipient_role: :debtor, client: fake).call
+        assert_equal :skipped, result
+      end
+
+      skip_log = MessageLog.where(invoice_id: sibling_invoice.id, recipient_role: :debtor).sole
+      assert_predicate skip_log, :skipped?
+      assert_equal "REFUSED", skip_log.error_code                    # P4 — 스킵도 발송 이력이다
+      assert_empty fake.calls                                        # 실발송 0건
+    end
+
+    test "전파 뒤 트랜잭션이 실패하면 접수·전파 마킹이 함께 롤백된다 (VIEW-7·Q30 — 같은 트랜잭션·리뷰 제안 2)" do
+      invoice = invoices(:delta_issued)
+      sibling = users(:delta).clients.create!(name: "델타롤백", contact_name: "덜롤백",
+                                              phone: "010-3333-7777")
+      invoice.define_singleton_method(:finish_sequence!) do
+        raise ActiveRecord::ActiveRecordError, "종결 강제 실패"
+      end
+
+      assert_raises(ActiveRecord::ActiveRecordError) do
+        RegisterService.new(invoice: invoice, kind: :refusal).call
+      end
+
+      assert_not invoice.client.reload.refused?                  # 접수 마킹까지 원점 복귀
+      assert_not sibling.reload.refused?                         # 전파분도 함께 폐기
+      assert_empty invoice.reload.promises                       # promise 기록도 함께
     end
   end
 end

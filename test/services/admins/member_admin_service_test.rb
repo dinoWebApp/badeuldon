@@ -183,4 +183,33 @@ class Admins::MemberAdminServiceTest < ActiveSupport::TestCase
   def plan_change_audits
     AuditLog.where(action: "member_plan_change", target_type: "User", target_id: @user.id)
   end
+
+  # ADMIN-2·Q32 — 컨트롤러가 넘긴 요청자 IP(ClientIp.of)가 감사 기록까지 전달되는지 고정.
+  test "ip를 넘기면 정지 감사에 요청자 IP가 기록된다 (ADMIN-2·Q32)" do
+    result = Admins::MemberAdminService.toggle_suspension!(admin: @admin, user: @user, ip: "203.0.113.7")
+
+    assert_predicate result, :success?
+    suspend = AuditLog.find_by(action: "member_suspend", target_type: "User", target_id: @user.id)
+    assert_not_nil suspend
+    assert_equal "203.0.113.7", suspend.ip
+  end
+
+  test "ip를 넘기면 플랜 변경 감사에 요청자 IP가 기록된다 (ADMIN-2·Q32)" do
+    result = Admins::MemberAdminService.change_plan!(
+      admin: @admin, user: @user, plan_params: { action: "grant_trial" }, ip: "203.0.113.7"
+    )
+
+    assert_predicate result, :success?
+    assert_equal "203.0.113.7", plan_change_audits.order(:id).last.ip
+  end
+
+  # 리뷰 W-1 — 인자 없는 호출(runner·기존 테스트)은 ip nil로 기록(호출부 호환 고정).
+  test "ip 없이 호출하면 정지 감사의 ip는 nil이다 (ADMIN-2·Q32)" do
+    result = Admins::MemberAdminService.toggle_suspension!(admin: @admin, user: @user)
+
+    assert_predicate result, :success?
+    suspend = AuditLog.find_by(action: "member_suspend", target_type: "User", target_id: @user.id)
+    assert_not_nil suspend
+    assert_nil suspend.ip
+  end
 end

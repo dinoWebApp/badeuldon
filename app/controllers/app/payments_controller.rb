@@ -13,7 +13,8 @@ class App::PaymentsController < App::BaseController
     # RecordService의 공개 리더다(Q22 결과 분기 — success_notice 참조).
     @record_service = Payments::RecordService.new(
       invoice: @invoice, amount: payment_params[:amount], paid_on: payment_params[:paid_on],
-      notify_thanks: payment_params[:send_thanks] != "0"  # PAY-4 — 체크 해제 시에만 끈다(기본 켬)
+      notify_thanks: payment_params[:send_thanks] != "0",  # PAY-4 — 체크 해제 시에만 끈다(기본 켬)
+      ip: ClientIp.of(request)  # ADMIN-2·Q32 — 과다입금 감사 기록용
     )
     @payment = @record_service.call
     redirect_to app_invoice_path(@invoice), status: :see_other, notice: success_notice

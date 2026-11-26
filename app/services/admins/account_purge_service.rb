@@ -19,11 +19,13 @@ module Admins
       def success? = success
     end
 
-    def self.call(admin:, user:, confirm_email:)
-      new.call(admin:, user:, confirm_email:)
+    def self.call(admin:, user:, confirm_email:, ip: nil)
+      new.call(admin:, user:, confirm_email:, ip:)
     end
 
-    def call(admin:, user:, confirm_email:)
+    # ip(ADMIN-2·Q32) — 컨트롤러가 ClientIp.of(request)로 넘긴 요청자 IP. 인자 없는
+    # 호출(runner·기존 테스트)은 nil로 기록된다.
+    def call(admin:, user:, confirm_email:, ip: nil)
       return failure("확인용 이메일이 일치하지 않습니다.") unless email_confirmed?(user, confirm_email)
 
       unsettled = user.invoices.unsettled
@@ -36,7 +38,7 @@ module Admins
 
       user.transaction do
         AuditLogs::RecordService.call(
-          admin:, action: "account_purge", target: user,
+          admin:, action: "account_purge", target: user, ip: ip,
           detail: "계정 삭제·데이터 파기 — 이메일 스냅샷: #{user.email}"
         )
         user.destroy!

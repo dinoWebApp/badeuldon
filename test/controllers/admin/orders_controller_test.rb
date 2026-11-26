@@ -76,6 +76,10 @@ class Admin::OrdersControllerTest < ActionDispatch::IntegrationTest
   test "owner의 환불 실행 성공은 303과 flash 요약을 돌려준다 (ADMIN-11·PLAN-9)" do
     admin_login(admins(:ops))
     order = orders(:delta_pass_order)
+    # X-1 — 공용 픽스처 패스(delta_active_pass, 만료 2026-12-30)의 usable 의존 제거:
+    # 만료일이 실행일과 무관하게 미래인 패스로 교체해 "수금 패스 10건 차감"을 고정한다.
+    order.user.payment_passes.destroy_all
+    order.user.payment_passes.create!(total_uses: 10, remaining_uses: 10, expires_at: 90.days.from_now)
     fake = FakePortOneClient.new(get_payment: cancelled_payment_for(order))
 
     with_portone_client(fake) do
@@ -87,6 +91,31 @@ class Admin::OrdersControllerTest < ActionDispatch::IntegrationTest
     assert_redirected_to admin_order_path(order)
     assert_match "환불을 실행했습니다", flash[:notice]
     assert_match "수금 패스 10건 차감", flash[:notice], "flash에 상품별 되돌리기 요약이 포함된다"
+  end
+
+  test "픽스처 패스 만료일(2026-12-31) 이후에도 환불 차감이 동작한다 (X-1 회귀 — 날짜 폭탄 방지)" do
+    # 같은 단언을 픽스처 패스가 만료된 날짜로 옮겨 돌린다 — X-1 유형(고정 만료일 픽스처 의존)의
+    # 재발 방지. admin_login은 내부에서 travel_to를 쓰므로 at:로 로그인도 만료일 당일에 고정해
+    # travel 중첩을 피하고(12h 세션 수명 내), travel_to 안에서 생성하면 90.days.from_now는
+    # 2027-03-31(항상 유효)이다.
+    admin_login(admins(:ops), at: Time.zone.parse("2026-12-31 09:50"))
+    order = orders(:delta_pass_order)
+    travel_to(Time.zone.parse("2026-12-31 10:00")) do
+      order.user.payment_passes.destroy_all
+      order.user.payment_passes.create!(total_uses: 10, remaining_uses: 10, expires_at: 90.days.from_now)
+      fake = FakePortOneClient.new(get_payment: cancelled_payment_for(order))
+
+      assert_difference -> { order.user.payment_passes.sum(:remaining_uses) }, -10 do
+        with_portone_client(fake) do
+          patch refund_admin_order_path(order),
+                params: { order: { refund_reason: "이중 결제 정정" } }
+        end
+      end
+
+      assert_response :see_other
+      assert_match "수금 패스 10건 차감", flash[:notice]
+      assert_equal 0, order.reload.user.payment_passes.sum(:remaining_uses)
+    end
   end
 
   test "PG 실패 대역은 422와 alert으로 응답하고 500이 아니다 (W-1)" do
@@ -315,5 +344,47 @@ class Admin::OrdersControllerTest < ActionDispatch::IntegrationTest
     yield
   ensure
     Orders::RefundService.define_singleton_method(:new, original)
+  end
+
+  # ADMIN-2·Q32 — CF-Connecting-IP 헤더(운영 실방문자 IP)가 서비스 계층을 거쳐 환불 감사 ip까지 도달하는지 고정.
+  test "CF-Connecting-IP 헤더의 요청자 IP가 환불 감사에 기록된다 (ADMIN-2·Q32)" do
+    admin_login(admins(:ops))
+    order = orders(:delta_pass_order)
+    fake = FakePortOneClient.new(
+      get_payment: { id: order.pg_order_id, status: "CANCELLED",
+                     amount: { paid: order.amount, cancelled: order.amount } }
+    )
+
+    with_portone_client(fake) do
+      patch refund_admin_order_path(order),
+            params: { order: { refund_reason: "이중 결제 정정" } },
+            headers: { "CF-Connecting-IP" => "203.0.113.9" }
+    end
+
+    assert_response :see_other
+    audit = AuditLog.find_by(action: "order_refund", target_type: "Order", target_id: order.id)
+    assert_not_nil audit
+    assert_equal "203.0.113.9", audit.ip
+  end
+
+  # ADMIN-2·Q32 — require_owner 거부 경로(base_controller → RoleService.record_denied!)에도
+  # CF-Connecting-IP가 전달되는지 고정. staff의 owner 전용 환불 실행 시도(PG 호출 전 가드 차단).
+  test "staff의 환불 실행 시도는 거부되고 거부 감사에 CF 헤더 IP가 기록된다 (ADMIN-1·Q32)" do
+    admin_login(admins(:staffuser))
+    order = orders(:delta_pass_order)
+    fake = FakePortOneClient.new(raise_on: { cancel_payment: StandardError.new("PG 호출 금지"),
+                                             get_payment: StandardError.new("재조회 금지") })
+
+    with_portone_client(fake) do
+      patch refund_admin_order_path(order),
+            params: { order: { refund_reason: "staff 시도" } },
+            headers: { "CF-Connecting-IP" => "203.0.113.11" }
+    end
+
+    assert_redirected_to admin_root_path
+    assert_predicate order.reload, :paid?, "가드가 서비스 진입 전에 차단한다"
+    denied = AuditLog.find_by!(action: "admin_console_denied", admin_id: admins(:staffuser).id)
+    assert_equal "203.0.113.11", denied.ip
+    assert_equal 0, AuditLog.where(action: "order_refund").count
   end
 end

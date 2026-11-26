@@ -27,7 +27,7 @@ class Admin::PasswordsController < Admin::BaseController
     if @admin.update(password_params)
       @admin.admin_sessions.destroy_all
       clear_pending_keys
-      AuditLogs::RecordService.call(admin: @admin, action: "password_reset", ip: request.remote_ip)
+      AuditLogs::RecordService.call(admin: @admin, action: "password_reset", ip: ClientIp.of(request))
       redirect_to new_admin_session_path, status: :see_other,
                   notice: "비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요."
     else

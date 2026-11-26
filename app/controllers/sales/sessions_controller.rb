@@ -40,9 +40,9 @@ class Sales::SessionsController < Sales::BaseController
     if rep
       newly_locked = rep.record_failed_attempt!
       AuditLogs::RecordService.call(action: "sales_rep_login_failed", target: rep,
-                                    detail: rep.email, ip: request.remote_ip)
+                                    detail: rep.email, ip: ClientIp.of(request))
       AuditLogs::RecordService.call(action: "sales_rep_lockout", target: rep,
-                                    detail: rep.email, ip: request.remote_ip) if newly_locked
+                                    detail: rep.email, ip: ClientIp.of(request)) if newly_locked
     end
     flash.now[:alert] = "이메일 또는 비밀번호가 올바르지 않습니다."
     render :new, status: :unprocessable_entity
@@ -51,9 +51,9 @@ class Sales::SessionsController < Sales::BaseController
   # 세션 발급 — 실패 카운터 리셋·감사 기록 후 전용 쿠키 키(sales_session_token)로 발급.
   def issue_session(rep)
     rep.reset_failed_attempts!
-    sales_rep_session = SalesRepSession.issue_for!(rep, ip: request.remote_ip)
+    sales_rep_session = SalesRepSession.issue_for!(rep, ip: ClientIp.of(request))
     AuditLogs::RecordService.call(action: "sales_rep_login_success", target: rep,
-                                  detail: rep.email, ip: request.remote_ip)
+                                  detail: rep.email, ip: ClientIp.of(request))
     session[:sales_session_token] = sales_rep_session.token
     redirect_to sales_root_path, status: :see_other, notice: "영업 직원으로 로그인되었습니다."
   end

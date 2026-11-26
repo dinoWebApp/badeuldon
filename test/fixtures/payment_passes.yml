@@ -1,9 +1,11 @@
 <%# 수금 패스(F-PLAN — PLAN-4) fixtures — 요금제 페이지 보유 목록 렌더 검증용 1건.
     만료·소진 패스(usable 스코프 제외 대상)는 테스트 내에서 만든다.
+    만료·유효 기간은 상대값이다 — 고정 날짜를 새로 넣지 않는다(test-date-time-bombs 패턴 3;
+    2026-12-30 고정 만료가 날짜 폭탄이 된 선례 — 2026-11-26 usable 의존 제거 후 근본 해소).
     expires_at은 KST 오프셋을 명시한다(무오프셋 문자열은 UTC로 저장됨 — TIME-1). %>
 
 delta_active_pass:
   user: delta
   total_uses: 10
   remaining_uses: 10
-  expires_at: "2026-12-30 23:59:59 +0900"
+  expires_at: <%= 90.days.from_now.end_of_day %>

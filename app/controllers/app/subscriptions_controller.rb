@@ -48,7 +48,7 @@ class App::SubscriptionsController < App::BaseController
     return if subscription.blank? || subscription.coupon_id.blank?
 
     AuditLogs::RecordService.call(action: "coupon_redeemed", target: subscription,
-                                  detail: subscription.coupon.code)
+                                  detail: subscription.coupon.code, ip: ClientIp.of(request))
   end
 
   # 카드 인증 위젯이 돌려준 빌링키 발급 토큰(billingIssueToken) — 서버가 포트원

@@ -124,7 +124,7 @@ class App::InvoicesController < App::BaseController
   def issue
     return render_issue_failure unless @invoice.issue!
 
-    enqueue_issue_notice if issue_notice_requested?
+    enqueue_issue_notice_if_needed
     redirect_to app_invoice_path(@invoice), status: :see_other, notice: issue_success_notice
   end
 
@@ -312,6 +312,16 @@ class App::InvoicesController < App::BaseController
     params[:send_notice] != "0"
   end
 
+  # SHARE-6 — 발행 안내 인큐 판정. VIEW-7(Q30·리뷰 W-1) — 수신 거부(상속 포함) 거래처는 첫
+  # 안내를 예약하지 않는다. 인큐 단계에서 건너뛰지 않으면 SendService의 창 판정(reschedule!)
+  # 이 REFUSED 가드보다 앞서 「발송 예정」 pending 행이 다음 발송 창까지 남는다(가드 순서는
+  # 유지 — REFUSED 가드는 여전히 최종 방어선).
+  def enqueue_issue_notice_if_needed
+    return if @invoice.client.refused?
+
+    enqueue_issue_notice if issue_notice_requested?
+  end
+
   # SHARE-6 — 발행 안내 알림톡(채무자 향 1회성 — PLAN-3 상한 집계 밖). 창 밖 예약 여부는
   # SendService가 판정하므로 컨트롤러는 커밋 후 인큐만 한다.
   def enqueue_issue_notice
@@ -319,8 +329,13 @@ class App::InvoicesController < App::BaseController
   end
 
   # SHARE-6 — 결과 안내. 선택 시 서비스 명의 첫 안내를, 해제 시 직접 전달을 안내한다.
+  # VIEW-7(Q30·리뷰 W-1) — 수신 거부(상속 포함) 거래처는 첫 안내가 나가지 않으므로
+  # 인큐 여부와 무관하게 직접 전달로 안내한다.
   def issue_success_notice
-    if issue_notice_requested?
+    if @invoice.client.refused?
+      "청구서가 발행되었습니다. 이 거래처는 추가 안내 수신을 거부하여 첫 안내는 보내지 않습니다. " \
+        "링크를 복사해 거래처에 직접 전달하세요."
+    elsif issue_notice_requested?
       "청구서가 발행되었습니다. 거래처에게 받을돈 명의의 첫 안내를 보냅니다."
     else
       "청구서가 발행되었습니다. 링크를 복사해 거래처에 직접 전달하세요."

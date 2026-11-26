@@ -34,7 +34,7 @@ class ViewerRefusalTest < ApplicationSystemTestCase
 
   test "접수 후 청구서로 돌아가면 열람·응답은 계속 가능하다 (VIEW-7 — 발송만 중단·P1)" do
     invoice = invoices(:delta_issued)
-    invoice.client.update_column(:refused_at, Time.zone.parse("2026-10-12 09:00"))
+    mark_refused(invoice.client, at: Time.zone.parse("2026-10-12 09:00"))
 
     visit viewer_path(invoice.token)
     assert_text "BD-20260901-001"                                         # 청구 내용 그대로 열람

@@ -118,7 +118,7 @@ class AppInvoiceRemindersTest < ApplicationSystemTestCase
     invoice = create_reminder_invoice(user: users(:delta), client: clients(:delta_main),
                                       due_on: Date.new(2026, 10, 27))
     invoice.update_columns(sequence_finished_at: Time.zone.parse("2026-11-09 14:00"))
-    invoice.client.update_column(:refused_at, Time.zone.parse("2026-11-09 15:00"))
+    mark_refused(invoice.client, at: Time.zone.parse("2026-11-09 15:00"))
 
     travel_to(Time.zone.parse("2026-11-10 10:00")) do
       log_in_as users(:delta)
@@ -140,7 +140,7 @@ class AppInvoiceRemindersTest < ApplicationSystemTestCase
       reminders_suspended_at: Time.zone.parse("2026-11-09 14:00"),
       sequence_finished_at: Time.zone.parse("2026-11-09 14:30")
     )
-    invoice.client.update_column(:refused_at, Time.zone.parse("2026-11-09 15:00"))
+    mark_refused(invoice.client, at: Time.zone.parse("2026-11-09 15:00"))
 
     travel_to(Time.zone.parse("2026-11-10 10:00")) do
       log_in_as users(:delta)

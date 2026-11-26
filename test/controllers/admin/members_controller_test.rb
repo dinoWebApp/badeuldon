@@ -212,4 +212,17 @@ class Admin::MembersControllerTest < ActionDispatch::IntegrationTest
   def plan_change_audits
     AuditLog.where(action: "member_plan_change", target_type: "User", target_id: @user.id).count
   end
+
+  # ADMIN-2·Q32 — CF-Connecting-IP 헤더(운영 실방문자 IP)가 서비스 계층을 거쳐 감사 로그 ip까지 도달하는지 고정.
+  test "CF-Connecting-IP 헤더의 요청자 IP가 정지 감사에 기록된다 (ADMIN-2·Q32)" do
+    admin_login(@admin)
+
+    patch toggle_suspension_admin_member_path(@user),
+          params: {}, headers: { "CF-Connecting-IP" => "203.0.113.9" }
+
+    assert_response :see_other
+    audit = AuditLog.find_by(action: "member_suspend", target_type: "User", target_id: @user.id)
+    assert_not_nil audit
+    assert_equal "203.0.113.9", audit.ip
+  end
 end

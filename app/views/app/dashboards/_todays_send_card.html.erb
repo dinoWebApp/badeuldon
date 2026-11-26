@@ -1,0 +1,29 @@
+<%# DASH-2·Q31 — 「오늘 발송 예정」 카드(local: row = Dashboards::ReminderActionsService::SendRow).
+    오늘 실제로 나갈 자동 안내(REM-11 당일 보류 창의 화면 진입점 — 실제 발송 예정 시각이 오늘인
+    건만 서비스가 선별한다). 뱃지·설명·액션 문구는 REM-2 톤(안내 어휘 — 독촉·연체 표현 없음)과
+    DESIGN-5 카드형을 따른다(뱃지·아이콘은 중립 — DESIGN-2 대기·약속 문법, 2026-11-26 리뷰 W-2).
+    액션 「보류하기」는 기존 REM-7 청구 건 단위 보류(suspend_reminders)를 재사용한다 — 성공 시
+    청구 상세로 돌아온다. %>
+<article class="flex flex-col gap-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm transition duration-200 hover:shadow-md sm:flex-row sm:items-center sm:gap-5 sm:p-6">
+  <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-stone-500" aria-hidden="true">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-6 w-6">
+      <path stroke-linecap="round" stroke-linejoin="round" d="<%= dash_action_icon_path("todays_send") %>" />
+    </svg>
+  </div>
+  <div class="min-w-0 flex-1">
+    <%= dash_action_badge("todays_send") %>
+    <h3 class="mt-2 truncate text-base font-bold text-stone-800">
+      <%= row.invoice.client.name %> · <span class="tabular-nums"><%= won(row.invoice.total_amount) %></span>
+    </h3>
+    <p class="mt-1.5 text-sm leading-relaxed text-stone-500">
+      <%= dash_action_send_time_label(row.send_at) %>에 다음 안내를 보냅니다: 「<%= message_template_label(row.template_key) %>」. 발송 전까지 보류할 수 있습니다.
+    </p>
+  </div>
+  <div class="flex w-full shrink-0 flex-wrap items-center gap-2 self-start sm:w-auto sm:self-center">
+    <%= button_to "보류하기", suspend_reminders_app_invoice_path(row.invoice), method: :patch,
+          data: { turbo_confirm: "이 청구서의 자동 안내를 멈춥니다. 보류하시겠습니까?" },
+          class: "inline-flex min-h-11 cursor-pointer items-center justify-center rounded-xl border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-600 transition duration-150 hover:border-stone-400 hover:text-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+    <%= link_to "청구서 확인", app_invoice_path(row.invoice),
+          class: "inline-flex min-h-11 items-center justify-center rounded-xl border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-600 transition duration-150 hover:border-stone-400 hover:text-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700" %>
+  </div>
+</article>

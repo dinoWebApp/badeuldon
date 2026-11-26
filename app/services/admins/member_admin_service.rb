@@ -13,13 +13,19 @@ module Admins
     # - grant_trial    : 체험 전환 — 활성(Plus) 구독 보유 시 금지, used_trial이면 1회 가드
     # - extend_trial   : 체험 연장 — current_period_end를 months개월 연장(trialing이면 trial_ends_at 동기화)
     # - cancel_subscription : 구독 해지 — Subscription#cancel!(기간 말까지 유효 — PLAN-5)
-    def self.change_plan!(admin:, user:, plan_params:)
-      new.change_plan!(admin:, user:, plan_params:)
+    def self.change_plan!(admin:, user:, plan_params:, ip: nil)
+      new(ip:).change_plan!(admin:, user:, plan_params:)
     end
 
     # 정지/해제 토글 — 정지 시 user.sessions 전부 파기(02 확정 해석 5).
-    def self.toggle_suspension!(admin:, user:)
-      new.toggle_suspension!(admin:, user:)
+    def self.toggle_suspension!(admin:, user:, ip: nil)
+      new(ip:).toggle_suspension!(admin:, user:)
+    end
+
+    # ip(ADMIN-2·Q32) — 컨트롤러가 ClientIp.of(request)로 넘긴 요청자 IP. 감사 기록 시
+    # RecordService에 그대로 전달되며, 인자 없는 호출(runner·기존 테스트)은 nil로 기록된다.
+    def initialize(ip: nil)
+      @ip = ip
     end
 
     def change_plan!(admin:, user:, plan_params:)
@@ -43,7 +49,7 @@ module Admins
           user.update!(status: :active)
         end
         AuditLogs::RecordService.call(
-          admin:, action: suspending ? "member_suspend" : "member_unsuspend", target: user
+          admin:, action: suspending ? "member_suspend" : "member_unsuspend", target: user, ip: @ip
         )
       end
       Result.new(success: true, errors: [], message: suspending ? "회원을 정지했습니다. 기존 세션도 종료되었습니다." : "정지를 해제했습니다.")
@@ -95,7 +101,7 @@ module Admins
     end
 
     def record_plan_change(admin, user, detail)
-      AuditLogs::RecordService.call(admin:, action: "member_plan_change", target: user, detail:)
+      AuditLogs::RecordService.call(admin:, action: "member_plan_change", target: user, detail:, ip: @ip)
     end
 
     def failure(message)

@@ -77,7 +77,7 @@ class ViewerRefusalTest < ActionDispatch::IntegrationTest
   test "수신 거부 후 자동 스캔은 이 거래처의 어떤 발송도 하지 않는다 (VIEW-7 — 전 청구 차단)" do
     invoice = invoices(:delta_issued)
     other = invoices(:delta_overdue)                                # 같은 거래처(delta_main)
-    invoice.client.update_column(:refused_at, Time.zone.parse("2026-10-12 09:00"))
+    mark_refused(invoice.client, at: Time.zone.parse("2026-10-12 09:00"))
 
     travel_to(Time.zone.parse("2026-10-14 14:00")) do
       Reminders::DispatchService.new(client: @fake).call
@@ -89,7 +89,7 @@ class ViewerRefusalTest < ActionDispatch::IntegrationTest
 
   test "수신 거부 후 수동 발송도 REFUSED 가드로 기록만 남는다 (VIEW-7 — 가드 이중 방어)" do
     invoice = invoices(:delta_issued)
-    invoice.client.update_column(:refused_at, Time.zone.parse("2026-10-12 09:00"))
+    mark_refused(invoice.client, at: Time.zone.parse("2026-10-12 09:00"))
 
     travel_to(Time.zone.parse("2026-10-14 10:00")) do
       result = Reminders::SendService.new(invoice: invoice, template_key: "confirm_d1",

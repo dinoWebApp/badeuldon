@@ -65,4 +65,25 @@ class App::ClientsRemindersTest < ActionDispatch::IntegrationTest
     assert_response :ok
     assert_match(/재개/, response.body)
   end
+
+  # VIEW-7(Q30) — 상속 거래처도 직접 거부와 같은 재개 차단을 탄다(리뷰 Tester 중점 4).
+  # 상속은 Client 콜백이 refused_at을 채우므로 이후 판정은 직접 거부와 동일 경로다.
+  test "상속 거래처의 거래처 단위 재개 요청은 상태 변경 없이 사유 안내로 거부된다 (VIEW-7·Q30)" do
+    sign_in_as users(:delta)
+    users(:delta).clients.create!(name: "델타재개 원본", contact_name: "덜원본", phone: "010-3535-3535")
+    mark_refused(users(:delta).clients.last, at: Time.zone.parse("2026-10-12 10:00"))
+    client = users(:delta).clients.create!(name: "델타재개 상속", contact_name: "덜상속",
+                                           phone: "01035353535")                # 상속
+    client.update_column(:reminders_suspended_at, Time.zone.parse("2026-10-12 09:00"))
+    assert client.reload.refused?
+
+    patch resume_reminders_app_client_path(client)
+    assert_response :see_other
+    assert_redirected_to app_client_path(client)
+    assert_equal "이 거래처가 추가 안내 수신을 거부하여 자동 안내를 재개할 수 없습니다.",
+                 flash[:alert]
+    client.reload
+    assert client.reminders_suspended?                              # 보류 마킹 유지 — 상태 변경 없음
+    assert client.refused?                                          # 거부 마킹도 유지
+  end
 end

@@ -118,6 +118,25 @@ class Admin::SessionsControllerTest < ActionDispatch::IntegrationTest
     assert_select "h1", text: "운영 현황"
   end
 
+  # Q32 — CF 터널 경유 요청(CF-Connecting-IP 헤더)에서는 감사 로그·세션·last_login_ip·
+  # 새 IP 감지가 remote_ip(터널 컨테이너 IP)가 아니라 실방문자 IP를 기록한다.
+  test "CF-Connecting-IP 헤더가 있으면 login_success 감사·last_login_ip가 헤더 IP를 기록한다 (Q32·ADMIN-2)" do
+    admin = admins(:ops)
+    setup_admin_totp_secrets
+    cf_headers = { "CF-Connecting-IP" => "203.0.113.7" }
+
+    travel_to Time.current do
+      post admin_session_path, params: { email: admin.email, password: "password" }, headers: cf_headers
+      assert_response :see_other
+      post totp_verify_admin_session_path, params: { code: totp_code(admin.otp_secret) }, headers: cf_headers
+      assert_response :see_other
+      assert_redirected_to admin_root_url
+    end
+
+    assert_equal "203.0.113.7", AuditLog.find_by(action: "login_success", admin: admin).ip
+    assert_equal "203.0.113.7", admin.reload.last_login_ip
+  end
+
   # ── ⑥ C-1 — pending 중 잠금 차단 ───────────────────────────────────────
 
   test "pending 유지 중 잠긴 계정은 2단계 화면 접근이 로그인으로 되돌려진다 (C-1)" do
@@ -188,6 +207,45 @@ class Admin::SessionsControllerTest < ActionDispatch::IntegrationTest
     # 동일 IP(10.9.9.9) 재로그인 — 무통보(리뷰 신규 제안 c)
     assert_enqueued_emails 0 do
       admin_login(admins(:ops), ip: "10.9.9.9", at: t0 + 2.minutes)
+    end
+    assert_equal 1, AuditLog.where(action: "new_ip_login").count
+  end
+
+  # Q32·AUTH-7.4 — 새 IP 감지도 ClientIp.of(request)(CF 헤더 우선)를 따른다. 헤더 IP가
+  # 기존 last_login_ip와 다르면 new_ip_login 감사·new_login 메일(헤더 IP 인자)이 나가고,
+  # 같은 헤더로 재로그인하면 통보가 없다.
+  test "CF-Connecting-IP 헤더의 새 IP는 new_ip_login 감사·new_login 메일(헤더 IP 인자)을 유발하고 재로그인은 무통보다 (AUTH-7.4·Q32)" do
+    admin = admins(:ops)
+    admin.update_columns(last_login_ip: "127.0.0.1")
+    cf_headers = { "CF-Connecting-IP" => "203.0.113.7" }
+    t0 = Time.current
+
+    assert_enqueued_emails 1 do
+      travel_to t0 do
+        post admin_session_path, params: { email: admin.email, password: "password" }, headers: cf_headers
+        assert_response :see_other
+        post totp_verify_admin_session_path, params: { code: totp_code(admin.otp_secret, t0) }, headers: cf_headers
+        assert_response :see_other
+        assert_redirected_to admin_root_url
+      end
+    end
+    assert_enqueued_email_with AdminMailer, :new_login, args: [ admin, "203.0.113.7" ]
+
+    audit = AuditLog.find_by(action: "new_ip_login", admin: admin)
+    assert_not_nil audit
+    assert_equal "203.0.113.7", audit.ip
+    assert_equal "203.0.113.7", admin.reload.last_login_ip
+
+    perform_enqueued_jobs # 메일 큐 비움 — 무통보 검증을 위해
+
+    assert_enqueued_emails 0 do
+      travel_to t0 + 1.minute do
+        post admin_session_path, params: { email: admin.email, password: "password" }, headers: cf_headers
+        assert_response :see_other
+        post totp_verify_admin_session_path, params: { code: totp_code(admin.otp_secret, t0 + 1.minute) }, headers: cf_headers
+        assert_response :see_other
+        assert_redirected_to admin_root_url
+      end
     end
     assert_equal 1, AuditLog.where(action: "new_ip_login").count
   end

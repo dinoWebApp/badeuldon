@@ -11,30 +11,36 @@ module Admins
 
     # role 승격/강등 — owner 전용. 최고 관리자 유일성 보장을 위해 owner가 자기 자신을
     # staff로 강등하는 것은 금지한다(모든 owner가 스스로 강등하면 콘솔 운영 불가).
-    def self.change_role!(admin:, actor:, role:)
-      new.change_role!(admin:, actor:, role:)
+    def self.change_role!(admin:, actor:, role:, ip: nil)
+      new(ip:).change_role!(admin:, actor:, role:)
     end
 
     # 잠금 해제(AUTH-7.3) — owner 전용. locked_at/failed_attempts 초기화.
-    def self.unlock!(admin:, actor:)
-      new.unlock!(admin:, actor:)
+    def self.unlock!(admin:, actor:, ip: nil)
+      new(ip:).unlock!(admin:, actor:)
     end
 
     # 신규 관리자 생성 — owner 전용. 중복·검증 실패는 Result로 반환.
-    def self.create_admin!(actor:, email:, password:, role:)
-      new.create_admin!(actor:, email:, password:, role:)
+    def self.create_admin!(actor:, email:, password:, role:, ip: nil)
+      new(ip:).create_admin!(actor:, email:, password:, role:)
     end
 
     # 컨트롤러 가드(require_owner)가 staff 접근을 차단할 때의 감사 기록 전용 진입점.
     # ADMIN-2 — 컨트롤러 직접 AuditLog create 금지를 우회하지 않기 위한 경유점.
     # (수정: 클래스 메서드에서 private 인스턴스 record_denial을 암시적 호출하던 결함 —
     #  3-S 결선 후 staff 차단 경로 NoMethodError 3건. RecordService 직접 경유로 수정.)
-    def self.record_denied!(actor:, action:, detail: nil)
+    def self.record_denied!(actor:, action:, detail: nil, ip: nil)
       AuditLogs::RecordService.call(
-        admin: actor, action: action,
+        admin: actor, action: action, ip: ip,
         detail: detail || "owner 전용 작업에 staff가 시도했습니다: #{actor.email}"
       )
       Result.new(success: false, errors: [ "이 작업은 최고 관리자(owner)만 수행할 수 있습니다." ], message: nil)
+    end
+
+    # ip(ADMIN-2·Q32) — 컨트롤러가 ClientIp.of(request)로 넘긴 요청자 IP. 감사 기록 시
+    # RecordService에 그대로 전달되며, 인자 없는 호출(runner·기존 테스트)은 nil로 기록된다.
+    def initialize(ip: nil)
+      @ip = ip
     end
 
     def change_role!(admin:, actor:, role:)
@@ -45,7 +51,7 @@ module Admins
       admin.transaction do
         admin.update!(role: role)
         AuditLogs::RecordService.call(
-          admin: actor, action: "admin_role_change", target: admin,
+          admin: actor, action: "admin_role_change", target: admin, ip: @ip,
           detail: "관리자 롤 변경: #{admin.email} → #{admin.role}"
         )
       end
@@ -61,7 +67,7 @@ module Admins
       admin.transaction do
         admin.unlock!
         AuditLogs::RecordService.call(
-          admin: actor, action: "admin_unlock", target: admin,
+          admin: actor, action: "admin_unlock", target: admin, ip: @ip,
           detail: "관리자 잠금 해제: #{admin.email}"
         )
       end
@@ -79,7 +85,7 @@ module Admins
       admin.transaction do
         admin.save!
         AuditLogs::RecordService.call(
-          admin: actor, action: "admin_create", target: admin,
+          admin: actor, action: "admin_create", target: admin, ip: @ip,
           detail: "관리자 계정 생성: #{admin.email} (#{admin.role})"
         )
       end
@@ -97,7 +103,7 @@ module Admins
     end
 
     def record_denial(actor, action, detail)
-      AuditLogs::RecordService.call(admin: actor, action: action, detail: detail)
+      AuditLogs::RecordService.call(admin: actor, action: action, detail: detail, ip: @ip)
     end
 
     def failure(message)

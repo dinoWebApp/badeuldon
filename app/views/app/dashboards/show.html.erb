@@ -1,6 +1,7 @@
 <% content_for :title, "대시보드 — 받을돈" %>
 
-<%# 표면 ② 대시보드 — DASH-1 요약 실데이터(F-INV 전환), DASH-2 빈 상태(REM·PROMISE 이벤트 부재),
+<%# 표면 ② 대시보드 — DASH-1 요약 실데이터(F-INV 전환), DASH-2 오늘의 액션 다섯 종(Q31 —
+    오늘 발송 예정·약속일 도래·미열람 방치·마감 대기·답변 대기, PRD 순서·종류별 5건),
     ONB-1 CTA 실링크(청구서 유무에 따라 발행·목록으로 전환), DASH-4 목록(연체일 내림차순 상위 5건).
     청구서 0건 사용자는 기존 빈 상태를 유지한다(거짓 0원 금지 — 02_prd_update 결정).
     퍼블리싱 리뉴얼(3b): DASH-1 미수 총액 히어로 카드 위계(DESIGN-3 tabular numerals),
@@ -74,16 +75,37 @@
     </div>
   </section>
 
-  <%# ── DASH-2 오늘의 액션 — 첫 실데이터(F-PROMISE): 마감 대기(입금 완료 회신·미마감 —
-      PROMISE-7)·답변 대기(무답변 문의 — PROMISE-6). REM 이벤트(발송 예정 등)는 F-REM
-      구현 전까지 비표시. 어느 쪽도 없을 때만 기존 빈 상태를 유지한다(거짓 0건 금지).
-      카드형 리스트(DESIGN-5): 유형 아이콘 + 상태 뱃지(DESIGN-2) + 우측 액션 버튼. ── %>
+  <%# ── DASH-2 오늘의 액션 — 다섯 종을 PRD 순서대로(Q31 — 2026-11-26 구현 확정):
+      ① 오늘 발송 예정(REM-11 당일 보류 창 — 실제 발송 예정 시각이 오늘인 건만, 2026-11-26
+      리뷰 C-1·C-2 반영) ② 약속일 도래 ③ 미열람 방치 — ④ 마감 대기(입금 완료 회신·미마감 —
+      PROMISE-7) ⑤ 답변 대기(무답변 문의 — PROMISE-6). 보여 줄 종류의 카드만 찍는다(거짓 0건
+      카드 금지), 안내성 세 종은 종류별 최대 5건(초과분 "외 N건" 안내 — 마감·답변 대기는 전체
+      표시), 다섯 종 모두 없을 때만 기존 빈 상태를 유지한다. 카드형 리스트(DESIGN-5): 유형
+      아이콘 + 상태 뱃지(DESIGN-2 — 발송 예정·약속일 도래 중립 / 미열람 주의 주황) + 우측 액션.
+      세 종의 산출은 @reminder_actions(Dashboards::ReminderActionsService 결과)만 소비한다. ── %>
   <section aria-labelledby="dash-actions" class="mt-8">
     <h2 id="dash-actions" class="text-base font-bold text-stone-800">오늘의 액션</h2>
-    <% if @closure_awaiting_invoices.any? || @awaiting_answer_inquiries.any? %>
+    <% if @reminder_actions.todays_sends.any? || @reminder_actions.promises_due_today.any? ||
+          @reminder_actions.unviewed_idle.any? ||
+          @closure_awaiting_invoices.any? || @awaiting_answer_inquiries.any? %>
       <div class="mt-3 grid gap-4 sm:grid-cols-2">
+        <%# ① 오늘 발송 예정 — 오늘 실제로 나갈 자동 안내(REM-11)·보류 액션 %>
+        <%= render partial: "todays_send_card", collection: @reminder_actions.todays_sends, as: :row %>
+        <% if @reminder_actions.todays_sends_total > @reminder_actions.todays_sends.size %>
+          <%= render "action_overflow_note", label: "오늘 발송 예정", extra: @reminder_actions.todays_sends_total - @reminder_actions.todays_sends.size %>
+        <% end %>
+        <%# ② 약속일 도래 — 최신 약속일이 오늘인 미수 청구 %>
+        <%= render partial: "promise_due_card", collection: @reminder_actions.promises_due_today, as: :row %>
+        <% if @reminder_actions.promises_due_today_total > @reminder_actions.promises_due_today.size %>
+          <%= render "action_overflow_note", label: "약속일 도래", extra: @reminder_actions.promises_due_today_total - @reminder_actions.promises_due_today.size %>
+        <% end %>
+        <%# ③ 미열람 방치 — 발행 후 3일 경과·미열람(상태가 "발행"인 동안만) %>
+        <%= render partial: "unviewed_idle_card", collection: @reminder_actions.unviewed_idle, as: :row %>
+        <% if @reminder_actions.unviewed_idle_total > @reminder_actions.unviewed_idle.size %>
+          <%= render "action_overflow_note", label: "미열람", extra: @reminder_actions.unviewed_idle_total - @reminder_actions.unviewed_idle.size %>
+        <% end %>
+        <%# ④ 마감 대기 — PROMISE-7. 마감 자체는 PAY에서 U1 확인으로만 이루어진다. %>
         <% @closure_awaiting_invoices.each do |invoice| %>
-          <%# PROMISE-7 — 마감 대기. 마감 자체는 PAY에서 U1 확인으로만 이루어진다. %>
           <article class="flex flex-col gap-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm transition duration-200 hover:shadow-md sm:flex-row sm:items-center sm:gap-5 sm:p-6">
             <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-green-50 text-green-700" aria-hidden="true">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-6 w-6">
@@ -103,8 +125,8 @@
                   class: "inline-flex min-h-11 shrink-0 items-center justify-center self-start rounded-xl border border-stone-300 bg-white px-5 text-sm font-semibold text-stone-600 transition duration-150 hover:border-stone-400 hover:text-stone-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 sm:self-center" %>
           </article>
         <% end %>
+        <%# ⑤ 답변 대기 — PROMISE-6. 답변 등록은 청구서 상세의 응답 이력에서 한다. %>
         <% @awaiting_answer_inquiries.each do |promise| %>
-          <%# PROMISE-6 — 답변 대기. 답변 등록은 청구서 상세의 응답 이력에서 한다. %>
           <article class="flex flex-col gap-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm transition duration-200 hover:shadow-md sm:flex-row sm:items-center sm:gap-5 sm:p-6">
             <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600" aria-hidden="true">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-6 w-6">

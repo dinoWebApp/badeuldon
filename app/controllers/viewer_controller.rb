@@ -67,11 +67,10 @@ class ViewerController < ApplicationController
     render :expired, status: :not_found unless link_accessible?
   end
 
-  # CF Tunnel 경유 요청의 실방문자 IP(SHARE-3) — Cloudflare가 설정하는 CF-Connecting-IP를
-  # 우선 사용하고, 터널 외 직접 접근(헤더 없음) 시 remote_ip로 fallback한다. ViewEvent 기록 전용
-  # (전역 remote_ip 재계산은 후속 과제).
+  # 클라이언트 IP 판정은 전역 헬퍼 ClientIp.of(Q32 — CF-Connecting-IP 우선·단일 IP 형식 검증·
+  # remote_ip 폴백)로 위임한다. ViewEvent 기록(SHARE-3).
   def viewer_client_ip
-    request.headers["CF-Connecting-IP"].presence || request.remote_ip
+    ClientIp.of(request)
   end
 
   def link_accessible?

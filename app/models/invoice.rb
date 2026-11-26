@@ -41,11 +41,12 @@ class Invoice < ApplicationRecord
   belongs_to :client
   has_many :items, class_name: "InvoiceItem", dependent: :destroy, inverse_of: :invoice
   has_many :view_events, dependent: :destroy  # SHARE-3 — 열람 이력(뷰어 ③). 청구서 파괴 시 연쇄 삭제
-  has_many :promises, dependent: :destroy  # F-PROMISE — 응답·약속 이력(뷰어 ③). 연쇄 삭제는
-  # 초안 삭제에서만 실질 발생한다(발행 계열은 삭제 불가 — 초안은 뷰어 진입이 없어 응답이 없다).
-  has_many :payments, dependent: :destroy  # F-PAY — 입금 이력(PAY-1/2). 연쇄 삭제는 promises와
-  # 같은 이유로 초안 삭제에서만 실질 발생하며, 발행 계열의 입금 이력은 영구 보존 대상(P4)이라
-  # 삭제 경로 자체가 없다.
+  has_many :promises, dependent: :destroy  # F-PROMISE — 응답·약속 이력(뷰어 ③). 앱 내 삭제 경로는
+  # 초안 삭제뿐이지만(발행 계열은 앱에서 삭제 불가), 회원 탈퇴(AUTH-1.5)·관리자 계정 삭제
+  # (ADMIN-3·Q13) 시에는 발행 계열도 연쇄 삭제된다 — 감사 로그(ADMIN-2)만 보존된다.
+  has_many :payments, dependent: :destroy  # F-PAY — 입금 이력(PAY-1/2). 앱 내 삭제 경로는 초안
+  # 삭제뿐이며, 회원 탈퇴(AUTH-1.5)·관리자 계정 삭제(ADMIN-3·Q13) 시에는 발행 계열의 입금
+  # 내역도 연쇄 삭제된다 — 감사 로그(ADMIN-2)만 보존된다.
   # TAX-1/2 — 전자세금계산서 발행 기록(1청구 1발행 — tax_invoices.invoice_id unique).
   has_one :tax_invoice, dependent: :destroy
 

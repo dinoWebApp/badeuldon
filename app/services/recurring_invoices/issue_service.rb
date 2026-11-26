@@ -107,18 +107,25 @@ module RecurringInvoices
     # ── 알림 인큐(커밋 후 전용 — 트랜잭션 안에서 인큐하지 않는다) ─────────────
     # SHARE-6 — 발행 안내 알림톡(채무자 향 1회성 — PLAN-3 상한 집계 밖). App::InvoicesController#issue와
     # 동일 경로이며 예약 판정(창 밖 다음 평일 이연)은 Reminders::SendService가 담당한다.
+    # VIEW-7(Q30·리뷰 W-1) — 수신 거부(상속 포함) 거래처의 발행은 첫 안내를 예약하지 않는다
+    # (컨트롤러 issue와 동일 판정 — U1 recurring 통보는 거부와 무관하게 그대로 인큐).
     # NOTI-3(Q15·W-2) — U1 통보 2종. 템플릿 미등록은 SendService가 skipped(NO_TEMPLATE)로
     # 기록·정상 종료한다 — 등록 후 자동 활성화.
     def enqueue_notifications(schedule, result)
       case result[:result]
       when :issued
-        Reminders::DeliverJob.perform_later(result[:invoice].id, "issue_notice", "debtor")
+        enqueue_issue_notice(result[:invoice]) unless result[:invoice].client.refused?
         Reminders::DeliverJob.perform_later(result[:invoice].id, "noti_recurring_issued", "user")
       when :held
         if schedule.last_invoice_id
           Reminders::DeliverJob.perform_later(schedule.last_invoice_id, "noti_recurring_held", "user")
         end
       end
+    end
+
+    # SHARE-6 — 채무자 향 발행 안내 1통. 수신 거부 거래처는 호출부에서 걸러진다(VIEW-7·Q30).
+    def enqueue_issue_notice(invoice)
+      Reminders::DeliverJob.perform_later(invoice.id, "issue_notice", "debtor")
     end
   end
 end

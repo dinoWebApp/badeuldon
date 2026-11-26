@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_20_000000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_26_090000) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.string "name", null: false
     t.string "record_type", null: false
@@ -123,6 +123,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_20_000000) do
     t.datetime "refused_at"
     t.string "ceo_name"
     t.string "corp_addr"
+    t.string "refused_phone"
     t.index ["user_id"], name: "index_clients_on_user_id"
   end
 
@@ -504,6 +505,23 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_20_000000) do
     t.datetime "updated_at", null: false
     t.index ["invoice_id", "ip", "viewed_at"], name: "index_view_events_on_invoice_ip_viewed_at"
     t.index ["invoice_id"], name: "index_view_events_on_invoice_id"
+  end
+
+  create_table "withdrawn_payment_records", force: :cascade do |t|
+    t.integer "product", null: false
+    t.integer "item_type", null: false
+    t.integer "amount", null: false
+    t.integer "status", null: false
+    t.string "pg_order_id", null: false
+    t.string "pg_payment_id"
+    t.datetime "order_created_at"
+    t.datetime "paid_at"
+    t.datetime "refunded_at"
+    t.datetime "withdrawn_at", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["pg_order_id"], name: "index_withdrawn_payment_records_on_pg_order_id", unique: true
+    t.index ["withdrawn_at"], name: "index_withdrawn_payment_records_on_withdrawn_at"
   end
 
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
