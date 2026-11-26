@@ -1,5 +1,5 @@
 {
-  "domain": "PLAN/ADMIN",
+  "domain": "REM·VIEW·PLAN — 수신 거부 청구 재개 차단 + 발송 상한 수동 합산",
   "currentPhase": null,
   "pipelineType": "Full",
   "parallelTasks": [],
@@ -7,63 +7,153 @@
     {
       "phase": 0,
       "status": "done",
-      "note": "새 작업 — 관리자 환불 실행(포트원 결제 취소 연동·구독 즉시 Free·수금 패스 차감). 작업 트리 깨끗함·원격 동기"
+      "note": "새 작업 — 포트원 런 산출물을 _workspace_prev/로 이동(환불 런 산출물은 HEAD의 _workspace/에 보존). 미커밋 변경(포트원 런 60파일·테스트 문서 2개) 위에 쌓아 진행 — 사용자가 진행을 지시했고 커밋은 요청 시 분리. 일반 모드·Full(상한 집계는 비즈니스 규칙 해석 변경·PRD 결정 기록 Q28 필요)"
+    },
+    {
+      "phase": "gate",
+      "status": "approved",
+      "note": "사용자 사전 승인(2026-11-25) — '1번 2번은 자체적으로 판단해서 진행해주세요'. 승인 선택 질의는 생략하고 같은 세션에서 진행. 제품 판단: ① 수신 거부 청구는 재개 버튼 미노출+요청 거부 ② 자동 상한에 수동 발송 합산(PRD Q11 취지에 맞춤)"
     },
     {
       "phase": 1,
       "status": "done",
-      "note": "01_plan.md — Orders::RefundService·owner 전용 콘솔·PLAN-9·ADMIN-11·Q27 설계. 사용자 확정 3건(패스 10건 차감·발행물 그대로·owner 전용)+카드 저장 확인(빌링키만 보관·환불 시 구독 키와 주문 복사본 비움) 반영. 주문 status cancelled 수렴·웹훅 변경 없음으로 설계 정정"
-    },
-    {
-      "phase": 1.5,
-      "status": "done",
-      "note": "승인 게이트 통과(2026-11-24 사용자 선택: 승인 — 계속 진행, 개인정보처리방침 빌링키 문구는 보류)"
+      "note": "01_plan.md — 결정 2건(수신 거부 청구 재개 버튼 미노출+요청 거부 / 자동 상한에 수동 발송 합산), 범위·경계 시나리오 8건·리스크 기록. 사전 승인으로 질의 생략"
     },
     {
       "phase": 2,
       "status": "done",
-      "note": "02_prd_update.md — PRD v0.47: PLAN-9 신설·PLAN-6 보강·ADMIN-11 신설·ADMIN-4 보강·포트원 의존 행·Q27 신설. AGENTS.md Rule 색인 PLAN·ADMIN 행 갱신"
+      "note": "PRD v0.49 — VIEW-7 재개 불가 구현 확정·REM-12 단서·PLAN-3 자동 상한 합산 보완·결정 기록 Q28 신설. 02_prd_update.md 작성"
     },
     {
       "phase": 3,
       "status": "done",
-      "note": "badeuldon-developer 구현 — 신설 2(refund_service·admin/orders_helper)·수정 11·기존 테스트 1 파일 이식. 자체 보고: 전체 테스트 1,529건 0실패·rubocop 0·zeitwerk 통과. 위임 실측 GLM-5.3-Flash/high 일치. 03_implementation.md 작성"
+      "note": "badeuldon-developer — VIEW-7: 재개 버튼 분기에 !client.refused? + restart_reminders 거부 가드(303+alert, 상태 변경 없음) / PLAN-3·Q28: MessageLog.counted_for_cap 스코프+cap_sent_count(시퀀스성 OR manual) 로 교체, cap_reached? 사용. 테스트 6파일 갱신·신규(옛 이름 호출처 2파일 기계 교체 포함). 지정 3파일 65 runs 0 failures·시스템 16 runs 0 failures·rubocop 430파일 0·zeitwerk OK(Developer 보고 — 오케스트레이터가 Phase 4에서 재확인). 우려: 수신 거부+청구 건 보류 병존 시 청구 보류 재개 버튼 노출(재개해도 REFUSED로 미발송). 위임 실측 GLM-5.3-Flash/high 일치"
     },
     {
       "phase": 4,
       "status": "done",
-      "note": "오케스트레이터 기계적 검증 — bin/rubocop 422파일 0 offenses·zeitwerk:check 통과(test/mailers/previews 안내는 기존 권고)·마이그레이션 없음. 소스 변경 12파일(+187/-59)+신설 2"
+      "note": "오케스트레이터 직접 재확인: rubocop 430파일 0 offenses·zeitwerk 통과·영향 테스트 5파일 77 runs 0 failures. 소스 diff 지시대로 확인. 같은 종류 구멍 발견 → Developer 재위임(2차): 청구 건 보류+수신 거부 겹침 시 「안내 재개하기」 노출 차단, 청구·거래처 resume_reminders 거부 가드"
+    },
+    {
+      "phase": 3,
+      "status": "done",
+      "note": "badeuldon-developer(2차) — 보류·수신 거부 겹침: 청구 상세 버튼 분기 2번에 !client.refused?, InvoicesController#resume_reminders·ClientsController#resume_reminders 거부 가드(303+alert \"…자동 안내를 재개할 수 없습니다.\", 상태 변경 없음). 테스트: invoices_reminders_test 겹침 2건, clients_reminders_test 신설(2건), 시스템 인접 케이스 1건. 24 runs 0 failures·시스템 17 runs 0 failures·rubocop 431파일 0(Developer 보고). 위임 실측 GLM-5.3-Flash/high 일치"
+    },
+    {
+      "phase": 4,
+      "status": "done",
+      "note": "2차 보완까지 오케스트레이터 재확인: 소스 diff 지시대로(clients/invoices resume_reminders·restart_reminders 거부 가드, 뷰 분기 2·3번에 !client.refused?), rubocop 431파일 0 offenses·zeitwerk 통과·영향 테스트 120 runs 0 failures. 이번 런 파일 12개(11 수정·1 신설)는 포트원 런 파일과 불겹침"
+    },
+    {
+      "phase": 5,
+      "status": "failed",
+      "note": "badeuldon-reviewer 1회차 실패 — [1308] 5시간 사용량 한도(리셋 2026-11-25 16:44). 리뷰 산출물 없음. 규칙대로 신규 호출 1회 재시도"
     },
     {
       "phase": 5,
       "status": "done",
-      "note": "badeuldon-reviewer CHANGES_REQUESTED — B0·C2·W9(범위 밖 1)+확인 요청 2. C-1 dunning 잔여 필드로 재등록 카드 재차감·C-2 PG 취소 뒤 확정 실패 시 감사 기록 0건. 포트원 OpenAPI 원문 대조 성공(amount.paid/total/cancelled 확정·취소 내역 키는 totalAmount). 위임 실측 GLM-5.4/high 일치. ⚠ 리뷰 중 서브에이전트가 포트원 운영 호스트로 실요청(거부됨·금전 이동 없음) + 기존 테스트 결함 R3(dunning_retry_test:135 대역 없이 갱신 잡 실행) 발견"
+      "note": "badeuldon-reviewer(재시도) — APPROVED(B0·C0·W7). W-1 거래처 목록 카드에 수신 거부+보류 겹침 시 「재개」 노출 / W-2 PRD VIEW-7·REM-7 문서 보완 필요 / W-3 상한 도달 청구도 09:00 사전통보를 받음(REM-11 어긋남) / W-4 상한 도달 청구가 종결되지 않아 배지·버튼·다음 안내 라벨이 거짓이 됨(제품 결정) / W-5 양성 단언·마킹 보존 단언 공백 / W-6 체크리스트 옛 기대값(재생성 예정) / W-7 시스템 테스트 로그인 제출 플레이크. 범위 밖 관찰: 수신 거부가 거래처 행 단위라 같은 번호 재등록으로 우회 가능(기존 설계 — 제품 판단 필요). Reviewer 81 runs 0 failures·시스템 2회차 5 runs 0 failures. 위임 실측 GLM-5.4/high 일치. 산출물은 오케스트레이터가 파일로 기록"
+    },
+    {
+      "phase": "2-보완",
+      "status": "done",
+      "note": "리뷰 결정 반영 PRD 갱신 — VIEW-7 보류 재개도 재개 불가, REM-7 단서, REM-11 상한 도달 청구 사전 통보 제외, PLAN-3 상한 도달 청구의 안내(표시·버튼 미노출·종결 마킹 없음), Q28 보완, 최종 갱신 2026-11-26. 05_review.md 파일 기록(Reviewer 쓰기 도구 없음)"
     },
     {
       "phase": 6,
       "status": "done",
-      "note": "badeuldon-developer 재위임 — 포트원 test 환경 실호출 차단 가드(클라이언트 perform + with_http_transport 플래그 + 가드 테스트 1건)·R3 대역 감싸기·C-1(reset_dunning!+last_payment_failed_at nil)·C-2(order_refund_attempt/failed 감사)·W-1~W-8 수정. 자체 보고: 가드 활성 전체 테스트 1,530건 0실패 0에러·rubocop 0·zeitwerk 통과. 위임 실측 GLM-5.3-Flash/high 일치"
+      "note": "badeuldon-developer(3차) — W-1 거래처 목록 카드 재개 분기에 !refused? / W-3 Invoice#reminder_cap_reached? 신설·SendService#cap_reached? 위임·DispatchService#steps_due_today이 상한 도달 청구에 빈 배열(사전통보 제외·restartable? false) / W-4 RemindersContext에 @reminder_cap_reached, 배지 「상한 도달」, 상한 안내 상자, 버튼 행·무료 플랜 문구 미렌더 / §5-3 거래처 보류 겹침 시 다시 보내기 숨김 / W-5 단언 보강. 테스트 신규 11건·갱신 3건, 153 runs 0 failures·rubocop 431파일 0(Developer 보고 — 오케스트레이터 재확인 예정). 위임 실측 GLM-5.3-Flash/high 일치. 우려: 상한 도달 시 noti_promise_unkept 미발송(잔여), 상한 안내 상자가 paid 건에도 표시 가능"
     },
     {
-      "phase": 6.5,
+      "phase": 4,
       "status": "done",
-      "note": "오케스트레이터 재검증 — rubocop 422파일 0 offenses·zeitwerk 통과. 가드 코드·stubbing 플래그·R3 대역 감싸기·refund_service(C-1·C-2·W-1~W-8)·컨트롤러 안전망·관리자/회원 문구 diff 직접 확인(지시대로 반영). CRITICAL 건은 규약상 재리뷰 불필요 — Tester 회귀 테스트로 검증"
+      "note": "3차 소스 diff 오케스트레이터 직접 확인: 상한 판정 단일 출처 Invoice#reminder_cap_reached?, steps_due_today 상한 제외, 상세 뷰 분기(거부→상한→보류→종결)·버튼 행 미렌더, 거래처 목록 카드 분기 — 지시대로. Developer 우려(완납 청구에도 상한 안내 표시)를 받아들여 4차 마무리 위임(미수 청구 한정)"
+    },
+    {
+      "phase": 6,
+      "status": "done",
+      "note": "badeuldon-developer(4차) — 상한 안내 상자 분기 `@reminder_cap_reached && unsettled?`, 「상한 도달」 배지도 unsettled 한정. 수금 완료 청구 GET 신규 테스트 1건. 26 runs 0 failures·rubocop 431파일 0(Developer 보고). 위임 실측 GLM-5.3-Flash/high 일치"
+    },
+    {
+      "phase": 4,
+      "status": "done",
+      "note": "4차까지 오케스트레이터 재확인: rubocop 431파일 0 offenses·zeitwerk 통과·영향 테스트 177 runs 0 failures. 뷰 분기 unsettled? 확인"
     },
     {
       "phase": 7,
       "status": "done",
-      "note": "badeuldon-tester — 1차 호출은 5시간 사용량 한도로 리딩 단계 중단(2026-11-24), 신규 호출 재시도로 완료(2026-11-25). 자체 보고: 전체 1,582 runs(+52)·9,958 assertions·0 failures·0 errors / test:system 14 runs(신규 1건 10/10 안정) / app 버그 0 / 기존 테스트 날짜 폭탄 1건(Sales::RotateReferralCodesServiceTest) 테스트 측 수정. 위임 실측 GLM-5.3-Flash/high 일치. 07_test_report.md 작성"
+      "note": "badeuldon-tester — 신규 9건+기존 1건 보강+공용 log_in_as 신설(W-7). 관련 파일 161 runs 0 failures, 시스템 3회 연속 각 19 runs 0 failures, rubocop 431파일 0. 이번 변경 범위 코드 버그 없음. 기존 결함 후보 1건: 창 밖 재예약 수동 발송이 같은 템플릿의 sent 이력이 있으면 new_log! 유니크 복구가 가장 오래된 sent 행을 돌려 duplicate 흡수 → 예약 슬롯 영구 pending(약속한 다음 평일 9시 발송이 안 됨). 우려: 범위 밖 시스템 테스트 4파일이 자체 click_button 로그인 헬퍼 사용(플레이크 잔존 — app_invoice_pdf_test 1회 드롭 관측). 위임 실측 GLM-5.3-Flash/high 일치"
+    },
+    {
+      "phase": "2-보완2",
+      "status": "done",
+      "note": "Tester 발견 기존 결함을 같은 런에서 수정하기로 결정 — PRD REM-3에 재예약분 실행 정합 문구 추가(02_prd_update.md 기록). PRD REM-3 오타 정정(주일 → 주말)"
+    },
+    {
+      "phase": 6,
+      "status": "done",
+      "note": "badeuldon-developer(5차) — SendService#find_pending_slot 신설, new_log! 복구가 pending 슬롯을 돌려줌, claim_log 자동 경로도 pending 슬롯 우선(오래된 failed/skipped + 예약 슬롯 조합의 유령 슬롯 방지). 결함 고정 테스트를 올바른 동작으로 교체 + 신규 2건(자동 경로 슬롯 재사용·상한 도달 청구의 예약 실행은 CAP_REACHED). 100 runs 0 failures·rubocop 431파일 0(Developer 보고). 위임 실측 GLM-5.3-Flash/high 일치. 우려: 운영에 이미 남은 영구 pending 슬롯 정리는 별도 결정"
+    },
+    {
+      "phase": 4,
+      "status": "done",
+      "note": "5차 오케스트레이터 재확인: rubocop 431파일 0·zeitwerk 통과·영향 테스트 186 runs 0 failures. 코드 리딩 중 발견: claim_log의 pending 슬롯 우선이 debtor 전제(부분 유니크 인덱스)인데 역할 조건 없이 적용돼 U1 향 예정 알림(scheduled_at별 멱등)이 다른 예정시각의 stale pending을 재사용할 수 있음 → 6차 위임(debtor? 한정)"
+    },
+    {
+      "phase": 6,
+      "status": "done",
+      "note": "badeuldon-developer(6차) — claim_log의 pending 슬롯 우선을 `if debtor?`로 한정. U1 예정 알림 stale pending 재사용 방지 테스트 신설 1건. 50 runs 0 failures·rubocop 431파일 0(Developer 보고). 위임 실측 GLM-5.3-Flash/high 일치"
+    },
+    {
+      "phase": 4,
+      "status": "done",
+      "note": "5·6차 오케스트레이터 재확인: claim_log `find_pending_slot if debtor?` 확인, rubocop 431파일 0·zeitwerk 통과·영향 테스트 187 runs 0 failures"
+    },
+    {
+      "phase": 7,
+      "status": "done",
+      "note": "badeuldon-tester(2차) — 시스템 테스트 4개 파일(app_invoice_pdf·app_billing_channel_key_notice·app_legal_document_pdf·app_invoice_form_scorecard)의 자체 log_in_as 정의 삭제 → 공용 헬퍼 사용(dom_click_button 경로). 시스템 3회 연속 각 19 runs 0 failures, rubocop 431파일 0. 위임 실측 GLM-5.3-Flash/high 일치"
     },
     {
       "phase": 8,
       "status": "done",
-      "note": "오케스트레이터 실행 검증 — 전체 테스트 직접 재실행 1,582 runs·0 failures·0 errors(Tester 보고 일치)·Brakeman 0 경고·db:prepare·라우트 등록·Puma 부팅·미로그인 요청 응답(CSRF 없는 PATCH 422·유효 CSRF+관리자 세션 없음 303 로그인 가드)·500·예외 0·외부 실호출 0. bin/dev는 비TTY에서 css 감시 프로세스 즉시 종료로 foreman 전체 종료(환경 특성) → rails server 직접 구동으로 대체. 08_run_report.md 작성"
+      "note": "bin/ci 통과(CI_EXIT=0) — rubocop 431파일 0 offenses·bundler-audit 취약점 0·importmap audit 통과·Brakeman Security Warnings 0·전체 테스트 1,692 runs 10,766 assertions 0 failures 0 errors(이번 런 전 1,664 → +28)·시드 통과. 1m05s"
+    },
+    {
+      "phase": 5,
+      "status": "done",
+      "note": "badeuldon-reviewer(마감 리뷰, 정적) — CHANGES_REQUESTED(B0·C1·W6). C-1: 창 시작 직전 1분 이내(08:59:02~59) 접수된 창 밖 발송은 예약 슬롯이 in_flight?(pending·updated_at 1분 내)에 걸려 다음 실행이 duplicate 흡수 → 발송 누락(5차 이전 기존 동작, REM-3 \"반드시 실행\"과 충돌). W-1 자동 경로 sent+pending 슬롯 유령(스캔 시각이 사용자 창 밖일 때) / W-2 상한 안내 문구의 5통 산정 설명 / W-3 자동 1회성 5통+시퀀스 4통에서 「지금 1통 보내기」가 죽은 버튼 / W-4 테스트 3곳 / W-5 낡은 주석·죽은 조건 / W-6 PRD 문서-코드 차이 / W-7 용어 불일치. 위임 실측 GLM-5.4/high 일치. 테스트 미실행(지시)"
+    },
+    {
+      "phase": "2-보완3",
+      "status": "done",
+      "note": "마감 리뷰 반영 PRD 갱신 — PLAN-3 상한 안내 미수 청구 한정·수동 상한 버튼 안내, REM-3 창 시작 직전 접수분 실행 보장·가드 차단 예외·이미 보낸 자동 단계 재예약 금지. 05_review.md에 마감 리뷰 전문 기록"
+    },
+    {
+      "phase": 6,
+      "status": "done",
+      "note": "badeuldon-developer(7차) — C-1: in_flight?에 예약 슬롯 조건(scheduled_at 있으면 updated_at >= scheduled_at일 때만 진행 중) AND 추가, claim 직후 mark_execution_started!(예약 슬롯만 touch) / W-1 call 첫 줄 auto_sequence_step? && step_sent? → duplicate / W-2 상한 안내 문구 교체 / W-3 Invoice#manual_reminder_cap_reached? 신설·SendService 위임·RemindersContext @manual_cap_reached·뷰 버튼·라벨 숨김+한 줄 안내 / W-5 주석·죽은 조건·find_pending_slot debtor? 방어 / W-7 스킵 라벨 \"청구 건당 발송 상한(5통)에 도달하여…\" / W-4 테스트 8건. 195 runs 0 failures·rubocop 431파일 0(Developer 보고). 위임 실측 GLM-5.3-Flash/high 일치"
+    },
+    {
+      "phase": 4,
+      "status": "done",
+      "note": "7차 오케스트레이터 재확인: call 첫 줄 sent 자동 단계 duplicate·in_flight? 예약 슬롯 조건·mark_execution_started! 코드 리딩, rubocop 431파일 0·zeitwerk 통과·영향 테스트 195 runs 0 failures·시스템 19 runs 0 failures"
+    },
+    {
+      "phase": 7,
+      "status": "done",
+      "note": "badeuldon-tester(3차) — 7차 수정 뒤 적대 시나리오 8건 신규(서비스 4·컨트롤러 3·시스템 1) 전부 첫 실행 통과, 코드 버그 0. 현재 동작 기록: 수동 창 밖 이중 접수 → 다음 날 2통 발송(안내 2회와 정합), partial_paid 이중 실행 → 건마다 신규 이력(Q23). 서비스+컨트롤러 81 runs 0 failures·시스템 20 runs 0 failures·rubocop 0. 위임 실측 GLM-5.3-Flash/high 일치"
+    },
+    {
+      "phase": 8,
+      "status": "done",
+      "note": "최종 상태 검증(오케스트레이터 직접) — bin/ci 통과: rubocop 431파일 0·젬 취약점 0·importmap audit 통과·Brakeman 0·전체 테스트 1,707 runs 10,908 assertions 0 failures(이번 런 전 1,664 → +43)·시드 통과. 시스템 테스트 20 runs 0 failures. 서버 기동 정상·주요 경로 200/302·오류 0. 운영 읽기 전용 조회: 상한 도달 청구 0·pending 슬롯 0·수신 거부 0. 08_run_report.md 작성"
     },
     {
       "phase": 9,
       "status": "done",
-      "note": "완료 보고 — AGENTS.md 구현 진행 상황·테스트 전략(test 환경 실호출 차단 가드 3종)·운영 노트(관리자 환불 실행 운영) 갱신, PRD PLAN-9 구현 확정 보강. 위임 실측 4건 전부 일치. 커밋·배포는 사용자 요청 시(badeuldon-git-deploy·bin/ci)"
+      "note": "완료 보고·정리 — LAUNCH_TEST_SCENARIOS.md 기대값 정정(I-01-4·F-04-2 대시보드 미구현 반영, 화면 문구 9곳 실제 문자열 정렬, C-02 기대값 정정), LAUNCH_TEST_CHECKLIST.md 재생성(시나리오 307+추가 53=360항목, 대조: 글자 불일치 0·참조 이상 0), AGENTS.md(규칙 색인 REM·PLAN·VIEW 행, 구현 진행 상황 항목, 운영 노트) 갱신, 메모리 갱신. 위임 실측 11회 전부 프로필 일치(리뷰 1회 사용량 한도 실패 후 재시도). 미커밋 — 커밋·배포는 사용자 요청 시"
     }
   ],
-  "lastUpdated": "2026-11-25T08:40:00+09:00"
+  "lastUpdated": "2026-11-26T09:18:35+09:00"
 }

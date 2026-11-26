@@ -1,224 +1,208 @@
+status: APPROVED
+
+# 05_review — 수신 거부 청구의 재개 차단 + 발송 상한에 수동 발송 합산 (2026-11-26, Reviewer)
+
+> 기록: Reviewer 프로필에 쓰기 도구가 없어 최종 답변으로 돌려준 산출물을 오케스트레이터가 옮겨 적었다(내용 무변경·HTML 엔티티만 복원). 1회차 리뷰(2026-11-25)는 사용량 한도로 중단됐고 이것은 재시도 결과다.
+
+**BLOCKER 0 · CRITICAL 0 · WARNING 7.** 1차·2차 구현을 통합해 봤다. 코드는 고치지 않았고, 지시된 기존 테스트 파일만 실행했다.
+
+두 수정 모두 PRD v0.49의 의도대로 동작하고 데이터 무결성·소유권·발송 차단에 문제가 없다. WARNING은 세 갈래다.
+- 이번에 메운 "죽은 버튼·틀린 안내"와 같은 유형이 거래처 목록 카드에 한 군데 남았다(W-1).
+- 상한이 새로 걸리는 청구에서 U1 안내가 실제와 어긋난다(W-3·W-4).
+- 문서와 테스트에 빈틈이 있다(W-2·W-5·W-6·W-7).
+
+## 1. 이슈
+
+| ID | 심각도 | Rule | 파일:줄 | 문제 | 수정 제안 |
+|:--|:--|:--|:--|:--|:--|
+| W-1 | WARNING | VIEW-7 | `app/views/app/clients/_client.html.erb:43-50` | 거래처 목록 카드는 `client.reminders_suspended?`를 먼저 판정한다. 그래서 **수신 거부 + 거래처 단위 보류**가 겹친 거래처에 「재개」 버튼이 그대로 보인다. 거래처 상세는 `if @client.refused?`가 먼저라 막혀 있다. 누르면 컨트롤러 가드가 상태 변경 없이 alert로 거부한다(무결성 영향 없음). 이 겹침은 자연스럽게 생긴다: 거래처를 보류한 뒤 채무자가 거부하면 `RegisterService`가 보류 마킹을 지우지 않는다. 03 문서 §7의 "거래처 상세 뷰 무변경" 서술은 목록 카드를 포함하지 않았다. | `unless client.refused?`로 감싸고 안에서 보류 여부로 「재개」/「보류」를 가른다(또는 1행 조건 `client.reminders_suspended? && !client.refused?`). 거래처 목록 GET 테스트 1건(거부+보류 → 「재개」 없음)을 더한다. |
+| W-2 | WARNING | VIEW-7·REM-7 | `PRD.md:228`(VIEW-7), `:168`(REM-7) | PRD v0.49 VIEW-7은 「안내 다시 보내기」(REM-12 재개)만 서술하고 "REM-7의 보류는 재개 가능"이라고 대비한다. 2차 구현은 수신 거부 거래처의 **REM-7 보류 재개(청구 건·거래처 단위)**도 버튼 미노출·상태 변경 없이 거부한다. 코드가 PRD보다 앞서 있다. 동작 자체는 VIEW-7 취지에 맞다: 거부 거래처는 보류를 풀어도 발송이 없고 거부를 되돌릴 경로가 없다. | VIEW-7에 "청구 건·거래처 단위 보류 재개(「안내 재개하기」)도 노출하지 않고 상태 변경 없이 사유 안내로 거부한다. 보류 마킹은 그대로 남는다"를 명시한다. REM-7에 "(수신 거부 거래처는 제외 — VIEW-7)" 단서를 단다. |
+| W-3 | WARNING | REM-11·PLAN-3 | `app/services/reminders/prenotice_service.rb:26-35` | 사전통보는 `steps_due_today`와 플랜 자격만 본다. **상한 도달 청구**는 09:00에 "오늘 보낼 예정입니다" 통보를 받지만 14:00 발송은 `CAP_REACHED`로 막힌다. REM-11 "무응답 시 예정대로 자동 발송된다"와 어긋나고, 서비스 주석의 "실제 발송이 일어날 건만 알린다"(자격 필터 선례)도 깨진다. 구조는 기존이지만 Q28로 범위가 넓어졌다: 수동 2통 + 기본 트랙이면 `requeue_d7`까지 5통이라 `final_d14`가 막히고 그날 아침 통보가 나간다. 채무자 영향은 없고 U1이 단계마다 쓸데없는 통보를 받는 수준이다. 코드 경로를 읽어 확인했고, 실행으로 재현하지는 않았다. | 이번 런에서 고치는 것을 권장한다(량이 작다). 상한 도달 청구는 사전통보 대상에서 뺀다. 판정은 `SendService#cap_reached?`(private)를 복제하지 말고 공개 진입점 하나로 둔다(예: 클래스 메서드 `Reminders::SendService.cap_reached?(invoice)`). 테스트: 수동 5통 + D+1 09시 `PrenoticeService.call` → `noti_prenotice` 0건. |
+| W-4 | WARNING (확인 요청) | PLAN-3·REM-12·NOTI-1 | `app/helpers/app/reminders_helper.rb:73-86`, `app/views/app/invoices/show.html.erb:243-281`, `app/services/reminders/send_service.rb:214-226` | 상한이 수동 합산으로 걸린 청구는 끝까지 종결되지 않는다. `finish_sequence!`는 `final_d14`·`promise_overdue` **발송 성공**에만 붙어 있다. 그동안 상세 화면은 「자동 안내 중」 배지, 「안내 보류하기」, 「지금 1통 보내기」, "다음 안내" 라벨을 그대로 보여주지만 모든 자동 단계가 막혀 있다. 종전에는 수동 5통 뒤에도 자동 단계가 실제로 나가서 배지가 참이었는데, 이번 변경으로 거짓이 됐다(이 런이 고친 1번 결함과 같은 성격). 사용자는 발송 이력의 "상한(5통)에 도달" 행으로만 알 수 있다. 또 약속 트랙에서 `promise_overdue`가 상한에 걸리면 U1 향 `noti_promise_unkept`(약속 미이행 통보)도 함께 나가지 않는다. 코드 경로 분석이고 실행 재현은 하지 않았다. | 제품 결정이 필요하다. (a) 상한 도달을 배지·버튼·라벨에 표시할지, (b) 마지막 단계가 상한으로 막히면 시퀀스를 종결하고 U1에게 알릴지. (b)를 택하면 종결 배너의 「안내 다시 보내기」가 상한 청구에서 다시 죽은 버튼이 되므로 함께 설계해야 한다. 결정 전까지는 발송 무결성에 문제가 없다. |
+| W-5 | WARNING | VIEW-7·PLAN-3 | `test/controllers/app/invoices_reminders_test.rb:291-320` | 커버 빈틈. (a) **수신 거부하지 않은 종결 청구에 「안내 다시 보내기」가 보인다**는 양성 단언이 없다(플랜 시나리오 3의 "버튼 노출"). 기존 C-3 테스트는 액션 성공만 본다. 이번 변경이 그 분기에 `&& !refused?`를 넣었으므로 조건이 잘못 바뀌어도 못 잡는다. (b) `restart_reminders` 거부 테스트(`:339`)가 `refused_at`·`reminders_suspended_at` 보존을 단언하지 않는다(경미). (c) 14시 스캔 경로에서 CAP_REACHED 기록·API 0회를 직접 본 단언이 없다(서비스 단위만, 위험은 낮다). | (a) `:291` 테스트에 GET show + `assert_select "button", text: "안내 다시 보내기"`를 더한다. (b) `:339` 테스트에 마킹 2개 단언을 더한다. |
+| W-6 | WARNING | PLAN-3 | `LAUNCH_TEST_CHECKLIST.md:368, 1097, 1151, 1161, 1457-1458` | 옛 이름 `MessageLog.sequence_sent_count`와 수정 전 기대값(G-05-4 "6통이 된다", G-07-3 "버튼이 보인다")이 남아 있다. 미추적 파일이고 플랜상 완료 뒤 재생성 예정이다. | 런칭 테스트 시작 전에 재생성한다. `LAUNCH_TEST_SCENARIOS.md`는 이미 갱신돼 있다(`:602`·`:611`·`:627`). |
+| W-7 | WARNING | — (테스트 기반) | `test/system/app_invoice_reminders_test.rb:24-31` | 선등록 `log_in_as`의 `click_button "로그인"`이 가끔 제출되지 않는다. 내 실행 1회차에 기존 REM-6·8 케이스(`:32`)가 "로그인되었습니다." 미검출로 실패했고 2회차에 통과했다. 스크린샷은 두 필드가 채워진 로그인 화면이다(입력 유실이 아니라 제출 누락). 같은 크기(23,316바이트)의 로그인 실패 스크린샷이 11-25 17:17~18분에도 3장 남아 있다(당시 출력은 확인하지 못했다). 파일 머리 주석의 chromedriver 클릭 드롭과 같은 현상으로 보인다. `button_to`에는 DOM 클릭 우회가 돼 있지만 로그인에는 없다. 기존 코드고 이번 diff가 만든 것은 아니지만, 새 시스템 테스트 2건이 이 헬퍼에 의존하고 `bin/ci` 게이트에 걸린다. | 로그인 제출도 같은 DOM 클릭 우회를 쓴다. 수정 뒤 같은 파일을 3회 연속 실행해 확인한다. |
+
+## 2. Rule ID 준수 매핑
+
+| Rule ID | 판정 | 근거 |
+|:--|:--|:--|
+| VIEW-7 | 준수 | 상세 뷰 분기 2·3에 `!client.refused?`. 배너는 거부가 최우선. 세 재개 액션이 모든 쓰기보다 먼저 거부. 전 청구 배제는 `Invoice.reminders_dispatchable`의 `Client.reminders_active`. 잔존 W-1·W-2. |
+| REM-7 | 준수 | 거부하지 않은 경로는 불변(청구·거래처 재개 성공 테스트, 시스템 토글 통과). 거부 겹침 시 재개 불가는 PRD 보완 필요(W-2). |
+| REM-8 | 준수(불변) | `remind`·`manual_step_key` 무변경. 거부 거래처 수동 발송 REFUSED 기록 테스트 통과. |
+| REM-12/13 | 준수 | 비거부 종결 청구의 재개·"남은 단계 없음"은 기존 테스트 통과. 거부 종결은 재개 불가(VIEW-7 단서). |
+| PLAN-3·Q10/Q11/Q28 | 준수 | 집계가 debtor·sent·(시퀀스성 템플릿 OR origin=manual). SQL 확인. 자동 1회성 3종은 집계 밖, 수동 가드 불변. 파생 W-3·W-4. |
+| REM-11 | 조건부 어긋남 | W-3 |
+| SEC-5·P4 | 준수 | `claim_log`·`skip!` 경로 무변경. CAP_REACHED도 skipped+error_code로 기록된다. |
+
+## 3. 확인했으나 문제없음
+
+### ① PRD 정합성
+- VIEW-7(`PRD.md:228`)의 "재개 요청도 상태 변경 없이 사유 안내로 거부"는 세 액션 모두 303 + `flash[:alert]`로 지켜진다.
+- "그 거래처의 모든 청구가 자동 안내 대상에서 빠진다"는 `app/models/invoice.rb:100-105`가 `refused_at: nil` 거래처만 병합해 지켜진다. 사전통보 스캔도 같은 스코프를 쓴다.
+- REM-12 단서("수신 거부로 종결된 청구는 재개할 수 없다")와 PLAN-3·Q28 집계 정의는 코드와 일치한다.
+
+### ② 데이터 무결성·보안
+- **상태 불변**: 세 가드가 쓰기보다 앞에 있다. `invoices_controller.rb:166`(쓰기 `:168`), `:209`(쓰기 `:212`), `clients_controller.rb:68`(쓰기 `:70`). `refused_at`을 쓰는 곳은 `promises/register_service.rb:58` 한 군데라 어느 경로에서도 지워지지 않는다.
+- **소유권**: `set_unsettled_invoice`(`invoices_controller.rb:18`, `:306-308`)와 `set_client`(`clients_controller.rb:6`, `:84-86`)가 before_action이라 가드보다 먼저다. 타 사용자 404 테스트(`invoices_reminders_test.rb:444-455`) 통과.
+- **우회 경로**: 3개 액션 모두 직접 URL에도 가드가 있다. `invoice_params`·`client_params`에 상태 컬럼이 없어 대량 할당 우회도 없다.
+- **발송 경로 전수**: 채무자 향 발송은 `SendService` 하나로 모인다(직접 호출 `invoices_controller.rb:181`·`dispatch_service.rb:123`, `deliver_job.rb:24`, 인큐 5곳). `guard_failure` 첫 줄이 REFUSED다. 거부 상태에서 API 호출이 나가는 경로가 없다.
+- **다른 진입점**: `grep`으로 `reminders_suspended?`·`sequence_finished?`·`reminders_active?`·`refused?`를 app 전체에서 찾았다. 재개·보류 해제 조작은 청구 상세, 거래처 상세, 거래처 목록 카드 3곳뿐이다. 대시보드·관리자·뷰어에는 없다. 잔존은 W-1 하나다.
+- **경합**: 가드 통과 뒤 재개 직전에 거부가 접수돼도 REFUSED 가드와 스코프가 발송을 막는다(무해).
+
+### ③ 상한 집계
+- **생성 SQL**(실행 확인): 공통 조건 3개가 AND로 묶이고 OR가 괄호 안에 있으며 enum이 정수로 바인딩된다.
+  `WHERE invoice_id = 1 AND recipient_role = 0 AND status = 1 AND (template_key IN (7종) OR origin = 1)`
+- **중복 없음**: 행 단위 OR다. 모델 테스트에서 겹치는 행(수동 `requeue_d7`) 1개를 포함해 3건이 3으로 센다.
+- **범위**: 들어가야 할 것(시퀀스성 모든 origin, 수동은 템플릿 무관)은 들어가고, 빠져야 할 것(자동 1회성, U1 향 `recipient_role`, skipped·failed·pending)은 빠진다.
+- **수동 가드**: `manual_cap_reached?` 무변경. 자동 집계가 수동 집계의 부분집합이라 수동 발송의 차단이 느슨해지지 않는다.
+- **CAP_REACHED 기록**: `skip!`(`send_service.rb:174-177`)가 skipped+error_code로 남긴다. 재실행은 같은 슬롯을 갱신해 행이 불지 않는다.
+- **재예약 시점**: 창 판정(`send_service.rb:37-38`)은 예약만 하고, 상한은 예약 실행 시점에 `sent`만 세어 판정한다. 예약과 실행 사이의 수동 발송도 반영된다.
+
+### ④ 아키텍처·컨벤션
+- **액션 길이**: `resume_reminders` 4~5줄, `restart_reminders` 9줄(공백 제외)로 10줄 이내다.
+- **응답**: 303 + flash 규약. 상태 가드는 권한 검증이 아니라 액션 본문에 둬도 규약(:413)과 어긋나지 않는다.
+- **의존 방향**: 컨트롤러 → `DispatchService.restartable?`(공개 진입점) → 모델. 모델이 서비스를 부르지 않는다.
+- **뷰**: 분기 조건이 2항이고 쿼리가 없다. `raw`·`html_safe` 없음.
+- **네이밍**: `counted_for_cap`·`cap_sent_count`·`redirect_*_refused`가 의미에 맞다.
+- **옛 이름**: app·test·config·lib·bin·db에 0건. 루트 문서 1곳이 W-6이다.
+
+### ⑤ 테스트 품질
+
+| 플랜 시나리오 | 테스트 | 결과 |
+|:--|:--|:--|
+| 1 거부+종결: 버튼 없음·배너 | `invoices_reminders_test.rb:324`, 시스템 `:121` | 통과 |
+| 2 restart → 303+alert, 마킹 유지 | `invoices_reminders_test.rb:339` | 통과 |
+| 3 비거부 종결: 액션 성공 | 기존 `:291`·`:305` | 통과 (버튼 노출 양성 단언 없음 → W-5) |
+| 4 수동 issue_notice 5통 → 자동 CAP, API 0 | `send_service_test.rb:273` | 통과 |
+| 5 수동 4 + 자동 1 = 5 → 다음 CAP | `send_service_test.rb:290` | 통과 |
+| 6 자동 1회성은 상한 도달에도 발송·집계 밖 | 기존 `send_service_test.rb:334`, `:309` | 통과 |
+| 7 수동 가드 불변 | 기존 `invoices_reminders_test.rb:214`, `send_service_test.rb:309` | 통과 |
+| 8 수동 시퀀스성 템플릿 종전대로 집계 | 기존 `send_service_test.rb:401`, `message_log_test.rb:45` | 통과 |
+| 겹침(거부+보류+종결) 화면·PATCH | `invoices_reminders_test.rb:358`·`:377`, 시스템 `:140`, `clients_reminders_test.rb:23` | 통과 |
+| 거래처 비거부 재개 성공(회귀) | `clients_reminders_test.rb:11` | 통과 |
+
+- **단언**: 응답 본문, flash, `reload`한 DB 상태, 대역 호출 수를 직접 본다.
+- **실호출**: 새 테스트는 `FakeSolapiClient` 주입 또는 `with_solapi_client`만 쓰고, VIEW-7 테스트는 발송 자체가 없다.
+- **날짜 의존**: 새 테스트는 `travel_to(2026-11-10 10:00)`로 고정돼 있고 "오늘 이후" 검증이 있는 약속 생성이 없다. 종결 재개 테스트는 그 시각에 `restartable?`이 참이라 가드가 없으면 성공했을 테스트라 변별력이 있다.
+
+## 4. 신규 문구 검증
+
+새로 생긴 사용자 가시 문구는 flash alert 2개뿐이다(뷰에는 추가 없음).
+- "이 거래처가 추가 안내 수신을 거부하여 자동 안내를 재개할 수 없습니다."
+- "이 거래처가 추가 안내 수신을 거부하여 자동 안내를 다시 진행할 수 없습니다."
+
+기존 거부 배너("이 거래처가 추가 안내 수신을 거부했습니다")와 스킵 사유("거래처가 추가 안내 수신을 거부하여…")의 어휘·톤이 같다. "독촉·연체" 대신 "안내"를 쓰고 책망·과장이 없어 P1에 맞다. 동사도 각 버튼의 성공 안내("재개했습니다"·"다시 진행합니다")와 짝이 맞다. 다만 성공 안내는 "정기 안내", 거부 alert은 "자동 안내"로 명사가 다르다(기존 UI가 두 단어를 섞어 쓰고 있어 수정 필수는 아니다).
+
+## 5. 범위 밖 관찰 (기존 동작)
+
+- **수신 거부 우회 (확인 요청)**: `refused_at`은 거래처 행 단위다. 같은 번호로 거래처를 새로 등록해 발행하면 거부한 번호로 다시 보낼 수 있다(`clients.phone` 유니크 인덱스 없음, 번호 기준 거부 조회 없음). VIEW-7 "해당 번호 발송 중단" 취지와 어긋나는 기존 설계라 제품 판단이 필요하다.
+- **창 판정이 가드보다 앞**: 상한 도달·거부·보류 청구에 창 밖 수동 발송이 들어오면 "다음 평일 오전 9시에 발송됩니다"로 예약됐다가 실행 시점에 CAP_REACHED·REFUSED로 넘어간다. 수신 거부는 직접 URL로만 닿고, 상한 도달은 「지금 1통 보내기」가 계속 보여 실제로 닿는다.
+- **거래처 단위 보류 + 청구 종결 겹침**: 「안내 다시 보내기」가 보이고 "다시 진행합니다" 안내를 주지만 거래처 보류가 남아 발송이 없다(거래처를 재개하면 나간다).
+- **`suspend_reminders`**: 수신 거부 거래처에도 보류 마킹을 남긴다(버튼은 없고 직접 URL로만). 재개가 막혀 마킹이 영구 남고 W-1 상태를 만든다. 발송 영향은 없다.
+
+## 6. Tester 중점 테스트 제안
+
+1. **스캔 경로 상한**: 수동 issue_notice 5통 → D+1 14:00 `DispatchService.call` → CAP_REACHED 기록·API 0회.
+2. **사전통보(W-3 수정 뒤)**: 수동 5통 + D+1 09:00 `PrenoticeService.call` → `noti_prenotice` 0건.
+3. **거래처 목록 카드(W-1 수정 뒤)**: 거부+보류 거래처에 「재개」 없음.
+4. **양성 가시성(W-5)**: 비거부 종결 청구에 「안내 다시 보내기」 노출, 비거부 보류 청구에 「안내 재개하기」 노출.
+5. **혼합 집계**: 수동 시퀀스성 재발송 + 수동 issue_notice + 자동 단계의 5통 경계, 약속 트랙에서 수동 포함 5통 뒤 `promise_overdue` 차단.
+6. **재예약**: 창 밖 수동 5번째가 다음 평일 09시에 sent 된 뒤 그날 14시 자동 단계가 CAP_REACHED.
+7. **거부 상태 직접 URL**: `suspend`·`remind`·`resume`·`restart` 모두 상태 불변·API 0회.
+8. **시스템 로그인 플레이크(W-7)**: 같은 파일 3회 연속 실행.
+
+## 7. 실행한 명령과 결과
+
+- `bin/rails runner 'puts MessageLog.counted_for_cap(1).to_sql; …'`: SQL만 출력(조회 없음).
+- `bin/rails test`로 `message_log_test.rb`, `send_service_test.rb`, `invoices_reminders_test.rb`, `clients_reminders_test.rb`, `tickets/notify_answer_service_test.rb`, `tax_invoices/notify_issued_service_test.rb`: **81 runs, 423 assertions, 0 failures, 0 errors**.
+- `bin/rails test test/system/app_invoice_reminders_test.rb`: 1회차 5 runs 중 1 failure(선등록 REM-6·8 케이스, W-7), 2회차 **5 runs, 39 assertions, 0 failures**. 새 VIEW-7 2건은 두 번 다 통과.
+- `grep`·`git diff`·`sed`로 본 문서·뷰·테스트 구간: 위 각 절의 근거.
+- **실행하지 않은 것**: 전체 테스트(지시). `viewer_refusal_test.rb`·`dispatch_service_test.rb`·`prenotice_service_test.rb`·`deliver_job_test.rb`는 정적으로만 봤다(옛 이름 사용 없음, 수동 발송 로그가 1건씩이라 상한 변경 영향 없음).
+- **부수 산출물**: 실패한 1회차 실행이 `tmp/screenshots/failures_test_-_-_-_-_-_-_-_-_-_-_-_-_-REM-6-8-.png`를 남겼다(git-ignored, W-7 근거). 그 밖에 만들거나 바꾼 파일, git 상태 변경, 외부 API 호출은 없다.
+
+---
+
 status: CHANGES_REQUESTED
 
-# 05_review — 관리자 환불 실행: 포트원 결제 취소 연동·구독 즉시 Free·수금 패스 차감 (PLAN-9·ADMIN-11·Q27)
+# 마감 리뷰 — 3~6차 변경분 (2026-11-26, Reviewer)
 
-2026-11-24 · Reviewer · 대상: 신설 2파일 + 수정 12파일(미커밋) · **코드는 수정하지 않았다.**
+> 기록: 리뷰 이후 변경분(3~6차·Tester 1차 테스트)에 대한 두 번째 리뷰. 정적 리뷰만(테스트 미실행 — 같은 시각 Tester가 시스템 테스트를 돌렸다). Reviewer가 쓰기 도구가 없어 최종 답변으로 돌려준 산출물을 오케스트레이터가 옮겨 적었다(내용 무변경·HTML 엔티티만 복원).
 
-**BLOCKER 0 · CRITICAL 2 · WARNING 9(이번 변경분 8 + 범위 밖 1) · 확인 요청 2(W-4c·W-7)**
+**BLOCKER 0 · CRITICAL 1 · WARNING 6.** 코드는 고치지 않았고, 테스트는 지시대로 실행하지 않았다(grep·`git diff`·파일 읽기만).
 
-## 0. 먼저 알려야 할 것 — 리뷰 중 포트원 실호출이 있었다(리뷰어 실수 2건 + 기존 테스트 결함 1건)
+3~6차 변경분이 만든 회귀는 없다. W-1·W-3·W-4·W-5는 PRD v0.49대로 해소됐고, 5·6차의 슬롯 논리는 a~h 경로에서 중복 발송·멱등 깨짐·P4 훼손이 없다.
 
-지시는 "test·development에서 포트원 실호출 금지, 테스트는 대역만 쓰는 기존 테스트로 제한"이었다. 나는 이를 두 번 어겼다. 숨기지 않고 적는다.
+CRITICAL 1건은 5차가 고친 결함군(예약 슬롯 실행 누락)의 잔여 경로다. PRD REM-3에 이번에 들어간 "다음 평일 09시에 반드시 실행된다"와 충돌한다. **5차 이전부터 있던 동작이고 이번 diff가 만들지 않았다.** 수정량은 작다.
 
-| # | 무슨 일 | 확정된 사실 | 모르는 것 |
-|:--|:--|:--|:--|
-| R1 | **내 임시 재현 테스트**(`P1`)가 `Subscriptions::DunningRetryJob.perform_now`를 대역 없이 실행 | 포트원 운영 호스트로 빌링키 차감 요청 **1회 전송**(인증 헤더 = 로드된 credentials 시크릿). 가짜 빌링키라 **`BILLING_KEY_NOT_FOUND`로 거부**됨 — `log/test.log` 152579행 구간(`metadata {"code":"BILLING_KEY_NOT_FOUND", …}`). 금전 거래 없음. 큐 어댑터가 `Test`라 재시도 잡은 실제 대기열에 남지 않았고 DB는 롤백됨 | 그 시크릿이 운영 키인지(값은 열어보지 않음). 운영 키라면 포트원 콘솔 로그에 실패 요청 1건이 있을 수 있다 |
-| R2 | **내 가드 자가검사**가 가드 미로드 상태에서 실행됨(검증 스크립트를 `-r`로 넘겨 `RUBYOPT`보다 먼저 돌았고, 호스트명으로 실제 주소를 씀) | `Net::HTTP.start("api.portone.io", 443)`(빈 블록) + `TCPSocket.new("api.portone.io", 443)`가 예외 없이 완료 → TCP 연결 2회로 추정. **요청 본문·인증 헤더는 없음** | 연결 성공을 네트워크 수준에서 직접 확인하지는 않음(출력상 예외 없음) |
-| R3 | **기존 테스트 결함(내 실행 아님)** — `test/services/subscriptions/dunning_retry_test.rb:135`가 `SubscriptionRenewalJob.perform_now`를 대역 없이 실행 | 전체 스위트를 외부 연결 차단 가드 하에 돌린 결과, 이 테스트에서 `client_service.rb:95`(실제 연결 지점) 호출이 **차단됨**. 잡이 due 구독 전체를 돌므로 fixture Plus 구독(빌링키 보유·주기 종료)에 차감을 시도한다(다음 테스트 146행 주석도 같은 간섭을 언급) | 이 테스트가 평소(가드 없이) 받는 실제 응답은 재실행하지 않아 관찰하지 않음. R1과 같은 요청 형태라 같은 거부(`BILLING_KEY_NOT_FOUND`)로 조용히 통과해 온 것으로 추정 |
+## 1. 이슈
 
-- 조치: 임시 테스트 파일(`test/tmp_review_probe_test.rb`)은 **삭제했다**(저장소에 리뷰어가 만든 파일 없음 — `git status`로 확인). 그 뒤의 기존 테스트 실행은 전부 외부 연결 차단 가드를 건 채로 했다(그 안에서 차단 1건 = R3).
-- 제안: test 환경에 포트원 아웃바운드를 전역 차단하는 장치가 없다(솔라피·이메일은 2026-11-20 사고 대응 가드 있음). R3은 이번 변경 밖이지만 `bin/rails test`·`bin/ci`를 돌릴 때마다 실요청 1건이 나가는 결함이므로 별도 수정이 필요하다.
-- 내가 이후 실행에 쓴 가드(참고): `RUBYOPT=-r`로 미리 로드해 `Net::HTTP#connect`·`TCPSocket.new/open`·`IO.tcp`·`Socket.tcp`에서 비로컬 호스트를 즉시 예외로 막는 작은 스크립트. 대역 전송(식별자 교체)은 통과한다. 단 **스크립트 경로로 실행할 때만** 명령줄 `-r`보다 먼저 로드된다.
+| ID | 심각도 | Rule | 파일:줄 | 문제 | 수정 제안 |
+|:--|:--|:--|:--|:--|:--|
+| C-1 | CRITICAL | REM-3(재예약분 실행 정합)·SEC-5 | `app/services/reminders/send_service.rb:132-134`(`in_flight?`), `:127`, `:67`·`:82` | 창 시작 직전 약 1분 이내에 접수된 창 밖 발송은 예약 슬롯이 영구 pending으로 남고 발송되지 않는다. **원인**: `in_flight?`는 pending이고 `updated_at`이 1분 내면 "다른 실행이 발송 중"으로 본다. 예약 슬롯도 접수 시각에 생성돼 이 창에 들어간다. claim은 SELECT라 `updated_at`이 갱신되지 않는다. **조건**: `next_remind_slot`(`app/models/user.rb:177-187`)은 창 시작 전 접수분을 당일 시작 시각으로 예약한다. 접수가 [실행 시각 − 60초, 실행 시각)이면 흡수된다. 기본 설정에서는 08:59:02~08:59:59 접수분이다. 수동·자동(DeliverJob 재시도·수동 발행 안내)이 같고, 반복 청구 06:30 발행분은 안전하다. **결과**: `:duplicate`로 끝나 재실행 잡이 없다. 회원에게는 "다음 평일 오전 9시에 발송됩니다" flash만 남는다. **근거**: 코드 경로 분석이다(실행 재현은 지시로 하지 않았다). 기존 테스트 `test/services/reminders/send_service_test.rb:78-91`는 08:59:00 접수 → 09:00:00 실행만 본다. 정확히 60초라 `updated_at > 1.minute.ago`가 거짓이라 통과하고, 결함이 가려졌다. | (A) `in_flight?`에서 예약 슬롯(`scheduled_at` 있음)을 제외한다. 실행 시점의 슬롯 `updated_at`은 접수 시각이라 "진행 중"의 근거가 못 된다. 실질 변화는 접수 직후 1분뿐이다. 또는 (B) claim한 슬롯을 `touch`해 선점을 기록한다(B는 동시 실행 경합도 줄인다). 테스트: 08:59:30 접수 → 09:00:02 `DeliverJob` → `:sent`·sent 1건·pending 0. |
+| W-1 | WARNING (확인 요청 — 코드 경로 분석) | REM-3·REM-6·P4 | `app/services/reminders/send_service.rb:38`, `app/services/reminders/dispatch_service.rb:114-130` | 자동 경로에서 "sent 이력 + pending 슬롯"이면 슬롯이 영구 pending으로 남는다. `call`은 창 판정이 멱등 판정보다 앞이라, 스캔이 창 밖이면 이미 보낸 단계에도 `reschedule!`이 슬롯을 만든다. `dispatch_step`은 sent 여부를 보지 않는다. 다음 날 DeliverJob은 `step_sent?`로 duplicate가 되고 슬롯은 그대로 남는다. **발생 범위**: 14시 스캔이 창 밖인 사용자, 즉 REM-3 세부 설정으로 종료 시각을 14시 이전으로 당기거나 스캔 요일을 제외한 경우다. 그 단계마다 「예정」 행이 영구 남는다. 기본 설정 사용자는 해당 없음. 발송 누락이 아니다(이미 sent). 상한 집계도 sent만 세어 무영향. | `reschedule!` 앞에서 자동 시퀀스성 스텝의 `step_sent?`를 확인해 duplicate로 종료한다. 운영 확인: `status=pending AND scheduled_at < now`인 채무자 향 행을 조회한다. |
+| W-2 | WARNING | PLAN-3·Q28 | `app/views/app/invoices/show.html.erb:235` | "이 청구서에는 청구 건당 5통을 모두 보냈습니다"는 집계 기준의 5통이다. 자동 1회성(발행 안내·부분입금·마감 감사)은 집계 밖이라, 실제 총 발송은 5통보다 많다. 발행 안내는 기본 켬이라 대부분 6통이다. U1은 발송 이력에서 「발송됨」 6줄과 "5통"을 같은 화면에서 본다. 셋째 문장은 잔액·감사만 설명하고 발행 안내는 설명하지 않는다. | "단계별 안내와 직접 안내를 합쳐 청구 건당 5통을 모두 보냈습니다."로 바꾼다. |
+| W-3 | WARNING (확인 요청) | REM-8·PLAN-3 | `app/services/reminders/send_service.rb:197-200`, `app/views/app/invoices/show.html.erb:260` | 두 상한 집계가 다르다. 자동은 `cap_sent_count`, 수동은 채무자 향 sent 전체다. 자동 1회성이 5통 이상이고 시퀀스성+수동이 4통 이하이면 「상한 도달」 배지·상자가 없고 「지금 1통 보내기」가 보인다. 누르면 CAP_REACHED로 막힌다(죽은 버튼). 예: 부분입금 5회 + 시퀀스 4통. 극단적이라 빈도는 낮다. | 버튼 노출 조건에 수동 상한을 더한다(예: 컨트롤러에 `@manual_cap_reached`를 적재해 `cap_reached \|\| manual_cap_reached`로 숨긴다). 아니면 기존 동작으로 받아들이고 테스트 1건으로 고정한다. |
+| W-4 | WARNING | — (테스트 커버) | `test/services/reminders/send_service_test.rb` | 3군데가 비어 있다. (a) C-1의 창 시작 직전 경계. (b) 1회성의 창 밖 재예약 실행: `partial_paid` 슬롯과 과거 sent 이력이 있을 때 다음 날 발송. 5차의 `new_log!` 수정으로 종전 누락이 개선된 경로인데 단언이 없다(`rescheduled`와 1회성을 함께 보는 테스트 0건). (c) W-1의 자동 경로 sent+슬롯. | 각 1건을 더한다. (b)는 `partial_paid` sent 1건 → 창 밖 재예약 → 다음 날 `DeliverJob` → `:sent`·sent 2건. |
+| W-5 | WARNING | — (주석) | `send_service.rb:52-56`, `dispatch_service.rb:13-15`·`:64-67`, `send_service.rb:127` | 낡은 서술. (a) `claim_log` 블록 주석 "수동은 … 이력을 누적하고"는 이제 예외가 있다(pending 슬롯 재사용). (b) `DispatchService` 머리 주석은 `steps_due_today`가 스캔과 "같은 산정"이라고 쓰는데, 상한 필터가 생겨 다르다(메서드 주석에만 설명). (c) `restartable?` 주석에 상한 도달 분이 없다. (d) `new_log!`의 `slot.sent?`는 `find_pending_slot`이 pending만 돌려주므로 항상 거짓이다(죽은 조건, 무해). | 주석을 현재 동작에 맞추고 (d)는 제거한다. |
+| W-6 | WARNING | PLAN-3·REM-3 | `PRD.md:161`(REM-3), `:212`(PLAN-3) | 문서-코드 차이. (a) PLAN-3 상한 안내 문구에 "미수 청구 한정"(4차)이 없다. (b) REM-3 "반드시 실행된다"에 설계상 예외(상한·보류·수신거부·상태 변경으로 인한 skip)가 없다. C-1이 그대로면 이 문장은 거짓이 된다. | PLAN-3에 "미수 청구에만 표시"를 더한다. REM-3은 C-1을 고친 뒤 "가드 skip은 제외" 단서를 단다. |
+| W-7 | WARNING | — (용어) | `app/helpers/app/reminders_helper.rb:36`, `show.html.erb:233` | 같은 상황에 두 용어가 나온다. 스킵 행과 수동 flash는 "청구 건당 안내 상한(5통)에 도달", 상자는 "발송 상한에 도달했습니다", 배지는 「상한 도달」이다. 랜딩은 "발송 상한"을 쓴다. | 스킵 라벨을 "청구 건당 발송 상한(5통)에 도달하여…"로 맞춘다. |
 
-## 1. 요약
+## 2. 경로별 추적 (발송 슬롯 논리)
 
-돈의 안전성에서 가장 중요한 두 기준은 **준수를 확인했다.**
-- **이중 처리 없음**: PG는 이미 취소된 결제의 재취소를 거부하고(공식 409 `PaymentAlreadyCancelledError`), 로컬은 `with_lock`으로 직렬화된다. SQLite + Rails 8.1은 `with_lock` 시작 즉시 전역 쓰기 잠금을 잡아 두 번째 요청이 첫 요청 종료까지 대기한다(실험으로 확인).
-- **로컬 변경은 PG 확정 뒤에만**: 재조회 판정을 통과해야 `finalize!`에 들어간다. PG 실패·타임아웃·확인 불가는 전부 로컬 무변경.
+| 경로 | 결과 | 근거 |
+|:--|:---|:--|
+| (a) 수동 즉시 | 변화 없음, 문제없음 | `new_log!` 직행. pending 슬롯이 없으면 새 행, 있으면 슬롯을 흡수해 즉시 발송한다. 종전에는 과거 sent가 있으면 duplicate로 누락됐다. |
+| (b) 창 밖 수동 → 다음 날 실행 | 과거 sent 있음·없음·failed·상한 모두 올바름. **단 창 시작 직전 1분 접수분은 누락(C-1)** | 테스트 `:436`·`:388`·`:495`가 각각 변별력 있다. |
+| (c) 자동 스캔 | 변화 없음 | sent 가드가 슬롯 우선보다 앞이다. 슬롯이 없으면 `slot \|\| log \|\| new_log!`가 종전과 같다. |
+| (d) 자동 실패 후 재시도·재예약 | 올바름 | 재시도는 failed 행을 갱신한다(불변). 재예약분은 슬롯을 우선해 sent로 만들고 failed는 보존한다(테스트 `:463`). |
+| (e) U1 향 즉시 알림 | 변화 없음 | 첫 줄에서 `new_log!` 직행. |
+| (f) U1 향 예정 알림 | 올바름 | 6차 한정으로 슬롯 우선을 타지 않는다. 같은 예정 시각은 흡수, 다른 날은 새 이력이다(테스트 `:631`·`:653`). |
+| (g) `partial_paid` | 올바름 | `new_log!` 직행. 창 밖 재예약분도 슬롯을 탄다(종전에는 과거 sent에 흡수돼 누락). 테스트 없음(W-4b). |
+| (h) 동시 실행 2개 | 회귀 없음 | 종전과 같은 설계다. `in_flight?`는 슬롯 생성 1분 뒤에는 흡수하지 않고, `step_sent?` 뒤의 SELECT 사이 경합은 종전에도 있었다. 새로 열린 경합은 없다. |
 
-수정이 필요한 것은 둘이다.
-- **C-1** dunning 중인 구독을 즉시 Free로 만들면 재시도 상태가 남는다. 회원이 카드를 재등록하면 예약된 재시도 잡이 **새 카드로 차감을 시도**한다(재현함).
-- **C-2** PG 취소는 실행됐는데 로컬 확정이 실패하면 **감사 기록이 0건**이다(ADMIN-2). 재현함.
+- **P4**: 슬롯은 미발송 선점이라 sent·skipped로 바꿔도 기록을 덮지 않는다. 자동 재시도가 failed·skipped 행을 sent로 갱신하는 것은 기존 설계다. 5차로 "failed + 슬롯"에서 failed가 보존되게 됐다.
+- **가드 순서**: 가장 오래된 이력이 sent가 아닐 때 순서는 sent → `step_sent?` → in_flight → 슬롯 → 갱신 행이다. 슬롯을 집어도 `guard_failure`는 그 뒤에 실행된다(테스트 `:495`).
 
-## 2. 검증 방법
+## 3. 확인했으나 문제없음
 
-| 항목 | 결과 |
-|:---|:---|
-| 포트원 V2 공식 스펙 대조 | **성공** — 공식 문서 저장소 `portone-io/developers.portone.io`의 `src/schema/v2.openapi.json`(OpenAPI 3.0.3, version 1.16.0)과 한국어 취소·웹훅 가이드 MDX 원문을 저장소 밖에서 `jq`로 추출. §5 |
-| Rails 8.1.4.1 gem 소스 + test runner 실험 | 트랜잭션·`with_lock` 안 `return` → 정상 종료(`open_transactions=0`). `with_lock` 유지 중 다른 연결 쓰기·같은 행 `with_lock` 대기 1.2초(직렬화 확인) |
-| 임시 재현 테스트 9건(`FakePortOneClient`) | 9 runs · 1 error — 8건 유효 결과(P1~P6·C1·C2), 1건은 내 스크립트 결함(P7 → 코드 추적으로 대체). **실행 후 삭제. P1에서 R1 사고 발생** |
-| 기존 테스트 세트 1(관리자 주문·계정·주문·패스·웹훅·포트원 클라이언트) | 58 runs · 303 assertions · 0 failures |
-| 기존 테스트 세트 2(회원 내용증명·세금계산서 정산·세금계산서) | 34 runs · 193 assertions · 0 failures |
-| 전체 스위트(외부 연결 차단 가드 하) | 1,529 runs · 9,556 assertions · 0 failures · **1 error** — R3(가드가 기존 테스트의 실제 연결을 막은 것). 이번 변경으로 인한 회귀 없음 |
-| `bin/rubocop` 변경 7파일(자동 교정 없음) | 위반 0 |
-| `bin/rails zeitwerk:check` / `bin/rails routes` | 통과 / `refund_admin_order PATCH /admin/orders/:id/refund` |
+- **VIEW-7 목록 카드(W-1 해소)**: `app/views/app/clients/_client.html.erb:45`에 `!client.refused?`. 겹침 카드에서 재개·보류가 모두 없다. 거래처 상세(`show.html.erb:122`)는 거부가 먼저다. 컨트롤러·시스템 테스트가 수정 전 코드를 실패시킨다.
+- **REM-11(W-3 해소)**: `steps_due_today`(`dispatch_service.rb:59`)가 상한 도달이면 빈 배열이다. 테스트가 0건을 단언한다.
+- **PLAN-3·Q28 상한 안내(W-4 해소)**: 상자·배지는 미수 청구에만 붙는다. 상한 도달 시 버튼 행과 무료 플랜 문구를 렌더하지 않는다(`show.html.erb:260`). 종결 마킹은 없다. 자동 1회성은 계속 나간다(테스트 `:368`).
+- **상한 판정 단일 출처**: `Invoice#reminder_cap_reached?`의 호출처는 `SendService#cap_reached?`, `steps_due_today`, `RemindersContext` 3곳이다. 뷰·목록·대시보드에서 직접 부르지 않는다. 상세 1건당 count 1회, 사전통보는 예정 스텝이 있는 청구만 세므로 N+1 없음.
+- **`restartable?`**: 상한 도달이면 false가 되고 마킹은 유지된다. PRD "재개 가능 판정에서도 빠진다"와 맞다.
+- **분기 조합**: 거부 / 거부+보류+종결 / 상한 / 상한+보류 / 상한+종결 / 상한+무료 / 상한+paid·voided를 대조했다. 죽은 버튼·거짓 배너는 없다(W-3의 극단적 틈은 별도).
+- **§5-3**: 거래처 보류 + 종결은 버튼을 숨기고 보류 배너가 재개 경로를 알린다. 재개 뒤 버튼이 돌아온다(양성 단언 있음).
+- **U1 예정 알림 멱등의 전제**: `today_at_9`는 `Time.current.change(hour: 9, min: 0)`이다. ActiveSupport 8.1.4.1 소스에서 `change`가 상위 단위가 주어지면 sec·usec을 0으로 만드는 것을 확인했다. 운영에서도 당일 재실행 흡수가 성립한다.
+- **아키텍처**: 의존 방향은 Controller·Service → Model이다. 뷰는 `@reminder_cap_reached`만 쓴다. 422 재렌더 경로(Payments·Promises)도 같은 @변수를 적재한다. 액션 본문 변경이 없다. 헬퍼 시그니처 `reminder_state_badges(invoice, cap_reached: false)`의 호출처는 1곳이다.
+- **테스트 품질**: 새 테스트는 `travel_to`로 고정돼 있다. 솔라피는 대역만 쓴다. 5·6차 4건(`:436`·`:463`·`:495`·`:653`)은 수정 전 코드에서 모두 실패할 단언이다.
+- **공용 `log_in_as`**(`test/application_system_test_case.rb:43-49`): 로그인 페이지의 제출 버튼은 1개여서 모호하지 않다. 자체 정의가 있는 파일은 그 정의가 우선한다.
 
-## 3. 이슈 목록
+## 4. 신규 문구
 
-### CRITICAL
+- **배지 「상한 도달」**: 「종결」·「보류」와 병렬이고 중립 톤이다. 문제없음.
+- **상자 본문**: "독촉" 대신 "안내"를 쓰고 책망·과장이 없다. "직접 안내"는 무료 플랜 문구와 같은 어휘다.
+- **미흡한 점**: 5통의 산정 범위(W-2), 용어 불일치(W-7). 후속 안내가 없어 막힌 느낌을 줄 수 있다. 종결 배너는 후속 문구가 있다. "이후 진행은 거래처와 직접 소통으로 확인해 주세요" 1절을 검토한다(제품 판단).
 
-#### C-1 · PLAN-9 ① · dunning 중인 구독을 즉시 Free로 만들면 재시도 상태가 남는다 — 재등록 뒤 새 카드로 차감 시도
+## 5. 범위 밖 관찰
 
-- 위치: `app/services/orders/refund_service.rb:196-201`(`expire_subscription!`의 잠금 블록), `app/models/subscription.rb:108-111`(`expire!`)
-- 문제: `Subscription#expire!`는 `dunning_stage`·`next_retry_at`을 지우지 않는다. 환불이 dunning 중인 구독에 `expire!`를 걸면 `plan=free·status=expired·빌링키=nil`이 되지만 **`dunning_stage≥1·next_retry_at(미래)`이 그대로 남고 `DunningRetryJob`도 예약돼 있다.** 회원이 재등록하면(`activate!`는 dunning을 초기화하지 않음) `dunning_active?`가 다시 true가 되고, 재시도 시각에 재시도 잡이 **재등록한 새 빌링키로 차감**한다.
-- 재현(P1 로그): 환불 직후 `dunning_stage=1 next_retry_at 유지·dunning_active?=false` → `activate!` 뒤 `dunning_active?=true` → 재시도 잡 1회 실행에서 새 pending 주문 생성 + 차감 API 호출(내 환경에선 가짜 빌링키라 거부) + `dunning_stage 2·next_retry_at +3일`로 진행.
-- 왜 이번 변경의 결함인가: 기존 코드에는 dunning 중인 구독을 `expire!`하는 경로가 없었다(`renew`는 dunning 중이면 무변경, 체험 만료 잡은 빌링키 없는 구독만, 관리자 콘솔은 기간 말 해지만). 이번 변경이 처음으로 "dunning 잔존 + expired" 상태를 만든다. PLAN-9가 "재구독 시 카드 재등록"을 전제하므로 이 경로가 열린다.
-- 영향: 회원이 카드 등록만 했는데 예정 밖의 시점에 9,900원(또는 쿠폰가)이 차감되고 주기가 밀린다. 선행 조건은 드물다(dunning 중인 회원의 **이전** paid 주문을 환불하고, 재시도 전에 재등록).
-- 수정: `expire_subscription!`의 `with_lock` 안에서 `subscription.reset_dunning!`(멱등)를 `expire!`와 함께 호출한다. `last_payment_failed_at`도 함께 비우는 것이 일관된다. 근본 수정(`activate!`에서 dunning 초기화)은 기존 `activate!` 경로도 같은 약점을 가지므로 별도 과제로 권한다.
+- 09시 사전통보 시점에 상한 미도달이고 그 뒤 수동 1통이 더해지면, 통보는 나가지만 14시 발송은 CAP_REACHED로 막힌다. 좁은 시차다.
+- 약속 트랙에서 `promise_overdue`가 상한에 막히면 `noti_promise_unkept`도 나가지 않는다(03 문서 §8의 기록대로, 의도된 현재 동작).
+- `new_log!`의 유니크 복구가 U1 향에서는 실행되지 않는다(인덱스 2개 모두 해당 없음). 역할 조건이 없는 `find_pending_slot`을 쓰므로, 인덱스를 추가할 때는 `return nil unless debtor?`를 함께 두는 것이 안전하다.
+- `terms:83`·랜딩의 "자동 리마인더는 건당 최대 5통"은 Q28(수동 합산) 뒤에도 "최대"라 모순은 아니다. 수동을 쓰면 자동이 그만큼 줄어든다는 설명은 없다.
 
-#### C-2 · ADMIN-2 · PG 취소를 호출한 시도가 실패로 끝나면 감사 기록이 남지 않는다
+## 6. Tester 중점 테스트 제안
 
-- 위치: `app/services/orders/refund_service.rb:131-141`(감사 로그가 확정 트랜잭션 안에서 성공 시에만 기록), `:65-75`(PG 취소 호출은 트랜잭션 밖), `:216-219`
-- 근거: PRD ADMIN-2 "회원 데이터 열람·수정·삭제, 플랜 변경, **환불 처리 등 모든 관리 행위를 감사 로그로 기록한다**(일시·대상·행위·사유)". ADMIN-1 선례도 거부된 접근을 감사한다.
-- 문제: PG 취소 요청은 트랜잭션 밖에서 먼저 실행된다. 그런데 감사 로그는 로컬 확정 트랜잭션 안에만 있어서, 확정이 실패하면(롤백·422·500 어느 경로든) **"PG 쪽에는 환불이 실행됐는데 우리 감사 로그에는 아무것도 없는" 상태**가 된다. [INFERENCE] 판정이 틀려 재조회에서 실패하는 경우도 같다 — 이때는 재실행해도 같은 판정에서 계속 실패하므로 정산이 코드 수정 전까지 불가능하다.
-- 재현(P2): PG 취소 호출 1회(성공) → 로컬 `RecordInvalid` → 실패 Result(422 경로). 주문 `paid`·`refunded? false`·**감사 `order_refund` 0건**·패스 잔여 그대로.
-- 영향: 돈의 이중 처리는 아니다. 다만 돈이 실제로 움직인(움직였을 수 있는) 시도를 우리 쪽에서 추적할 수 없고, 권한 되돌리기 누락 상태가 관리자의 재시도에 의존한다 — 이 기능이 메우려던 구멍과 같은 상태다.
-- 수정: PG 취소 호출 **직전**에 시도 감사를 별도 트랜잭션으로 기록한다(예: action `order_refund_attempt`, target=주문, detail=사유). 이어서 결과(성공·실패 사유)를 확정 뒤 또는 실패 분기에서 기록한다. 기존 성공 action `order_refund`는 그대로 둔다(기존 감사 화면·테스트와 정합). 사전 가드에서 걸린 시도(이미 환불·blank 사유)까지 남길지는 선택 — PG 호출이 없으므로 필수로 보지 않는다.
+1. **C-1**: 08:59:30 창 밖 접수 → 09:00:02 `DeliverJob` → `:sent`·pending 0. 수동·자동 각 1건.
+2. **W-1**: 스캔 시각이 창 밖인 사용자 설정 + sent 단계 → 스캔 뒤 pending 슬롯 0건.
+3. **W-4b**: `partial_paid` sent 1건 → 창 밖 재예약 → 다음 날 발송 1건 추가.
+4. **W-3**: 자동 1회성 5통 + 시퀀스 4통 청구의 GET show(버튼 노출 여부는 결정 뒤).
+5. **분기 조합**: 상한+보류, 상한+거부, 상한+종결 각각의 화면.
 
-### WARNING
+## 7. 실행한 명령
 
-#### W-1 · 500 금지 선례 · PG 취소 뒤 로컬 예외가 서비스를 뚫고 나간다
-
-- 위치: `app/services/orders/refund_service.rb:144`(구조 범위가 `RecordInvalid`·`RecordNotSaved`뿐), `app/controllers/admin/orders_controller.rb:24-33`
-- 문제: 그 외 예외 — `ActiveRecord::StatementInvalid`(SQLite BUSY는 `StatementTimeout`으로 래핑됨), 감사 기록 중 오류, `metadata`가 해시가 아닌 경우 등 — 는 500이 된다. 이중 제출의 두 번째 요청이 5초를 넘게 기다리거나, 갱신 잡이 트랜잭션을 쥔 채 PG 호출 중일 때 현실적으로 걸린다.
-- 재현(P3·C2): PG 취소 호출 1회 뒤 `StatementInvalid`가 컨트롤러까지 전파(운영이면 500). 주문 `paid` 유지.
-- 수정: `finalize!`의 구조에 `ActiveRecord::StatementInvalid`·`ActiveRecord::ConcurrencyError`를 추가하고, 컨트롤러에 `rescue_from`(422 재렌더 + "PG 취소 상태를 확인한 뒤 다시 실행" 안내)를 둔다. C-2의 시도 감사가 있으면 이 경로도 기록이 남는다.
-
-#### W-2 · [INFERENCE] 정리 · 취소 내역 금액 키가 공식 스펙과 다르다 · `CONSOLE_CANCELLED`는 스펙에 없다
-
-- 위치: `app/services/orders/refund_service.rb:120-125`(`cancellations_total`), `:25`(`FULL_CANCELLED_STATUSES`)
-- 확인(§5): 공식 취소 내역의 금액 필드는 **`totalAmount`**(required)다. 코드의 후보 키 `cancellationAmount`·`amount`는 응답에 없다. 취소 내역 `status`는 `SUCCEEDED`·`REQUESTED`·`FAILED` 세 가지다.
-- 영향: 지금은 무해하다 — `amount.cancelled`이 required라 `cancellations_total`은 정상 응답에서 도달하지 않는다. 다만 틀린 키라 **향후 폴백을 쓰게 되면 0을 합산**하고, 키만 고치면 `REQUESTED`·`FAILED` 항목까지 합산할 수 있다.
-- `CONSOLE_CANCELLED`는 공식 `PaymentStatus` enum 어디에도 없다(스펙·가이드 0회). 콘솔 취소도 상태는 `CANCELLED`다.
-- 수정: 주석의 [INFERENCE]를 확정값으로 바꾸고, 폴백은 `status == "SUCCEEDED"` 항목의 `totalAmount`만 더한다. `CONSOLE_CANCELLED`는 제거하거나 근거를 적는다(웹훅 상수는 변경 없음이라 이번에 건드리지 않아도 된다).
-
-#### W-3 · fail-closed 주석과 실제 동작 · `amount.total` 폴백이 "결제 완료 사실"을 대신한다
-
-- 위치: `app/services/orders/refund_service.rb:102-108`
-- 재현(P4-3): `amount.paid` 누락 + `CANCELLED` + `total`만 있는 응답 → **성공**. 주석("결제 완료 사실을 금액 필드로 못 찾으면 절대 성공 처리하지 않는다")과 어긋난다.
-- 영향: 낮다. 공식 스펙상 `paid`는 required이고 로컬 `paid_at` 가드가 앞서 있다(미결제 취소는 `paid=0`으로 막힘 — P4-4 논리 확인).
-- 수정: `total` 폴백을 제거한다. 재조회 응답의 `payment[:id]`가 `pg_order_id`와 같은지도 확인한다(웹훅 선례 `portone_controller.rb:56`).
-
-#### W-4 · 취소 요청 설계 · 원인 메시지 상실 · 비동기 취소 · 부분 취소 가드의 위치
-
-- 위치: `app/services/orders/refund_service.rb:65-75`, `app/services/port_one/client_service.rb:57-60`(변경 없음)
-- (a) 취소 요청 `ApiError`를 전부 흡수해 PG 거절 사유가 사라진다. 권한·스토어 불일치는 재조회가 같은 인증으로 실패해 막힌다. 나머지는 "전액 취소를 확인할 수 없습니다(상태: PAID)"만 남는다. → 흡수한 `ApiError`의 `code`를 실패 메시지에 덧붙인다.
-- (b) 공식 문서상 200 응답의 `cancellation.status`가 `REQUESTED`(비동기)일 수 있다. 재조회를 즉시 1회만 하므로 그 경우 실패로 떨어지고 웹훅·재실행에 의존한다. 우리 결제수단(카드)은 동기일 것으로 보이나 확인하지 못했다.
-- (c) **[확인 요청]** `PARTIAL_CANCELLED` 가드는 재조회 **뒤**에만 있다. 이미 부분 취소된 결제에 전액 취소를 요청하면 PG가 잔액 전액을 취소해 `CANCELLED`로 바뀔 수 있고, 그러면 가드 없이 성공한다(설계는 "부분 취소 건은 실패"). PG가 이 요청을 허용하는지는 확인하지 못했다(§6). 공식 `currentCancellableAmount`(주문 금액)을 취소 요청에 넣으면 PG가 잔액 불일치를 거부한다. 래퍼 변경이 필요해 권고로 남긴다.
-
-#### W-5 · ADMIN-11 · 확인창·안내 문구의 정확성
-
-- 위치: `app/helpers/admin/orders_helper.rb:12-25`, `app/views/admin/orders/show.html.erb:36, 50`, `app/views/app/tax_invoices/show.html.erb:73-79`
-- (a) Plus: "즉시 Free로 바뀝니다"까지는 있으나 **남은 결제 기간은 몰수**된다는 고지가 없다(Q27 사유문이 확인창을 오실행 방지 수단으로 명시). 환불 대상이 아닌 다른 활성 결제는 그대로 남는다는 안내도 없다.
-- (b) 수금 패스: "10건 차감"은 있으나 **이 주문의 패스가 아니라 회원 보유 패스 중 만료 임박순**에서 차감된다는 점이 없다.
-- (c) 내용증명: "문서는 그대로 유지"라고 하지만 환불 뒤엔 정식 PDF를 다시 내려받을 수 없다(`paid?` 한정). 세금계산서도 마찬가지.
-- (d) `show.html.erb:50` "PG 취소 요청 없이 재조회로 확인해 기록합니다"는 사실과 다르다 — 코드는 항상 취소 요청을 먼저 보낸다(이미 취소됨 → 409 흡수). 부분 취소된 선취소 건은 실패한다는 안내도 없다.
-- (e) `show.html.erb:36` "상품별 되돌리기와 감사 로그 기록까지 완료되었습니다"가 **레거시 기록 전용 건**(`mark_refunded` 시절의 `refunded_at`, `metadata["refund"]` 없음)에도 뜬다. `@refund_info` 유무로 문구를 나눈다.
-- (f) 세금계산서 "다시 발행 요청" 링크는 발행 이력이 있으면 `issue_guard_message`의 "이미 발행 요청된 청구서입니다"로 막혀 청구서 상세로 돌아간다(막다른 길). 바로 위 기존 분기(60-62행)의 "고객지원(문의)으로 연락" 문구를 따르는 것이 일관된다.
-- 수정: 확인창 문구에 (a)(b)(c)를 한 문장씩 더하고 (d)(e)(f)를 고친다. `turbo_confirm` 방식 자체는 선례와 같고 실제로 동작한다(turbo-rails 2.0.23이 submitter의 속성을 지원).
-
-#### W-6 · 이미 Free 판정이 좁다
-
-- 위치: `app/services/orders/refund_service.rb:199`
-- 재현(P5): 구독이 `free/active`(가입 기본)일 때 Plus 주문을 환불하면 `expire!`이 실행돼 `status=expired`로 바뀌고 메시지는 "구독 즉시 Free 전환"이다. 요금제는 그대로 `free`라 실질 영향은 없고 감사 요약만 부정확하다.
-- 수정: `already_free = subscription.free? && (subscription.expired? || subscription.active?)` 또는 메시지를 상태에 맞춘다.
-
-#### W-7 · [확인 요청] 설계상 열린 경합 — 환불 절차 도중 자동 갱신
-
-- 위치: `app/services/orders/refund_service.rb:34-41`(사전 가드와 PG 확정 사이 수 초~60초)
-- 그 창에 갱신 잡이 새 주문을 결제하면 새 paid 주문이 남고 구독만 즉시 Free가 된다. 발생 확률은 낮고(갱신은 일 1회 스윕) 관리자가 새 주문도 환불하면 되므로 코드 수정은 요구하지 않는다. 확인창 안내(W-5a)와 운영 주의(§9)로 다룬다.
-
-#### W-8 · 문서·주석 정정 — "fail-closed라 환불 자체는 실패"는 절반만 맞다
-
-- 위치: `_workspace/03_implementation.md` §6-1, `app/services/orders/refund_service.rb:80-84, 145, 186-189`
-- 취소 요청은 재조회 판정 **앞에** 실행되므로, 판정이 실패해도 PG에서는 환불이 일어났을 수 있다. "성공 오인은 없다"는 맞지만 "안전한 실패"는 아니다(C-2와 같은 근원). 또 주석 145행·186-189행의 "PG 취소 후 로컬이 실패하면 주문은 cancelled로 남는다"는 롤백되는 경로에는 맞지 않는다(주문은 `paid`로 남고 웹훅 도착 뒤에야 cancelled).
-
-#### W-9 (범위 밖) · 기존 테스트가 포트원 실호출을 시도한다 — §0 R3
-
-- 위치: `test/services/subscriptions/dunning_retry_test.rb:134-136`
-- `SubscriptionRenewalJob.perform_now`를 `with_portone_client`로 감싸지 않았다. 잡이 due 구독 전체를 돌므로 fixture Plus 구독에 차감을 시도한다. 개발자 보고의 "0 failures"는 포트원이 가짜 빌링키를 거부해 우연히 통과한 것이다. 이번 변경분은 아니므로 건수에는 넣었다(범위 밖 표기).
-- 수정: 그 블록을 `with_portone_client(FakePortOneClient.new(...))`로 감싼다. 더 근본적으로는 test 환경에 포트원 아웃바운드 전역 차단을 둔다.
-
-## 4. 중점 항목 판정 (1~19)
-
-| # | 판정 | 근거 |
-|:--|:--|:--|
-| 1 | **문제 없음** | `finalize!`의 `with_lock` 뒤 `reload`·`refunded?` 재검사(`refund_service.rb:132-136`). 실험: A가 `with_lock` 유지 중 같은 행 `with_lock`이 1.21초 대기(첫 요청 종료까지 직렬화). 그 뒤 `reload`·`refunded?` 재검사로 422가 되는 것은 코드 논리(`:133-136`)이며 순차 재실행은 기존 테스트 ②로 확인했다. 병렬 실행의 끝까지는 재현하지 못했다(§6). PG는 재취소를 409로 거부(공식 `PaymentAlreadyCancelledError`). 두 번째 요청이 5초를 넘기면 W-1 |
-| 2 | **문제 없음** | `call`의 순서(`:34-41`): `confirm_cancellation!`이 nil을 반환해야만 `finalize!`. `get_payment` 실패·판정 실패는 전부 `failure(...)` → 로컬 무변경 |
-| 3 | **문제 없음(오탐 없음), 정리 3건** | 상태: 공식 enum `CANCELLED`=완전 취소, `PARTIAL_CANCELLED`=부분 → 명시 실패(`:87-89`). 미결제 취소는 `paid=0`이면 실패(코드 논리 `:107` — 실행 재현은 내 케이스 설계 결함으로 무효)이고 로컬 `paid_at` 가드가 먼저 막는다. 금액: 정수 원 단위·심볼 키(`symbolize_names`)·쿠폰가 주문 통과(P6). 정리: `total` 폴백(W-3), 취소 내역 키(W-2), `CONSOLE_CANCELLED`(W-2) |
-| 4 | **대조 성공 → 확정** | §5. `amount.paid/total/cancelled`·`CANCELLED/PARTIAL_CANCELLED` 실제 필드·값. 틀렸을 때 결과: 성공 오인은 없음(실패 방향), 단 "돈은 나가고 기록 없음"은 발생(C-2) |
-| 5 | **재조회가 커버함, 사유 상실은 W-4a** | 공식 409(`PaymentNotPaid`·`PaymentAlreadyCancelled`)·502(`PgProvider`)는 재조회에서 PAID/미결제로 판정 실패. 401·403은 재조회도 같은 인증으로 실패(`:73-75`). 타임아웃은 모호 실패 → 재조회 또는 재실행으로 수렴 |
-| 6 | **문제 없음** | `payment_pass.rb:31-47`. 스코프 `usable.order(:expires_at, :id)`(만료 임박순), `with_lock` 뒤 `usable?` 재판정, `take = min(잔여, 남은 수량)`, `break`·`[revoked, count - revoked]`. 음수 불가(`remaining_uses >= 0` 검증 + 체크 제약). 만료 직후는 `next`로 건너뜀 |
-| 7 | **문제 없음, 단 C-1·W-6** | 활성·해지(cancelled)·체험 → `expire!`(PRD "남은 기간과 무관"). free/expired → 무변경. free/active → `expire!` 실행(W-6, 경미). dunning 중 → 상태 잔존(**C-1**). `update_all`은 `user_id` + `pg_billing_key = 캡처값`으로 한정, 키가 nil이면 실행 안 함 → 타 회원·다른 키 무관(`:202-205`) |
-| 8 | **기존 만료 경로와 동일** | `renew`: `active?` false·`current_period_end` nil → 무변경(`upgrade_service.rb:93-99`). `DunningRetryJob`: `dunning_active?` false → no-op(`dunning_retry_job.rb:20`). 체험 만료 잡: `trialing`/`cancelled`만. 갱신 스윕 대상 제외. 반복 발행은 `Subscription` 한도 메서드(`plus?`)로 Free 한도 적용. 예외는 재등록 뒤(C-1) |
-| 9 | **SQLite에서는 교착 불가** | Rails 8.1.4.1 SQLite 어댑터 `default_transaction_mode: :immediate`(gem 162행) — 트랜잭션이 첫 쿼리에서 `BEGIN IMMEDIATE`로 **전역 쓰기 잠금을 즉시 획득**. 실험: `with_lock` 유지 중 다른 연결의 무관한 행 쓰기도 1.2초 대기. 잠금이 하나뿐이라 순서 역전이 순환 대기를 만들 수 없다. 기존 코드에도 두 순서가 공존(`renew` 구독→주문, `settle_renewal` 주문→구독). 실제 위험은 교착이 아니라 **5초 초과 실패**(W-1). 행 잠금 DB로 이전 시에는 순서 통일 필요 |
-| 10 | **문제 없음** | `within_new_transaction`(gem `transaction.rb:643`)이 `ensure`에서 비지역 반환을 커밋으로 처리. 실험: 반환값 정상·`open_transactions=0`·이후 다른 연결 쓰기 지연 0.0초 |
-| 11 | **500 경로 있음 → W-1** | 구조 범위가 `RecordInvalid`·`RecordNotSaved`뿐. P3·C2로 재현. 회복은 재실행(웹훅이 `cancelled`로 바꾼 뒤 안내 노출)이지만 롤백 경로의 주석 서술은 부정확(W-8) |
-| 12 | **ADMIN-2에 부합하지 않음 → C-2** | 성공 시·트랜잭션 안에서만 기록. PG 취소를 호출한 시도는 결과와 무관하게 기록해야 한다고 판정 |
-| 13 | **웹훅 무변경 판정 타당** | 후행: `apply_status`의 `return if order.status == status`(`portone_controller.rb:72`) → 무동작. 선행: 웹훅이 `cancelled`로만 변경 → 실행 버튼으로 1회 정산(사전 가드 `paid? \|\| cancelled?`). 부분 취소 이벤트는 status만 `cancelled`로 동기화 → 서비스 재조회에서 `PARTIAL_CANCELLED` 명시 실패라 상충 없음. (P7 실행은 내 스크립트 결함으로 못 했고 코드 추적·기존 웹훅 테스트 통과로 확인) |
-| 14 | **문제 없음** | 매출·수수료: `Order.paid.not_refunded`·`.plus_monthly.paid.not_refunded` — `status=cancelled`와 `refunded_at`으로 이중 제외. MRR: `Subscription.active.where(plan: :plus)` → expired 제외. 첫 결제 쿠폰: 쿠폰은 첫 차감 시점에 이미 소비되어 재할인 없음. 회원 조회: `find_paid_legal_order`·`tax_invoice_order_for(paid: true)`에서 빠져 재주문 가능(세금계산서는 발행 이력 가드가 남음 — W-5f) |
-| 15 | **문제 없음** | `require_owner`는 `Admin::BaseController` protected(`:48-56`), `AdminsController`의 `before_action … except: %i[index]` 유지. 재현(C1): staff `PATCH` → **303**·`admin_console_denied` 1건·PG 호출 0·로컬 무변경. staff `show` 200에 폼 액션 없음·owner 안내 있음. 422 재렌더는 owner만 도달 |
-| 16 | **준수** | Service는 `params`·`Current` 미참조(`admin:` 주입). 뷰의 `refunded?`·`paid?`·`pending?`는 DB를 hit하지 않는 인스턴스 판정으로, 규약 §3.6-1·§4.2가 금지하는 "DB 쿼리·모델 클래스 메서드"에 해당하지 않는다(변경 전에도 같은 호출). `PaymentPass::TOTAL_USES`는 상수(기존 뷰 선례 `Subscription::DUNNING_MAX_STAGE`). `order_payment_badge`는 `won`과 같은 자리의 회원 표현 헬퍼라 지적하지 않는다. 액션 9줄·`params.expect`·303/422 준수 |
-| 17 | **동작 확인, 문구 보강 필요 → W-5** | 실행 효과 3요소(금액·구독·패스)는 있다. 몰수·차감 대상·재다운로드 불가 고지 부족. `turbo_confirm`은 변경 전(HEAD 44행)과 같은 방식 |
-| 18 | **대체로 정확, 1건 부정확 → W-5d·W-5e** | "환불됨/환불 안 됨"은 `refunded_at` 기준으로 정확. "취소·환불"(cancelled)은 미결제 취소도 포함하는 포괄 표기라 무리 없음. 사유·실행자·금액은 모두 `<%= %>` 이스케이프 |
-| 19 | **의미 유지·실호출 없음** | ① 303·`refunded?`·감사 1건 + `status cancelled` 확장(대역 `get_payment` 지정) ② 422·감사 미기록(`cancel_payment` raise_on으로 PG 무호출 보증) ③ 422·"환불 사유는 필수입니다". 세트 1 실행에서 외부 연결 0건 |
-
-## 5. PG 응답 필드 대조 결과 (공식 스펙 원문)
-
-출처: `github.com/portone-io/developers.portone.io` `src/schema/v2.openapi.json`(OpenAPI 3.0.3, `info.version 1.16.0`, servers `https://api.portone.io`), `src/routes/(root)/opi/ko/integration/cancel/v2/readme.mdx`, `…/webhook/readme-v2.mdx`. 문서 사이트 본문은 스크립트 렌더링이라 개요만 보였고, 공개 소스 저장소의 원문으로 대조했다. **PG API는 호출하지 않았다.**
-
-| 항목 | 코드(개발자 후보) | 공식 스펙 | 판정 |
-|:--|:--|:--|:--|
-| 취소 요청 본문 | `{ storeId, reason }` | `CancelPaymentBody`: `reason` 필수, `amount` "값을 입력하지 않으면 전액 취소됩니다" | **정합** |
-| 취소 응답 | 신뢰하지 않음(재조회 사용) | 200 = `PaymentCancellation`(`status`: `SUCCEEDED`/`REQUESTED`/`FAILED`) | 설계 타당. `REQUESTED`는 W-4b |
-| 취소 오류 | `ApiError` 흡수 | 409 `PaymentNotPaidError`·`PaymentAlreadyCancelledError`·`CancelAmountExceedsCancellableAmountError` 등, 502 `PgProviderError` | 재조회가 커버 |
-| `payment.status` | `CANCELLED`·`PARTIAL_CANCELLED`·`CONSOLE_CANCELLED` | enum: `READY`·`PENDING`·`VIRTUAL_ACCOUNT_ISSUED`·`PAID`·`FAILED`·`PARTIAL_CANCELLED`·`CANCELLED` | 앞 둘 일치. **`CONSOLE_CANCELLED` 없음**(W-2). `PAY_CANCELLED`·`CANCEL_PENDING`도 상태값 아님 |
-| `amount.paid` | 후보 | `PaymentAmount` required, "실제 결제금액" | **확정** |
-| `amount.total` | 폴백 | required, "총 결제금액" | 필드는 확정, 폴백은 W-3 |
-| `amount.cancelled` | 후보 | required, "총 취소금액" | **확정** |
-| `cancellations[].cancellationAmount` / `.amount` | 후보 | 둘 다 없음. 실제는 **`totalAmount`**(required). 항목 `status` 3종 | **불일치**(W-2) |
-| 안전장치 옵션 | 미사용 | `currentCancellableAmount` "잔액이 일치하는 경우에만 취소가 진행" | W-4c 권고 |
-
-## 6. 확인한 것 / 확인하지 못한 것
-
-**확인함(코드·gem 소스·실험·공식 문서)**
-- 이중 제출 직렬화, `return` 처리, SQLite 전역 쓰기 잠금(실험). PG 필드·상태 enum·취소 본문(공식 스펙).
-- staff 차단·감사·폼 비노출(C1). PG 취소 뒤 로컬 실패 시 감사 0건·500 경로(P2·P3·C2). dunning 잔존·재등록 뒤 차감 시도(P1). `total` 폴백 성공(P4-3). free/active에서 `expire!`(P5). 쿠폰가 주문 통과(P6).
-- 전체 스위트에서 이번 변경으로 인한 회귀 없음(1,528/1,529, 1건은 R3).
-
-**확인하지 못함**
-- 실제 포트원 응답 본문(전액 취소 뒤 `amount.paid`가 결제 금액으로 유지되는지) — 스펙상 같은 `PaymentAmount` 타입을 쓰므로 유지된다고 추정. **첫 실환불 1건으로 확인 필요.**
-- 카드 결제의 취소가 동기(`SUCCEEDED`)로 끝나는지.
-- PG가 이미 부분 취소된 결제의 `amount` 미지정 취소를 허용하는지(W-4c).
-- 웹훅 선행·후행 도착의 실행 재현(P7 미실행) — 코드 추적과 기존 웹훅 테스트 통과로 갈음.
-- 두 요청의 **실제 병렬** 실행(트랜잭션 픽스처가 스레드 간 격리됨) — runner 실험 [3]으로 대체.
-- 브라우저에서 확인창이 실제로 뜨는 화면(선례상 시스템 테스트는 대화상자 문구를 검증하지 않음).
-- 그 API 시크릿이 운영 키인지.
-
-## 7. Rule ID 준수 매핑
-
-| Rule ID | 판정 | 비고 |
-|:--|:--|:--|
-| PLAN-9 ① Plus → 즉시 Free | 구현 일치, **C-1** | 빌링키·주문 행 복사본 정리 범위 적정 |
-| PLAN-9 ② 수금 패스 10건 차감 | 일치 | 만료 임박순·0에서 종료·음수 불가 |
-| PLAN-9 ③ 발행물 그대로 | 일치 | 재다운로드 불고지는 W-5c |
-| PLAN-9 확정 절차 | 일치 | PG 취소 → 재조회(결제 완료 + 전액 취소 모두) → `cancelled`·`refunded_at` → 되돌리기 → 감사 |
-| PLAN-9 재동기화 | 일치 | 단 판정 자체가 실패하면 재실행으로 회복 불가(C-2) |
-| ADMIN-11 owner 전용 | 일치 | staff 거부 + 감사 |
-| ADMIN-11 확인창 실행 효과 | 부분 | 3요소 있음, 몰수 등 미고지(W-5) |
-| ADMIN-11 미정산·미결제 안내 | 일치(문구 1건 부정확) | W-5d |
-| ADMIN-2 감사 | **불일치** | 시도 미기록(C-2) |
-| ADMIN-5 매출 제외 | 일치 | 기존 스코프 그대로 |
-| Q27 #6 빌링키만 정리 | 일치 | 카드 값 미취급 |
-
-## 8. Tester에게 제안하는 중점 테스트 영역
-
-**실행 전 필수**: 잡·웹훅 경로 테스트는 반드시 `with_portone_client`(또는 서비스에 `client:` 주입)로 감싼다. `DunningRetryJob`·`SubscriptionRenewalJob`은 내부에서 기본 클라이언트를 만들므로 대역 없이 실행하면 실호출이 난다(R1·R3).
-
-1. **C-1 회귀**: dunning 1단계 구독의 이전 paid 주문 환불 → `dunning_stage 0`·`next_retry_at nil` → 재등록(`activate!`) → `dunning_active? false` → 재시도 잡이 차감 API를 호출하지 않음(`fake.calls[:charge_billing_key]` 빈 배열).
-2. **C-2 회귀**: PG 취소 성공 + 확정 실패(감사 서비스가 예외) → 시도 감사 1건 이상. PG 오류·확인 불가 각각 → 시도 감사 기록.
-3. 상품 4종 각각 정상(Plus·패스·내용증명·세금계산서) + 패스 잔여 부족 → 0에서 종료·`[revoked, ignored]` 값.
-4. 예외: `get_payment` ApiError·PARTIAL_CANCELLED·paid=0·REQUESTED 항목·쿠폰가 주문·`paid_at` 없는 cancelled·pending/failed·blank 사유 → 전부 로컬 무변경·PG 취소 호출 0(가드에서 걸리는 경우).
-5. 웹훅 선행 도착 → 실행 1회 / 후행 도착 → 무변경 / 부분 취소 이벤트.
-6. 권한: staff PATCH 거부·감사·PG 무호출. 소유권(다른 회원 주문 id) — 관리자 화면이라 해당 없음.
-7. 회원 표기: 환불된 내용증명·세금계산서 쇼에서 "환불됨"·다운로드 버튼 없음·`download` 직접 접근 시 워터마크 PDF.
-8. 집계: 환불 뒤 매출·수수료 집계에서 제외, MRR 감소.
-
-## 9. 운영상 주의 (APPROVED 뒤에도)
-
-- **첫 실환불은 실제 결제 1건(수금 패스)으로** 하고, 그때 `amount.paid`가 유지되는지와 취소가 동기로 끝나는지를 확인한다.
-- **실패 메시지가 떠도 PG 쪽에서는 환불이 실행됐을 수 있다.** "전액 취소를 확인할 수 없습니다"·500이 나오면 포트원 콘솔에서 해당 결제의 취소 상태를 먼저 확인한다. 웹훅으로 주문이 "취소·환불"로 보이면 상세 화면의 재실행 버튼으로 정산한다.
-- 갱신 스윕 시각(일 1회)에는 환불을 실행하지 않는다(W-1·W-7).
-- KG이니시스 콘솔에서 직접 환불하면 포트원 상태가 `PAID`로 남아 이 기능으로 정산할 수 없다(공식 가이드 주의사항).
-- 환불은 회원에게 알리지 않는다(PRD 후속 과제).
-- PG 수수료는 환불 뒤에도 돌아오지 않을 수 있다.
+- `git status --short`, `git log --oneline -8`, `git diff --stat -- app test`
+- `git diff -- <파일>`: `invoice.rb`, `message_log.rb`를 비롯한 app 7개, 테스트 11개
+- `git show HEAD:app/services/reminders/send_service.rb`(회귀 대조용)
+- `grep`·`sed`: `_workspace/05_review.md`, `03_implementation.md`, `07_test_report.md`, `02_prd_update.md`, `PRD.md` §6.6·§6.9·§6.10·§10, `ARCHITECTURE_CONVENTION.md`, `db/schema.rb:194-218`, `config/recurring.yml`, ActiveSupport 8.1.4.1 소스 2곳
+- **실행하지 않은 것**: 테스트 전체, `bin/rails runner`·`console`. 파일 수정·임시 파일·git 상태 변경·외부 API 호출은 없다.

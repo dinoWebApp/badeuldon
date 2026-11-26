@@ -1,49 +1,60 @@
-# 08_run_report — 세금계산서 발급 자격 차단·운영 준비 게이트 (2026-11-24, Phase 8)
+# 08_run_report — 포트원 채널 키 환경 분리 + 결제 확정 검증 (PLAN-5)
 
-## 부트 검증 (개발 서버 — 스위치 꺼짐·켜짐 두 상태)
+2026-11-25 14:55~15:40 KST(문서·소스 수정 시각 기준 — 처음 적은 "18:20~19:20"은 오기) · 오케스트레이터 직접 수행 · 로컬 macOS(arm64) · Ruby 4.0.10 · Rails 8.1.4.1 · Puma 8.1.2 · 미커밋 작업 트리
 
-| 모드 | 부팅 | 로그 에러·경고 | `/` | `/up` | `/app`·세금계산서 경로(미로그인) |
-|:---|:---|:---|:---|:---|:---|
-| 꺼짐(ENV 미설정 — 기본값) | 3초 | 0줄 | 200 | 200 | 302 → 로그인 화면 |
-| 켜짐(`TAX_INVOICE_ENABLED=true`) | 2초 | 0줄 | 200 | 200 | 302 → 로그인 화면 |
+## 결론
 
-- 부팅 로그: `Listening on http://127.0.0.1:3011` 확인, FATAL·Error·exception·WARN 0건 (111줄).
-- 확인한 경로: `/`, `/up`, `/app`, `/app/tax_invoice_setting`, `/app/tax_invoices/new?invoice_id=1`, `/app/invoices/1`.
-- 미로그인 요청은 인증이 먼저 걸려 두 모드의 응답이 같다(로그인 화면 리다이렉트) — 게이트 동작 자체는 아래 테스트로 확인.
-
-## 스위치 값 (개발 환경 — 서버와 별도 프로세스)
-
-| ENV | `TaxInvoice.feature_enabled?` |
+| 항목 | 결과 |
 |:---|:---|
-| 미설정 | false |
-| `"true"` | **true** |
-| `"TRUE"` | false |
+| `bin/rails db:prepare` | 정상 (마이그레이션 없음) |
+| 앱 부팅 | **성공** — "Rails 8.1.4.1 application starting in development"·Puma 3100 포트 리스닝·부팅 로그에 FATAL/ERROR/DEPRECATION 0건 |
+| 주요 경로 응답 | 아래 표 — 500 없음, 예외 0건 |
+| 웹훅(`/webhooks/portone`) | 모르는 결제 ID·빈 본문·알 수 없는 type 전부 200 흡수, 포트원 호출 0건 |
+| 개발 환경 선택기 | 테스트 채널 키 2개 선택(라이브 키와 다른 값), 검증기 기대값 TEST·KRW |
+| 운영 환경 설정 평가 | 라이브 채널 키 2개 선택(테스트 키와 다른 값), 검증기 기대값 LIVE |
+| 전체 테스트(직접 재실행) | **1,664 runs · 10,553 assertions · 0 failures · 0 errors** (마지막 반영 F-1~F-4 뒤 최종 수치 — 1,656 → +8) |
+| 시스템 테스트(직접 재실행) | 15 runs · 135 assertions · 0 failures |
+| RuboCop·zeitwerk·Brakeman | 430파일 0 offenses · 통과 · Errors 0·Security Warnings 0 |
+| 외부 API 실호출 | **0건** |
 
-→ 초기화 파일이 환경 변수를 부팅 시 읽어 config.x에 고정하고, `"true"`만 켜진다(fail-closed).
+## 요청 응답 (미로그인, `bin/rails server -p 3100`)
 
-## 커밋 전 게이트 `bin/ci` (Ruby 4.0.10)
+| 요청 | 응답 | 판정 |
+|:---|:---|:---|
+| `GET /` | 200 | 정상 |
+| `GET /app/billing` | 302 → `/session/new` | 로그인 가드 정상 (채널 키를 담는 화면) |
+| `GET /app/legal_documents/new`·`/app/tax_invoices/new` | 302 → `/session/new` | 로그인 가드 정상 |
+| `GET /admin/session/new` | 200 | 정상 |
+| `POST /webhooks/portone` `Transaction.Paid` (모르는 paymentId) | 200 | 흡수 — 주문 미발견이라 재조회 전에 종료(포트원 미호출) |
+| `POST /webhooks/portone` 빈 본문 | 200 | `JSON::ParserError` 흡수 |
+| `POST /webhooks/portone` 알 수 없는 type | 200 | 비동기 대상 아님 — 흡수 |
 
-| 단계 | 결과 |
-|:---|:---|
-| rubocop | 420 files, no offenses |
-| bundler-audit | 통과 (취약점 0건 — 갱신된 권고 DB 기준) |
-| importmap audit | 통과 |
-| brakeman | Errors 0 · Security Warnings 0 |
-| 테스트 | **1,529 runs · 9,561 assertions · 0 failures · 0 errors · 0 skips** |
-| 시드 | 통과 |
+`log/development.log` 해당 구간: `Completed 200` 6건·`Completed 302` 3건, 500·FATAL·RoutingError·NoMethodError 0건.
 
-추가: 시스템 테스트 `bin/rails test:system` — 13 runs · 0 failures (Tester 실행).
+## 환경별 선택기·검증기 평가 (runner, 키 값은 출력하지 않고 credentials 항목과의 일치만 확인)
 
-## 검증 범위와 한계
+| 평가 | `live_channel?` | `.billing` | `.normal` | 검증기 기대 채널·통화 |
+|:---|:---|:---|:---|:---|
+| development (작업 트리 credentials) | false | `channel_key_billing_test`와 동일·라이브 키와 다름 | `channel_key_normal_test`와 동일·라이브 키와 다름 | TEST·KRW |
+| production 환경 설정(`RAILS_ENV=production`, 로컬 평가) | true | `channel_key_billing`(라이브)와 동일·테스트 키와 다름 | `channel_key_normal`(라이브)와 동일·테스트 키와 다름 | LIVE |
 
-- **로그인이 필요한 경로의 실서버 응답 검증은 하지 않았다.** 대신 같은 라우트·컨트롤러·뷰를 그대로 타는 Tester의 통합 테스트(세금계산서 관련 158건 — 기본 켬·끈 상태 토글, 패널 우선순위 매트릭스 9건, pending 주문 결제 화면 차단, 소유권 격리·noindex 회귀)로 확인했다. 개발 DB에 검증용 계정을 만들지 않기 위한 선택이다.
-- 이번 작업에는 새 라우트·마이그레이션이 없다.
-- 세금계산서 발행 플로우의 브라우저 E2E는 기존과 같이 없다 — 실기 QA 때 켜짐 상태 발행 화면을 육안 확인해야 한다.
-- 실결제·바로빌 실호출은 하지 않았다(테스트는 전부 stub).
+검증기 동작(개발 환경 기대값): `amount.paid 4000`·`channel.type TEST`·`currency KRW`인 결제 건은 통과, `channel.type LIVE`인 결제 건은 `channel_mismatch`로 거절 — 환경 분리가 확정점에도 적용됨.
 
-## 운영 반영 시 주의 (TAX-4)
+## 최종 재확인 (마감 리뷰 WARNING F-1~F-4 반영 뒤 — 주문 생성 3곳에 재주문 차단 가드 추가)
 
-- 배포 직후 운영에서는 세금계산서 기능 전체가 잠긴다(기본 꺼짐 — 의도된 동작).
-- 켜기 전에 바로빌 운영 준비(계약·포인트 충전·법인 회원 등록)를 끝낸다. 미충전 상태에서 켜면 결제만 되고 발행이 실패한다.
-- 스위치를 끈 채로 배포할 때는 운영의 미결제 세금계산서 주문을 확인해 실패 처리한다(2026-11-24 실측: 0건).
-- 랜딩의 세금계산서 소개는 스위치와 연동되지 않는다 — 외부 공개 전에 켜야 한다.
+- 서버 재기동 정상(부팅 로그 FATAL/ERROR 0건). `GET /` 200, `GET /app/billing`·`/app/legal_documents/new`·`/app/tax_invoices/new` 302 → 로그인.
+- `POST /app/legal_documents`·`/app/tax_invoices`·`/app/orders`(미로그인·CSRF 토큰 없음) → 422 — **CSRF 검증이 액션 실행 전에 차단한 기존 동작**(개발 로그: "Can't verify CSRF token authenticity", 쿼리 0회). 이번 변경과 무관.
+- `POST /webhooks/portone`(모르는 결제) → 200 흡수. development.log에 500·FATAL·RoutingError·NoMethodError 0건.
+- RuboCop 430파일 0 offenses · zeitwerk 통과 · Brakeman Errors 0·Security Warnings 0 · 전체 테스트 1,664 runs 0 failures · 시스템 테스트 15 runs 0 failures(모두 오케스트레이터 직접 재실행).
+
+## 검증하지 못한 것 (실호출 금지 — 실제 결제로만 확인 가능)
+
+- 실제 포트원 결제의 승인 응답 본문이 `pgTxId`·`paidAt`뿐인지, 재조회 응답의 `status`가 즉시 `PAID`인지, `amount.paid`·`channel.type`·`currency`의 실측값.
+- 로컬 브라우저에서 결제창·카드 등록 위젯이 실제로 뜨는지(`_test` 채널 2개의 소속·테스트 채널에서 실제 결제가 일어나지 않는지).
+- 운영 서버에서의 플랫 도달. 위 운영 평가는 로컬에서 운영 환경 설정으로 돌린 것이다.
+
+## 종료·정리
+
+- 서버 프로세스 종료·3100 포트 해제 확인.
+- `bin/dev`(foreman)는 비TTY 환경에서 CSS 감시 프로세스가 즉시 종료되어 전체가 내려가서(선례와 동일 — 이번 변경과 무관) `bin/rails server`를 직접 띄워 확인했다.
+- 작업 트리에 검증 부산물 없음.

@@ -1,113 +1,151 @@
-# 07_test_report — 세금계산서 발급 자격 차단(TAX-3) + 운영 준비 게이트(TAX-4)
+# 07_test_report — 포트원 채널 키 환경 분리 + 결제 확정 검증 (PLAN-5·Tester 단계, 2026-11-25)
 
-2026-11-24 · Tester · 대상: 미커밋 구현(app/config 12파일 + 신설 2파일) · 앱 코드는 수정하지 않았다.
+## 요약
 
-## 결과 요약
-
-| 게이트 | 결과 |
+| 항목 | 값 |
 |:---|:---|
-| 세금계산서 관련 테스트(13파일 + 신규 5파일) | **158 runs · 863 assertions · 0 failures · 0 errors** |
-| 전체 `bin/rails test` | **1,529 runs · 9,561 assertions · 0 failures · 0 errors · 0 skips** (이전 기준선 1,477 → +52건) |
-| 전체 `bin/rails test:system` | **13 runs · 117 assertions · 0 failures · 0 errors** (1회 통과 — 알려진 로그인 경합 플레이크 미발생) |
-| `bin/rubocop test/` | 195 files inspected, **no offenses** |
-| 코드 버그 | **0건** — 실패·에러 전무, 원인 분류 대상 없음 |
+| 신규·보강 테스트 | **66건 추가**(단위·통합 65 + 시스템 1) — 기존 0건 수정, 기존 단언 보존 |
+| 비시스템 전체 | `bin/rails test` — **1,656 runs · 10,504 assertions · 0 failures · 0 errors · 0 skips**(기준선 1,590/10,003 대비 +66 runs · +501 assertions) |
+| 시스템 전체 | `bin/rails test:system` — **15 runs · 135 assertions · 0 failures**(기준선 14/131 대비 +1) |
+| RuboCop | `bin/rubocop test/` — 201 files inspected, **no offenses** |
+| Zeitwerk | `zeitwerk:check` — all is good |
+| 포트원 실호출 | **0건** — 전 경로 대역(`FakePortOneClient` 주입/생성자 교체, `with_http_transport` 전송 대역, 가드 경로는 API 호출 전 예외 + TEST_GUARD 방어선) |
+| app 버그(BUG-n) | **없음** — 전 시나리오가 구현대로 동작했다. 테스트 자체 오류 2건(transport stub을 끼워 가드를 우회한 케이스·nil metadata 접근)은 스스로 수정 |
+| credentials 의존 | 없음 — 선택기·검증기·가드·화면 모두 `credentials:`·`live:` 인자 또는 `with_portone_channel_keys` 일시 교체로 고정(로컬=마스터 키 有, CI=無 동일 결과). `config.x.portone_live_channel`은 교체 후 `ensure`에서 원복 |
 
-시작점이었던 기존 실패(꺼짐 기본값 상태 19건 + 켜짐 1건)는 모두 해소됐다. 지시서 기록(꺼짐 20건 = 12+8)과 실측(19건 = 11+8)에 1건 차이가 있었으나 전부 같은 원인(리다이렉트 대상이 `/app`으로 바뀐 것)이고 갱신 후 전부 통과라 영향 없다.
+## 그룹별 시나리오 표
 
-## 구조 — 테스트 환경의 스위치 기본 켬
+### A. 채널 키 선택기 `PortOne::ChannelKey` — 신설 `test/services/port_one/channel_key_test.rb`(10건)
 
-- **신규** `test/test_helpers/tax_invoice_feature_helper.rb` — `with_tax_invoice_feature(enabled)` 블록 헬퍼. `ensure`로 원래 값 복원.
-- **수정** `test/test_helper.rb` — `ActiveSupport::TestCase` setup에서 `config.x.tax_invoice_enabled = true`(기존 세금계산서 테스트의 전제 보전), teardown에서 부팅 값 복원(테스트 간 누수 방지).
-- 꺼짐이 필요한 케이스는 전부 `with_tax_invoice_feature(false)` 블록으로 격리했다. fail-closed **파싱** 자체는 초기자를 `load`하는 단위 테스트(`test/config/tax_invoice_initializer_test.rb`)가 담당 — 부팅 9회 없이 ENV 9값을 검증한다.
+| 구분 | 시나리오 | 테스트 | 결과 |
+|:---|:---|:---|:---|
+| 정상 | `live: true` → 기본 키(billing·normal) | 운영 기대(live: true)… | 통과 |
+| 정상 | `live: false` → `_test` 키(billing·normal) | 비운영 기대(live: false)… | 통과 |
+| 경계 | kind 문자열("billing"/"normal") | kind는 문자열도 심볼과 동일… | 통과 |
+| 예외 | 비운영인데 테스트 키 없음 + 라이브 키 有 → **nil(라이브 대체 금지)** | 비운영에서 테스트 키가 없으면… | 통과 |
+| 예외 | 운영인데 라이브 키 없음 → nil | 운영 기대인데 라이브 키가 없으면… | 통과 |
+| 예외 | `portone` 블록 없음(CI) → nil | credentials에 portone 블록이 없어도… | 통과 |
+| 예외 | kind `:foo`/nil/""/"billing_test"/정수 → ArgumentError(메시지에 billing/normal) | 허용 kind는 billing·normal뿐… | 통과 |
+| 경계 | test 환경 `live_channel?` = false(플래그 미정의) | live_channel?는 test 환경(플래그 미정의)… | 통과 |
+| 경계 | 플래그 행렬 true→live, "true"·nil·1·false→테스트 채널(**`== true` 비교 유지** — Rails 8.1 config.x 미정의 키는 truthy OrderedOptions) | live_channel?는 true만 라이브로 판정… | 통과(ensure 원복) |
+| 정상 | `.billing`/`.normal`이 `fetch` 기본 인자를 탄다(kind만 전달·kwargs {} — 실제 credentials 비의존) | .billing과 .normal은 fetch를 kind만 넘겨… | 통과 |
 
-## 추가·변경한 테스트 파일
+### B. 클라이언트 가드·본문 — `test/services/port_one/client_service_test.rb`(보강 2건)
 
-| 파일 | 구분 | 내용 |
+| 구분 | 시나리오 | 결과 |
 |:---|:---|:---|
-| `test/test_helpers/tax_invoice_feature_helper.rb` | 신규 | 토글 블록 헬퍼 |
-| `test/test_helper.rb` | 수정 | 기본 켬 setup/teardown + 헬퍼 include |
-| `test/models/tax_invoice_test.rb` | 신규 8건 | `feature_enabled?` 단일 판정점(ENV 비의존)·`FEATURE_DISABLED_NOTICE` 상수·`User#tax_invoice_eligible?` 3값·문구 2종(TAX-3 단일 출처) |
-| `test/config/tax_invoice_initializer_test.rb` | 신규 3건 | ENV 9값 fail-closed 파싱(`"true"`만 켜짐; 미설정·`"false"`·`TRUE`·`True`·`1`·`yes`·`" true"`·`"true "` 꺼짐)·로드 후 판정점 확인 |
-| `test/controllers/app/tax_invoice_gate_test.rb` | 신규 22건 | TAX-4 꺼짐 전체 + 패널 우선순위 매트릭스 9건 + 사이드바 순서 |
-| `test/controllers/app/tax_invoice_eligibility_test.rb` | 신규 12건 | TAX-3 정상/경계/예외(간이과세 7건·면세 1건 통합) |
-| `test/controllers/app/tax_invoices_controller_test.rb` | 수정 1건 | 가드 리다이렉트 대상을 `new` → 청구서 상세로 갱신(리뷰 C-1 반영 — 테스트 의도·규칙은 유지) + 파일 헤더에 켜짐 전제 명시 |
-| `test/controllers/app/tax_invoice_settings_controller_test.rb` | 수정 0건 | 파일 헤더에 켜짐 전제 명시만(기본 켬으로 전부 통과) |
-| `test/services/tax_invoices/create_order_service_test.rb` | +2건 | `IneligibleUser`(간이·면세) — message 단일 출처 일치·주문 0건 |
-| `test/services/tax_invoices/issue_service_test.rb` | +3건 | `GuardFailed`(간이·면세) 기록 0건·SOAP 미호출 + 가드 순서(자격 > 설정) |
-| `test/controllers/webhooks/tax_invoice_settle_test.rb` | +2건 | TAX-3 ④ 웹훅 경로(결제 성립·발행 차단) + TAX-4 스위치 무관성(settle은 꺼짐에도 정상 발행) |
+| 예외 | `issue_billing_key`에 channel_key nil/""/"   " → `MissingChannelKey`(ArgumentError 아님·`refute_kind_of`)+ HTTP 요청 0건 | 통과 |
+| 예외 | `charge_billing_key` 동일 → `MissingChannelKey` + HTTP 요청 0건 | 통과 |
+| 정상 | `confirm_payment` 본문 `totalAmount`·`isTest`·`currency` 전달 — **기존 테스트가 정확한 본문 등식으로 이미 고정**(`{storeId, paymentToken, totalAmount, isTest, currency}`) — 추가 보강 불요 | 통과(기존) |
 
-신규 테스트 총 **52건** = 전체 증분(+52)과 일치. 소유권 제한 3파일(`Gemfile.lock`·`test/application_system_test_case.rb`·`test/test_helpers/capybara_chrome_compat.rb`)은 미접촉(git status 대조). 외부 API 실호출 0건 — 바로빌은 기존 `with_baro_bill_client(FakeBaroBillClient.new)` 방식, 포트원은 기존 `PortOneStubbing`을 그대로 사용했다.
+### C. 갱신·재시도 잡 — 신설 `test/jobs/subscription_renewal_job_test.rb`(3건) + `dunning_retry_test.rb`(보강 2건)
 
-## Rule ID별 시나리오 매트릭스
+| 구분 | 시나리오 | 테스트 | 결과 |
+|:---|:---|:---|:---|
+| 예외 | 키 없음: 차감 대상(active·빌링키)은 가드로 건너뛰고 **선기록 pending 주문은 롤백으로 미잔존**(dunning 0·next_retry_at nil·상태 active 유지), **해지 후 주기 종료 구독은 만료 강등이 정상 처리**(클라이언트 무호출 경로) | 채널 키가 없어도 차감 대상만 건너뛰고… | 통과 |
+| 정상 | 건너뛰기 시 `Rails.logger.error("[SubscriptionRenewalJob] user=…")` 기록(`broadcast_to` 캡처) | 채널 키 미등록으로 건너뛴 구독은 오류 로그… | 통과 |
+| 예외 | 전용 예외 아님: `ArgumentError`(대역 주입)는 잡이 삼키지 않고 실패 — 롤백으로 오염 없음 | 전용 예외가 아닌 코드 오류는 잡이 삼키지… | 통과 |
+| 예외 | `DunningRetryJob`: 키 없음 → `dunning_stage`·`next_retry_at`·주문 수 **무변경**(설정 오류 ≠ 카드 거절), 잡 실패 없음 | 채널 키 미등록 재차감은 dunning 단계… | 통과 |
+| 예외 | `DunningRetryJob`: `ArgumentError`는 잡 밖으로 — 범용 rescue 금지 | 전용 예외가 아닌 코드 오류는 재시도 잡도… | 통과 |
 
-### TAX-3 — 발급 자격(Q25 — 발행만 차단·영구)
+### D. `PortOne::PaymentVerifier` 행렬 — `test/services/port_one/payment_verifier_test.rb`(신설 파일, 보강 15건)
 
-| 구분 | 시나리오 | 검증 위치 |
+| 구분 | 시나리오 | 결과 |
 |:---|:---|:---|
-| 정상(general) | `new` 200 + "수수료 결제하고 발행 요청" 버튼 | eligibility |
-| 정상(general) | 패널 ready — 발행 링크·300원 고지, 안내 문구 없음 | gate 매트릭스 ready |
-| 정상(general) | 설정 화면 발급 불가 안내 없음 + 인증서 완료 안내 "이제 … 발행할 수 있습니다" | eligibility |
-| 경계 | 과세 선택지 3종 유지 + 저장 성공(바로빌 스텁 — `barobill_id` 채번·tax_type 반영) | eligibility |
-| 경계 | 기존 발행 내역 조회(기록 분기)·취소 성공 — 자격 무관 허용 | eligibility |
-| 예외(간이·면세) | ① 패널 "발급 불가" + 문구 + 발행 링크 없음 | eligibility·gate |
-| 예외 | ② `new` → **청구서 상세** 리다이렉트 + 안내 플래시(리뷰 C-1) | eligibility(간이·면세) |
-| 예외 | ② `create` → 청구서 상세 + 주문 0건 | eligibility(간이·면세) |
-| 예외 | ③ `CreateOrderService::IneligibleUser` — message == 단일 출처 문구, 주문 미생성 | create_order_service(간이·면세) |
-| 예외 | ④ `IssueService::GuardFailed` — 기록 0건·SOAP 호출 0건 | issue_service(간이·면세) |
-| 예외 | ④ 가드 순서 — 자격 가드가 설정 가드보다 앞선다 | issue_service |
-| 예외 | pending 주문 `show` — 결제 버튼·`portone-payment` 위젯 없음(리뷰 C-2) | eligibility(간이·면세) |
-| 예외 | 설정 2단계(인증서 등록) 숨김 + 안내 박스(리뷰 W-3) | eligibility |
-| 예외 | 저장 성공 플래시에 "다음으로 공동인증서" 없음 | eligibility |
-| 예외 | 인증서 확인 성공 안내에 발행 가능 문언 없음 | eligibility |
+| 정상 | 기본(TEST·4,000원·KRW) 통과 + payment 그대로 반환 / Float 4,000.0 통과 / `live: true`+LIVE·`live: false`+TEST 각각 통과 | 통과 |
+| 예외(금액) | 100·5,000 → `amount_mismatch` / paid nil·amount 키 누락 → 실패 / `"4000"`(문자열) → 실패 / amount가 String·Array·Integer → 실패(TypeError 아님) / payment nil·"PAID"·Array → 실패 | 통과 |
+| 예외(채널) | `live: true`인데 TEST·`live: false`인데 LIVE / type 누락·`"TEST "`(공백)·`"test"`(소문자)·`:TEST`(심볼) → `channel_mismatch` / channel이 String·Array·Integer → 실패(TypeError 아님) | 통과 |
+| 예외(통화) | "USD"·nil·키 누락 → `currency_mismatch`(detail에 expected=KRW) | 통과 |
+| 예외 | **문자열 키 해시 → amount_mismatch**(관대 수용 금지) | 통과 |
+| 경계 | `live:` nil/"true"/1/0/"" → TEST 기대 해석(LIVE 거절·TEST 통과 — 라이브 해석 경로 없음) | 통과 |
+| 정상 | `VerificationError`가 `reason`·`detail`·message(라벨 "금액 불일치/채널 불일치/통화 불일치"·접두 "결제 확정 검증 실패") 운반 | 통과 |
+| 예외 | 10종 비정상 응답 전부 `VerificationError`로 정규화 — TypeError·NoMethodError·KeyError 없음(REASON_LABELS 키 순환) | 통과 |
+| 정상 | 검증 순서 금액→채널→통화(기존 5건 유지·재확인) | 통과(기존) |
 
-### TAX-4 — 운영 준비 게이트(Q26 — 기본 꺼짐·fail-closed)
+### E. `Orders::PurchaseService` 콜백 경로 — 보강 10건
 
-| 구분 | 시나리오 | 검증 위치 |
+| 구분 | 시나리오 | 핵심 단언 | 결과 |
+|:---|:---|:---|:---|
+| 정상 | 세금계산서 주문(tax_invoice·300원) 정상 확정 — paid·paid_at·metadata에 재조회 스냅샷(amount.paid)·**패스 0건**·승인 요청 인자(`total_amount: 300, is_test: true, currency: "KRW"`)·legal/tax도 `FulfillPassService` 경유 | 통과 |
+| 예외 | 금액 불일치(재조회 paid=100) → `PurchaseError`("결제 확인에 실패했습니다…")·주문 **failed**·paid_at nil·`verification_failed?`·metadata `code=PAYMENT_VERIFICATION_FAILED`+`verification.reason=amount_mismatch`+`VERIFICATION_FAILED_MESSAGE`·**pg_payment_id 스냅샷**·패스 0·승인 1회+재조회 1회·메시지에 내부 값 미노출 | 통과 |
+| 예외 | 채널 불일치(`paid_payment(live: true)`를 비운영 기대에) → `channel_mismatch`·failed | 통과 |
+| 예외 | 통화 불일치(USD) → `currency_mismatch`·failed | 통과 |
+| 경계 | 즉시 승인 채널(토큰 없음)도 검증 실패 → failed(승인 호출 0건·재조회 1회) | 통과 |
+| 예외 | 모호 실패(TIMEOUT) 회복 재조회 불일치 → pending 회복이 아니라 **failed 확정**(pending_recovery 미기록) | 통과 |
+| 경계 | ALREADY_PAID 회복 재조회 불일치 → failed 확정 | 통과 |
+| 경계 | 승인 성공 뒤 재조회가 **PAID 아님**(PAY_PENDING) → failed 금지·**pending 유지**+`pending_recovery`·재조회 재시도 0회(기존 TIMEOUT 회귀와 별개 변형) | 통과 |
+| 경계 | 승인 요청 자체 거부(400 PG_PROVIDER_ERROR) → failed지만 `metadata["verification"]` **nil**·`verification_failed?` false — `record_failure!` 경로와 분리 | 통과 |
+| 경계 | legal_doc 주문 검증 실패 기록도 `metadata["invoice_id"]` 보존(B-1 병합) | 통과 |
+| (H 이관) | 이미 paid 주문의 재검증 실패 기록 무시(멱등)는 모델 계층에서 고정(H 그룹) | — |
+
+### F. 웹훅 `Webhooks::PortOneController` — 보강 5건
+
+| 구분 | 시나리오 | 핵심 단언 | 결과 |
+|:---|:---|:---|:---|
+| 예외 | pending + `Transaction.Paid` + 재조회 금액 불일치 → 확정 없이 **failed**·`verification_failed?`·reason 기록·**pg_payment_id 스냅샷(웹훅 경로도 R2-5 단일 구현 경유)**·패스 0·**응답 200**·재조회 정확 1회 | 통과 |
+| 예외 | 채널 불일치(LIVE)·통화 불일치(USD) → 동일 실패 처리 + 200 | 통과 |
+| 경계 | 같은 Paid 이벤트 재수신 → 멱등 무변경(metadata 등식 — `mark_verification_failed!`가 이미 failed인 주문을 건드리지 않음) | 통과 |
+| 예외 | **일반 PG 거절 failed 주문 + Transaction.Paid**(재조회는 PAID·금액 일치) → paid로 되돌려지지 않음·paid_at nil·PG 사유 보존·verification nil·`updated_at` 불변(update! 미실행 프록시) — R2-1 가드가 **failed 전체**에 적용됨 | 통과 |
+| 정상 | pending→failed 동기화·paid→cancelled(환불)·R2-1 검증 실패 주문 회귀·Plus 갱신 `settle_renewal` 무검증 경로 — **기존 테스트 9건 유지로 회귀 확인** | 통과(기존) |
+
+### G. 회원 화면(컨트롤러·통합) — billings 3건·legal_documents 7건·tax_invoices 5건
+
+| 화면 | 시나리오 | 결과 |
 |:---|:---|:---|
-| 스위치 | ENV 9값 파싱 — `"true"`만 켜짐, 나머지 전부 꺼짐 | initializer |
-| 스위치 | 모델은 config만 읽는다 — ENV true여도 config 꺼짐이면 꺼짐 | models/tax_invoice_test |
-| 꺼짐① | 사이드바 "전자세금계산서" 비노출 | gate |
-| 꺼짐② | 패널 "준비 중" — 상수 문구 + 보조 문장, 발행 링크 없음 | gate |
-| 꺼짐② | 기존 발행 기록 있는 청구는 기록 표시 유지(승인번호·주문 링크) | gate |
-| 꺼짐③ | `new`·`create` → `/app` 리다이렉트 + 상수 플래시 + 주문 미생성 | gate 2건 |
-| 꺼짐③ | 설정 4액션(show·update·register_certificate·confirm_certificate) → `/app` + 상수 플래시, 저장 미수행 | gate 3건 |
-| 꺼짐④ | paid 주문 `show` 200(발행 상태 표시) | gate |
-| 꺼짐④ | paid 발행 `cancel` 성공(canceled 전이) | gate |
-| 꺼짐④ | pending 주문 `show` — 200 유지 + 결제 위젯 미렌더(리뷰 C-2) | gate |
-| 회귀 | 소유권 격리 — 꺼짐 상태에서도 타인 주문 show·cancel 404 | gate |
-| 켜짐 | 메뉴 순서 회귀 — "추심 안내" < "전자세금계산서" < "공지" | gate |
-| 켜짐 | 기존 세금계산서 테스트 전수 통과 + settle 경로는 스위치와 무관하게 발행 수행 | 13파일 158 runs + settle |
-| 매트릭스 | 기존 기록 > paid_pending·꺼짐·자격 없음(복합 조건 1건) | gate |
-| 매트릭스 | paid_pending > 꺼짐(리뷰 W-1 — 주문 링크 보전·재결제 버튼 없음) | gate |
-| 매트릭스 | paid_pending > 자격 없음(W-1) | gate |
-| 매트릭스 | 꺼짐 > 자격 없음 / 꺼짐 > settings_missing / 자격 없음 > settings_missing / settings_missing > client_missing / client_missing > ready / ready | gate 6건 |
+| billings#show | 선택기 고정값이 `data-portone-payment-channel-key-value`·`data-portone-billing-channel-key-value`에 그대로 심김 + 결제하기 1 | 통과 |
+| billings#show(checkout) | normal 키 nil → 결제하기 0 + "결제 채널이 설정되지 않았습니다" + **`data-controller=portone-payment` 블록 유지**(W-1 결정 범위) | 통과 |
+| billings#show | billing 키 nil → 카드 등록 버튼(속성) 0 + 안내 | 통과 |
+| legal_documents#show | 키 nil → 버튼 0 + 안내 + 위젯 블록 유지 / 키 有+연락처 無 → 연락처 안내 / 키·연락처 有 → 결제하기 1 + 키 값 속성 | 통과 3건 |
+| legal_documents#show | 검증 실패 주문 → "결제 확인에 실패했습니다. 고객지원(문의)으로 연락해 주세요." + "다시 결제하지 말아 주세요" + 문의 링크 + **재주문 버튼 없음** / `payment_failed=1` 파라미터와 와도 **검증 실패 안내 우선** / 일반 PG 실패 주문은 기존 재주문 안내·버튼 유지(회귀) | 통과 3건 |
+| legal_documents (R2-1 변형) | 검증 실패 legal_doc 주문 + 정상 금액 `Transaction.Paid` 재수신 → failed 유지·paid_at nil·`invoice_id` 보존 → download는 **워터마크 미리보기**(정식 PDF와 바이트 다름) | 통과 |
+| tax_invoices#show | 키 nil(pending·설정 완료 사용자) → 버튼 0 + 안내 + 위젯 블록 유지 / 키·연락처 有 → 결제하기 1 + 키 속성 / 연락처 無 → 연락처 안내 | 통과 2건 |
+| tax_invoices#show | 검증 실패 → 문의 안내 + "다시 결제하지 말아 주세요" + 재발행 버튼 없음 + 일반 실패 분기 미노출 / `payment_failed=1` 우선순위 / 일반 PG 실패는 기존 "다시 발행 요청" 유지(회귀) | 통과 3건 |
 
-### 문구 단일 출처·기타 회귀
+### H. `Order#mark_verification_failed!` 모델 — 보강 4건
 
-- **TAX-3 문구**: 패널·`new`/`create` 플래시·설정 화면·저장 플래시·인증서 안내·`IneligibleUser`/`GuardFailed` message가 전부 `User#tax_invoice_ineligibility_notice`와 **exact-equality**(el.(assert_equal)) 검증 — 12건.
-- **TAX-4 문구**: 플래시 7액션·패널·pending 주문 차단이 전부 `TaxInvoice::FEATURE_DISABLED_NOTICE`와 일치.
-- **noindex**: 기존 "설정·발행 화면 noindex"(SURF-3) 켜짐 상태 통과. **인증서 완료 안내 조건화**: 정상/예외 양방향 검증. **콜백 착지·웹훅 멱등**: 기존 7건 통과 + 스위치 무관 1건 신설.
-- `test/controllers/app/dashboards_controller_test.rb`(네비 12개 단정) — 기본 켬 상태에서 기존 단정 그대로 통과(변경 불요 확인).
+| 구분 | 시나리오 | 결과 |
+|:---|:---|:---|
+| 정상 | pending → failed + `pg_payment_id`(=pg_order_id) + metadata(code·message·`verification{reason,detail}`) + true 반환 | 통과 |
+| 정상 | 기존 metadata(invoice_id) 보존 병합(B-1) | 통과 |
+| 예외 | 이미 paid → 무변경 + false(paid_at·metadata 보존) / 이미 failed(일반 PG) → 사유 미덮어쓰기 + false(경합 멱등) | 통과 |
+| 경계 | `verification_failed?`는 "failed + 검증 코드 일치"만 true — 일반 failed·paid(코드 有라도)·pending false | 통과 |
 
-## 실행 결과 상세
+### I. 시스템 테스트 — 신설 `test/system/app_billing_channel_key_notice_test.rb`(1건)
+
+- 채널 키 nil 상태에서 로그인 → /app/billing 체크아웃 도달 → "결제 채널이 설정되지 않았습니다" 표시·"결제하기" 버튼 없음·위젯 블록 유지. **"결제하기" 클릭 없음**(SDK 실호출 차단 원칙), 로그인·이동·렌더만 검증.
+- `with_portone_channel_keys`는 프로세스 공유 대역이라 서버 스레드에도 적용되며 블록 종료 시 복원.
+- 안정성: 단독 파일 기준 **10/10 통과**. 전체 시스템 스위트 16회 샘플에서 2회 실패 — 모두 **기존 테스트의 선존재 플레이크**(`AppLegalDocumentPdfTest` 로그인 단계 — 1차 리뷰 O-3과 동일, `ViewerPromiseTest` 1회)로 신규 테스트와 무관. 따라서 유지함.
+
+## 발견한 app 버그(BUG-n)
+
+**없음.** 전 시나리오(선택기·가드·잡·검증기·콜백·웹훅·화면·모델)가 구현 보고(03_implementation §1~§10)와 동일하게 동작했다. 테스트 작성 중 생긴 오류 2건은 모두 테스트 측 결함이었다:
+
+1. **잡 테스트의 대역 선택 오류(수정 완료)** — `SubscriptionRenewalJob`·`DunningRetryJob`의 키 미등록 시나리오를 `with_portone_client(fake)`로 실행하면 가드(`ClientService#ensure_channel_key!`)를 지나 가짜가 그대로 응답해 시나리오가 성립하지 않았다. 가드는 실제 ClientService 계층의 것이므로 전송 계층 대역 없이 실제 클라이언트로 실행(가드가 HTTP 전에 예외 — 우발적 유출은 TEST_GUARD가 잡 밖으로 노출)하도록 수정하고 재검증했다.
+2. **nil metadata 접근(수정 완료)** — `OrderTest` 멱등 테스트에서 metadata 없이 만든 paid 주문의 `metadata["code"]` 접근을 `metadata&.dig("code")`로 수정.
+
+## 커버하지 못한 영역과 이유
+
+| 영역 | 이유 |
+|:---|:---|
+| 포트원 실제 응답 필드 실측(`amount.paid`·`channel.type`·`currency` 실값·`pgTxId`/`paidAt` 승인 응답) | 실호출 금지 — 첫 실결제 1건으로 기록해야 하는 운영 과제(03 §9·§10 남은 리스크 유지) |
+| 웹훅 `get_payment` `ApiError` → 500(포트원 재시도 유지) 단언 | 기존 스위트에 이 경로의 통합 테스트가 없고, 컨트롤러가 재조회 실패를 흡수하지 않는 동작은 ActionDispatch::IntegrationTest에서 예외 전파 단언으로 가능하나 이번 매트릭스(F 그룹) 지시 범위 밖 — 후보로 남김 |
+| 콜백↔웹훅 경합에서 검증 실패 기록 정확 1회(리뷰 §7-8) | 실스레드 경합은 `purchase_service_concurrency_test.rb`(기존)가 커버하며, 검증 실패 조합의 경합 변형은 이번 지시 매트릭스 밖 — `mark_verification_failed!`의 경합 멱등은 H에서 잠금 단독으로 고정 |
+| 세금계산서 주문 검증 실패 → 바로빌 SOAP 호출 0건(리뷰 §7-11) 단언 | 검증 실패 시 paid 전환이 없어 `FulfillTaxInvoiceService`에 도달하지 않는 것이 구현이며, 발행 경로 자체는 기존 `fulfill_tax_invoice_service_test`·`tax_invoice_settle_test`가 검증 — 중복 단언으로 판단해 생략 |
+| 시스템 테스트의 검증 실패 주문 화면 E2E | 컨트롤러 통합 테스트(G)가 동일 표면을 검증하며 시스템 테스트는 지시대로 채널 키 미설정 화면 1건만 수행(안정성 기준 충족) |
+| `LAUNCH_TEST_SCENARIOS.md` 등 사용자 문서의 로컬 결제창 확인 | 브라우저 수동 확인 영역(리뷰 W-4·R-3 유지 항목) |
+
+## 실행 명령과 결과
 
 | 명령 | 결과 |
 |:---|:---|
-| `bin/rails test test/controllers/app/tax_invoices*_test.rb tax_invoice_gate_test.rb tax_invoice_eligibility_test.rb webhooks/tax_invoice_settle_test.rb webhooks/portone_controller_test.rb test/services/tax_invoices/ fulfill_tax_invoice_service_test.rb test/jobs/tax_invoices/ test/models/tax_invoice_test.rb test/config/tax_invoice_initializer_test.rb dashboards_controller_test.rb` | 158 runs · 863 assertions · 0 failures · 0 errors |
-| `bin/rails test` (전체) | 1,529 runs · 9,561 assertions · **0 failures · 0 errors · 0 skips** |
-| `bin/rails test:system` (전체) | 13 runs · 117 assertions · **0 failures · 0 errors** |
-| `bin/rubocop test/` | 195 files · no offenses |
+| `mise exec -- bin/rails test` | **1,656 runs, 10,504 assertions, 0 failures, 0 errors, 0 skips** |
+| `mise exec -- bin/rails test:system` | **15 runs, 135 assertions, 0 failures, 0 errors, 0 skips** |
+| `mise exec -- bin/rails test:system test/system/app_billing_channel_key_notice_test.rb`(단독×10) | 10/10 — 1 runs, 4 assertions, 0 failures(전체 스위트의 간헐 실패는 기존 AppLegalDocumentPdfTest·ViewerPromiseTest — 1차 리뷰 O-3 동일) |
+| `mise exec -- bin/rubocop test/` | 201 files inspected, no offenses |
+| `mise exec -- bin/rails zeitwerk:check` | all is good |
 
-참고 — 시작 시점에 테스트 DB stale로 fixture FK 검증 오류(28 errors)가 발생해 `bin/rails db:test:prepare`로 재구성했다. 코드·테스트와 무관한 환경 문제였다.
+## 변경 파일(전부 test/ — app·문서·credentials 무변경)
 
-## 발견한 코드 버그
-
-**0건.** 리뷰 C-1(`new` 차단)·C-2(pending 주문 결제 진입)·W-1(우선순위)·W-2(concern·상수)·W-3(설정 화면)·W-4(문구) 수정분이 모두 의도대로 동작함을 테스트로 확인했다. 별도 Developer 위임 불요.
-
-## 남긴 리스크
-
-1. **시스템 테스트 미포함** — TAX-3/4의 브라우저 E2E는 신설하지 않았다(기존에도 세금계산서 시스템 테스트 부재). 컨트롤러 HTTP 통합 테스트가 응답·리다이렉트·위젯 미렌더까지 검증하므로 커버리지 격차는 작으나, 인앱 실기 QA 때 스위치 켜짐 상태의 발행 플로우 육안 확인이 필요하다.
-2. **이미 열린 결제 위젯은 서버가 못 막는다** — pending 주문 `show`의 체크아웃 미렌더(리뷰 C-2)는 렌더 계층 방어다. SDK 직접 호출 경로의 최종 방어선은 운영 노트(배포 시 `Order.pending.tax_invoices` 실패 처리 절차)다 — Phase 9(AGENTS.md 운영 노트 기록)에서 반영 필요.
-3. **테스트 기본 켬은 config 조작 방식** — ENV 파싱과 분리돼 있고, 실부팅 fail-closed는 초기자 `load` 테스트가 담당한다. 운영에서는 deploy.yml env의 `"true"` 문자열 정확성이 여전히 사람 손에 달려 있다(오타 시 꺼짐 — 안전한 쪽).
-4. **과세 유형 기본값 일반과세** — 간이과세자가 기본값을 그대로 두면 자격 판정을 통과한다(02_prd_update 후속 과제 — PRD 설계 영역, 테스트로 막을 수 없는 구조적 리스크).
-5. **켜짐+포인트 미충전** 조합("결제만 되고 발행 실패")은 스위치 켜기 전제(운영 준비 완료)로 흡수된다 — Q26 운영 규율 영역.
+- 신설: `test/services/port_one/channel_key_test.rb` · `test/jobs/subscription_renewal_job_test.rb` · `test/system/app_billing_channel_key_notice_test.rb` · (`test/services/port_one/payment_verifier_test.rb` — Developer가 재리뷰 단계에서 만든 5건에 행렬 15건 보강)
+- 보강: `test/test_helpers/portone_stubbing.rb`(`with_portone_channel_keys` 헬퍼 — ensure 복원 계약) · `client_service_test.rb` · `dunning_retry_test.rb` · `purchase_service_test.rb` · `webhooks/portone_controller_test.rb` · `billings_controller_test.rb` · `legal_documents_controller_test.rb` · `tax_invoices_controller_test.rb` · `order_test.rb`
+- 기존 테스트 수정(기존 단언 변경): **0건**
