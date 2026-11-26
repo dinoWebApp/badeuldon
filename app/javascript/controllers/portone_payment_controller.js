@@ -1,5 +1,7 @@
 import { Controller } from "@hotwired/stimulus"
-import { portoneSdkAvailable, buildPortoneCustomer } from "./portone_shared"
+// 공통 헬퍼는 importmap 이름으로 불러온다 — "./portone_shared" 같은 상대 경로는 다이제스트 경로에서
+// 404가 되어 이 컨트롤러가 아예 로드되지 않는다(2026-11-27 운영 결함 — 결제 버튼 무반응).
+import { portoneSdkAvailable, buildPortoneCustomer } from "controllers/portone_shared"
 
 // 포트원 단건 결제 위젯 호출(F-PLAN — PLAN-4 수금 패스).
 // UI 접점만 담당하는 Stimulus(규약 — 비즈니스 로직 금지): 주문 생성·승인 확정은

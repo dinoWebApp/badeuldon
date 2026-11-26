@@ -1,5 +1,7 @@
 import { Controller } from "@hotwired/stimulus"
-import { portoneSdkAvailable, buildPortoneCustomer } from "./portone_shared"
+// 공통 헬퍼는 importmap 이름으로 불러온다 — "./portone_shared" 같은 상대 경로는 다이제스트 경로에서
+// 404가 되어 이 컨트롤러가 아예 로드되지 않는다(2026-11-27 운영 결함 — 카드 등록 버튼 무반응).
+import { portoneSdkAvailable, buildPortoneCustomer } from "controllers/portone_shared"
 
 // 포트원 카드(자동결제) 빌링키 발급 위젯 호출(F-PLAN — PLAN-5 빌링키).
 // UI 접점만 담당한다: 카드 인증 완료 시 위젯이 빌링키 발급 토큰(billingIssueToken)을 돌려주면
