@@ -7,6 +7,7 @@ require_relative "test_helpers/sales_session_test_helper"
 require_relative "test_helpers/memory_rate_limit_helper"
 require_relative "test_helpers/tax_invoice_feature_helper"
 require_relative "test_helpers/refusal_test_helper"
+require_relative "test_helpers/committed_cleanup_test_helper"
 
 module ActiveSupport
   class TestCase

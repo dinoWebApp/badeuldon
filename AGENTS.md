@@ -127,6 +127,7 @@ bin/jobs             # Solid Queue 잡 프로세스 (웹과 별도 실행)
 - Rule ID별 정상/경계/예외 시나리오 도출이 원칙(Tester는 PRD §6~7 기준)
 - 게이트: `bin/ci`(RuboCop 0에러 + Brakeman 0경고 + 테스트 전체 통과) 통과 전까지 커밋/병합/배포 불가
 - 외부 API(솔라피·포트원)는 테스트에서 stub/wrapper 주입 — 실 호출 금지. **클라이언트 3종(솔라피·아웃바운드 메일·포트원)에 test 환경 실호출 차단 가드가 내장**돼 있다(대역 없이 호출하면 `TEST_GUARD`로 실패). 로컬 test 환경은 마스터 키가 있어 **운영과 같은 credentials를 로드**하므로, 잡(`DunningRetryJob`·`SubscriptionRenewalJob` 등)을 실행하는 테스트는 반드시 `with_portone_client`/`with_solapi_client`로 감싼다(2026-11-24 리뷰 중 포트원 운영 API 실요청 사고 — 거부되어 금전 이동 없음)
+- **전역 카운트로 단언하지 않는다**(범위를 한정하거나 setup에서 빈 테이블에서 시작한다) — `use_transactional_tests = false` 동시성 테스트가 커밋한 행이 같은 워커의 뒤 테스트에 섞인다(2026-11-25 감사 로그, 2026-11-26 `withdrawn_payment_records` — 시드 73 재현). 트랜잭션 없는 테스트에서 회원을 지울 때는 공용 헬퍼 `destroy_committed_user(user)`를 쓴다 — `User` 파괴 콜백(AUTH-1.5·Q33)이 보관 행을 남긴다.
 
 ## 하네스: 받을돈 개발 자동화 (ZCode Desktop)
 

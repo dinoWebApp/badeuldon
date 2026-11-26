@@ -21,7 +21,7 @@ class PaymentsConcurrencyTest < ActionDispatch::IntegrationTest
   end
 
   def teardown
-    @user&.destroy  # invoices·payments·sessions 연쇄 삭제 — 다른 테스트에 잔여 데이터를 남기지 않는다
+    destroy_committed_user(@user) # invoices·payments·sessions 연쇄 삭제 + 결제 기록 보관 행 정리 — 다른 테스트에 잔여 데이터를 남기지 않는다
   end
 
   test "동시 원클릭 마감 2건 중 1건만 기록되고 나머지는 0원 검증 422로 흡수된다 (SEC 멱등·PAY-1·Q22)" do

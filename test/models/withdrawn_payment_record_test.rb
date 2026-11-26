@@ -9,6 +9,10 @@ require "test_helper"
 # 롤백 시 보관 행도 원복(탈퇴 서비스의 user.transaction 안 보장).
 class WithdrawnPaymentRecordTest < ActiveSupport::TestCase
   setup do
+    # 전역 카운트 단언이 다른 테스트가 커밋한 잔여 행에 흔들리지 않도록 빈 테이블에서 시작한다
+    # (이 클래스는 트랜잭션 롤백이라 setup의 delete_all도 원복된다 — 오염원은
+    # CommittedCleanupTestHelper 주석 참고).
+    WithdrawnPaymentRecord.delete_all
     @user = User.create!(email: "withdraw-archive@example.com", password: "password",
                          display_name: "보관테스트스튜디오", business_type: :freelancer)
   end

@@ -18,7 +18,7 @@ class Orders::PurchaseServiceConcurrencyTest < ActiveSupport::TestCase
   end
 
   def teardown
-    @user&.destroy  # orders·payment_passes·subscription 연쇄 삭제 — 잔여 데이터 0
+    destroy_committed_user(@user) # orders·payment_passes·subscription 연쇄 삭제 + 결제 기록 보관 행 정리 — 잔여 데이터 0
   end
 
   test "동시 승인 2건 중 1건만 발급되고 나머지는 이미 처리로 흡수된다 (SEC 멱등)" do

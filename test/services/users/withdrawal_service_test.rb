@@ -64,7 +64,7 @@ class Users::WithdrawalServiceTest < ActiveSupport::TestCase
     assert_equal 0, Subscription.where(user_id: @user.id).count
     assert_equal 0, Order.where(user_id: @user.id).count
     # Q33 — 주문은 삭제돼도 식별 불가능한 사본이 탈퇴 시각과 함께 보관된다(AUTH-1.5 5년 보존)
-    assert_equal 2, WithdrawnPaymentRecord.count
+    assert_equal 2, WithdrawnPaymentRecord.where(pg_order_id: %w[order-withdrawal-0001 order-withdrawal-0002]).count
     archived = WithdrawnPaymentRecord.find_by!(pg_order_id: "order-withdrawal-0001")
     assert_equal "collection_pass", archived.read_attribute(:product)
     assert_equal "pass", archived.read_attribute(:item_type)

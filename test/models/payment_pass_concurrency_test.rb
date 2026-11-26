@@ -17,7 +17,7 @@ class PaymentPassConcurrencyTest < ActiveSupport::TestCase
   end
 
   def teardown
-    @user&.destroy  # payment_passes·subscription·orders 연쇄 삭제 — 잔여 데이터 0
+    destroy_committed_user(@user) # payment_passes·subscription·orders 연쇄 삭제 + 결제 기록 보관 행 정리 — 잔여 데이터 0
   end
 
   test "잔여 1건 패스의 동시 사용 2건 중 1건만 차감된다 (with_lock 직렬화)" do
