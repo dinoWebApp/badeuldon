@@ -1,127 +1,88 @@
-# 01_plan — 비운영 환경의 포트원 테스트 채널 키 사용 (2026-11-25, 일반 모드·Standard)
+# 01_plan — 병렬 배치(절약): 후속 과제 뭉치 (2026-11-26, lite 모드·parallel)
 
-## 배경·목표
+## 배경
 
-**사용자 요청(2026-11-25)**: credentials에 `portone.channel_key_billing_test`·`portone.channel_key_normal_test`를
-추가했다. **로컬(development)과 테스트 환경에서는 이 테스트 채널 키로 결제 처리가 되게** 해달라.
+직전 배치(회원 탈퇴·수신 거부 번호 단위·대시보드 오늘의 액션 — `_workspace_prev/`)의 완료 보고가 남긴 후속 과제 중
+**코드로 바로 진행 가능한 것**을 묶는다. 법무·운영 판단이 필요한 것(약관 시행일 확인·탈퇴 시 법정 보존 기록·SALES 정산 소실 등
+탈퇴 알려진 한계 5건)과 가치가 낮은 것(대시보드 성능·문구 후속)은 이번 배치에서 제외 — 완료 보고에 명시.
+시점: main `d658c78` + 미커밋 71경로(직전 배치·런칭 테스트 문서·하네스 문서 — 기존 관례대로 위에 쌓고 "커밋 배포" 시 범위별 분리 커밋).
 
-**현 상태(코드 확인)**:
-- 채널 키는 4곳에서 `Rails.application.credentials.dig(:portone, :channel_key_…)`로 **직접** 꺼낸다 — 환경 구분이 없어
-  로컬에서도 운영 라이브 채널 키가 쓰인다(그래서 지금까지 "로컬에서 결제 버튼 금지" 운영 규칙으로 막아 왔다).
-  1. `App::BillingsController#show` — `channel_key_normal`(수금 패스 결제창)·`channel_key_billing`(카드 등록)
-  2. `App::LegalDocumentsController#set_portone_context` — `channel_key_normal`
-  3. `App::TaxInvoicesController#set_portone_context` — `channel_key_normal`
-  4. `Subscriptions::UpgradeService#portone_channel_key_billing` — 빌링키 발급·정기결제 차감(첫 결제·자동 갱신·재시도)
-- 프런트엔드는 서버가 뷰에 심은 `data-portone-*-channel-key-value`를 PortOne SDK(`requestPayment`·
-  `requestIssueBillingKey`)에 그대로 넘긴다. JS는 고칠 필요가 없다.
-- 사용자가 추가한 키 확인(2026-11-25 11:18, 값 미열람): `:portone`에 키 6개 — 기존 4개 + 테스트 2개(길이 48,
-  라이브 키와 다른 값, 빌링·일반 테스트 키도 서로 다름). `config/credentials.yml.enc`는 미커밋 상태.
-- 환경별 분기 선례: `BaroBill::ClientService#release_mode?`(`Rails.env.production?`)·클라이언트 3종의 test 가드.
-- 웹훅(`Webhooks::PortOneController`)은 모르는 paymentId를 흡수(200) → 테스트 채널 결제 이벤트가 운영 웹훅으로
-  가도 무해. 단건 결제 확정은 콜백(`/app/orders/callback`)+서버 재조회라 채널 키가 필요 없다.
-- 기존 테스트는 채널 키를 서비스에 주입(`channel_key:`)해 돌아서 영향 없음.
+## 태스크 후보 (게이트에서 사용자 선택)
 
-## 규모·파이프라인
+| ID | 태스크 | Rule ID | 규모 | 비고 |
+|:--|:--|:--|:--|:--|
+| T1 | 휴대폰 인증 기록 파기 잡 — 만료(24시간) 지난 `phone_verifications` 행을 매일 삭제 | AUTH-9 | Small | PRD AUTH-9 알려진 한계 해소. rate limit(1분·1시간)·가입 이중 검증(30분) 창과 무관한 24시간 기준 |
+| T2 | 클라이언트 IP 전역 통일 — `CF-Connecting-IP` 우선 헬퍼 1개로 감사 로그·세션·새 IP 감지·rate limit 적용 | ADMIN-2, AUTH-7, AUTH-9 | Standard | **운영 결함 해소 포함**: 운영은 전부 CF 터널 경유라 `remote_ip`가 전부 같은 값 — 감사 IP·관리자 새 IP 알림·등록 rate limit이 사실상 무의미. 뷰어의 `viewer_client_ip`(선례)를 전역 헬퍼로 추출 |
+| T3 | 픽스처 날짜 폭탄 근본 해소 — `invoices.yml`·`payment_passes.yml`의 고정 미래 만료일을 ERB 상대값으로 | (테스트 자산 — 기술 부채) | Small | `notices.yml`·`coupons.yml`·`sales_referral_codes.yml`은 이미 ERB 상대값(선례). 만료(과거) 픽스처는 의도 유지 |
+| T4 | 수신 거부를 번호에 고정 — `clients.refused_phone` 신설(마이그레이션), 거부 시점의 번호를 저장하고 상속·전파의 기준으로 | VIEW-7(Q30) | Standard | 알려진 한계 해소: 거부된 거래처 행의 번호를 바꾸면 그 행이 새 번호의 상속 원천이 되는 문제. 행 단위 거부 판정(`client.refused?`)·되돌림 없음 원칙은 불변. **이번 배치의 유일 마이그레이션** |
+| T5 | 사전통보 발송 시각 정합 — 09:00 사전통보가 실제 발송일이 아닌 날을 안내하지 않게(DASH-2와 같은 실제 발송 시각 판정) | REM-11, REM-3 | Standard | 알림톡 문구는 변경하지 않는다(템플릿 재검수 불요) — **통보 대상 선별 로직만** 수정. `PrenoticeService` |
 
-- **Standard** — 0→1→✋→2→3→4→5→(6)→7→8→9. 기존 로직 수정(환경별 키 선택 1곳 신설 + 호출처 4곳 교체).
-  마이그레이션·라우트 변경 없음.
-- 호출 프로필(일반): `badeuldon-developer` → `badeuldon-reviewer` → `badeuldon-tester`.
+제외(보고): 대시보드 후보별 쿼리 수·같은 청구 두 카드 문구(가치 낮음·직전 코드 안정화 우선) / 약관 시행일·법정 보존 기록(사용자 결정 대기) / 탈퇴 알려진 한계 5건(법무·운영 판단).
 
-## 관련 Rule ID
+## 병렬 안전 판정 (§6.14 3조건)
 
-| Rule ID | 내용 | 이번 작업 |
-|:---|:---|:---|
-| PLAN-5 | 포트원(KG이니시스 채널) 결제 — 빌링키 정기결제·단건·웹훅 | "비운영 환경은 테스트 채널 키, 운영만 라이브 채널 키"를 구현 확정으로 추가 |
-| PLAN-2·PLAN-4·PLAN-7·TAX-1 | 결제를 쓰는 상품(Plus·수금 패스·내용증명·세금계산서) | 동작 변경 없음 — 채널 키 공급 경로만 바뀜 |
+| 조건 | 판정 | 근거 |
+|:--|:--|:--|
+| 1. 파일 소유권 분리 | **충족** | 아래 소유권 표 — T1~T5의 생성·수정 파일이 겹치지 않는다 |
+| 2. 의존 없음 | **충족** | 서로의 산출물을 참조하지 않는다. T5가 참조하는 `DispatchService` 상수·`scheduled_today_keys`는 직전 배치에서 완료된 기존 코드(선행 산출 참조 허용) |
+| 3. 공유 파일 비수정 | **충족** | `config/recurring.yml`은 T1 단독 소유. 마이그레이션은 T4 단독(배치 내 1건). routes·PRD·AGENTS·progress.json은 아무도 직접 수정하지 않음(Phase 2·3-S) |
 
-새 Rule ID는 만들지 않는다(PLAN-5의 환경 운영 규칙).
+## 파일 소유권 표
 
-## 설계 (Developer 지시 기준)
+| 태스크 | 앱 코드 | 테스트 |
+|:--|:--|:--|
+| T1 | `app/jobs/phone_verifications/purge_job.rb`(신설) · `app/models/phone_verification.rb`(스코프·주석) · `config/recurring.yml`(production·development 1잡씩) | `test/jobs/phone_verifications/purge_job_test.rb`(신설) |
+| T2 | `app/controllers/concerns/client_ip.rb`(신설) · `app/controllers/viewer_controller.rb`(헬퍼 위임) · `app/controllers/concerns/authentication.rb` · `app/controllers/registrations_controller.rb` · `app/controllers/app/profiles_controller.rb` · `app/controllers/admin/sessions_controller.rb` · `app/controllers/admin/passwords_controller.rb` · `app/controllers/admin/sales_reps_controller.rb` · `app/controllers/admin/sales_commissions_controller.rb` · `app/controllers/sales/sessions_controller.rb` | 위 컨트롤러·concern의 기존 테스트 + IP 단언 보강(`test/controllers/` 해당 파일들) |
+| T3 | — (테스트 자산만) | `test/fixtures/invoices.yml` · `test/fixtures/payment_passes.yml` (+ 각 파일 헤더 주석) |
+| T4 | `db/migrate/`(신설 1건) · `app/models/client.rb` · `app/services/promises/register_service.rb` · `app/controllers/app/clients_controller.rb` | `test/models/client_test.rb` · `test/services/promises/register_service_test.rb` · `test/controllers/app/clients_controller_test.rb` |
+| T5 | `app/services/reminders/prenotice_service.rb` | `test/services/reminders/prenotice_service_test.rb`(필요시 신설·보강) |
 
-### 1. 채널 키 선택기 `PortOne::ChannelKey` (신설, `app/services/port_one/channel_key.rb`)
+금지(전 태스크 공통): `config/routes.rb` · `db/`(T4 외) · `PRD.md`·`AGENTS.md` · `config/locales/*` · `test/fixtures/*`(T3 외) · `config/recurring.yml`(T1 외) · 다른 태스크의 소유 파일. 불가피하면 수정하지 않고 보고서에 적는다(3-S에서 반영).
 
-한 곳에서 환경별 키를 고른다. 인터페이스:
+## 확정 규칙 (PRD v0.50 기준 — Phase 2에서 선택 태스크분 갱신)
 
-- `PortOne::ChannelKey.billing` / `PortOne::ChannelKey.normal` — 라이브 채널 키 또는 테스트 채널 키를 반환.
-- ~~`PortOne::ChannelKey.fetch(kind, env: Rails.env, credentials: …)`~~ → 최종 API(리뷰 W-3 반영): `PortOne::ChannelKey.fetch(kind, credentials: Rails.application.credentials, live: live_channel?)` — `live_channel?`는 `config.x.portone_live_channel == true`.
-  - `env.to_s == "production"`이면 `channel_key_#{kind}`, 아니면 `channel_key_#{kind}_test`.
-  - `kind`는 `:billing`·`:normal` 두 가지. 그 외는 `ArgumentError`.
-  - 환경·credentials를 인자로 받는 이유: 테스트에서 실제 credentials(로컬은 마스터 키가 있어 값이 있음, CI는 없음)와
-    관계없이 값을 고정하기 위해서다.
-- **fail-closed**: 비운영 환경에서 테스트 키가 없으면 `nil`을 돌려준다. **라이브 키로 대체하지 않는다.**
+### T1 파기 잡
+- `PhoneVerifications::PurgeJob` — `PhoneVerification` 중 `created_at < 24.hours.ago` 전량 삭제(감사 대상 아님 — 인증 용도 단기 데이터). 멱등·배치 삭제. 재시도 `retry_on` 명시.
+- `config/recurring.yml` production·development에 매일 새벽(예: `30 4 * * * Asia/Seoul`) 등록 — 기존 잡 문법(fugit cron·KST 접미사) 준용.
+- 모델에 `scope :purgeable` + AUTH-9 주석 갱신(알려진 한계 해소). 테스트: 23:59:59 유지 / 24시간+ 삭제 / consumed 창(30분) 내 행 유지.
 
-### 2. 호출처 4곳 교체
+### T2 클라이언트 IP
+- 헬퍼 1개(예: `ClientIp.of(request)`) — `CF-Connecting-IP` 존재 시 그 값(단일 IP 형태 검증 — 스푸핑된 쉼표 목록은 fallback), 없으면 `request.remote_ip`. 뷰어의 기존 `viewer_client_ip` 로직을 헬퍼로 위임(동작 불변).
+- 적용처: 감사 로그 `ip:` 전체(관리자 세션 5종·비밀번호 재설정·영업 세션 4종·sales_reps·sales_commissions·가입 인증·회원 탈퇴), 세션 생성 `ip_address`(authentication concern), 관리자 `last_login_ip`·새 IP 알림·`new_ip_login`, **등록 rate limit `by:`**(운영에서 전 방문자가 한 버킷으로 묶이는 결함 해소).
+- 테스트: 헤더 있음/없음·형식 이상 값 fallback — 컨트롤러 테스트로 감사 IP·rate limit 단언 보강.
 
-- `App::BillingsController#show`: `@portone_channel_key_normal = PortOne::ChannelKey.normal`,
-  `@portone_channel_key_billing = PortOne::ChannelKey.billing`
-- `App::LegalDocumentsController#set_portone_context`: normal
-- `App::TaxInvoicesController#set_portone_context`: normal
-- `Subscriptions::UpgradeService#portone_channel_key_billing`: `@channel_key || PortOne::ChannelKey.billing`
-  (주입값 우선은 그대로 — 기존 테스트 밀봉 유지). 주석의 낡은 문구("INIBillTst 정기결제 테스트 채널" 등)를 정정.
+### T3 픽스처 상대 만료일
+- `invoices.yml`의 `token_expires_at` 행과 `payment_passes.yml`의 `delta_active_pass`를 ERB 상대값으로(`<%= … %>` — 각 행의 용도 확인 후: "활성 링크"는 미래 상대값, "만료 안내" 픽스처는 과거 상대값 유지). 각 행이 어떤 테스트에서 쓰이는지 먼저 확인하고 변환 뒤 관련 테스트 실행.
+- 2026-11-26 현재 이미 과거가 된 행(예: 2026-11-13·11-18)은 용도에 따라 정리. **날짜 의존 경계 판정에 상대 픽스처를 쓰지 않는다**는 기존 교훈(test-date-time-bombs 패턴 2)을 지시서에 명시 — travel하는 테스트가 해당 픽스처를 경계 판정에 쓰면 그 테스트를 같이 고친다.
 
-### 3. 채널 키 없이 API를 부르지 않는 가드
+### T4 수신 거부 번호 고정
+- 마이그레이션: `clients.refused_phone`(string, nullable — 인덱스 불요). 거부 접수·전파 시점의 전화번호를 함께 저장.
+- 상속(`inherit_refusal_from_same_phone`)·전파(`propagate_refusal_to_same_phone`)의 매칭을 행의 현재 `phone`이 아니라 **거부 시점 번호(`refused_phone`)** 기준으로 변경 — 거부된 행이 번호를 바꿔도 새 번호로 상속을 퍼뜨리지 않는다.
+- 발송 가드 등 `client.refused?` 판정(행 단위)·되돌림 없음 원칙·화면 문구는 불변. 기존 거부 데이터(운영 0건 — 실측) 소급 불요.
+- 테스트: 기존 전파·상속 테스트 전부 통과 + "거부된 행의 번호 변경 뒤 새 번호로 등록한 거래처는 상속받지 않음"·"바뀐 행 자체는 여전히 거부 상태" 경계.
 
-`PortOne::ClientService#issue_billing_key`·`#charge_billing_key`: `channel_key`가 blank면 API를 호출하지 않고
-`ArgumentError`(메시지에 "포트원 채널 키 미등록" 포함)로 실패한다. 키가 없는 상태에서 빌링키 발급·차감이
-포트원으로 나가는 일을 막는다(fail-closed).
+### T5 사전통보 발송 시각 정합
+- `PrenoticeService`의 통보 대상 선별에 실제 발송 시각 판정을 적용 — 대상 스텝의 `send_at`(재예약 슬롯 또는 `user.next_remind_slot(다음 스캔 시각)` — 직전 배치의 `Dashboards::ReminderActionsService` 산정 규칙과 동일)이 **오늘**인 청구만 사전통보. 알림톡 템플릿·문구 무변경.
+- `steps_due_today`(PRENOTICE_KEYS)·발송 스캔 로직은 불변. 테스트: 주말 이월분(월요일 오전 통보), REM-3 창에 14시가 없는 회원(오늘 통보 안 함), 재예약 슬롯이 오늘 오전인 회원(통보함).
 
-### 4. 뷰 문구 정정
+## 동시성·검증 설계
 
-`app/views/app/billings/show.html.erb`의 "결제 채널이 설정되지 않았습니다. 포트원 **테스트 키**를 credentials(…)에
-등록하면 …" → 환경과 무관한 문구로("포트원 채널 키를 credentials(:portone)에 등록하면 카드 등록이 활성화됩니다").
-키가 없을 때의 분기(`present?`)는 그대로.
+- 동시성 상한 3: 선택 태스크를 위험·소요 순으로 2웨이브 분배(예: 웨이브 1 = T1·T2·T3, 웨이브 2 = T4·T5). 단일 태스크 선택이면 단독.
+- **태스크별 테스트 DB**: `DATABASE_URL=sqlite3:tmp/parallel/<task-id>/test.sqlite3` 격리 실행(기존 실측 관례). 전체 테스트·시스템 테스트·`db:migrate`·서버 기동은 태스크에서 금지 — 3-S·7-S에서 통합 실행.
+- 자체 검증은 자기 소유 파일의 테스트만. 범위 밖 회귀는 7-S 전체 테스트로.
+- **위임 실측 주의**: `badeuldon-reviewer-lite`의 `thoughtLevel: max` 상향(2026-11-26)은 **새 세션부터 적용**이라 — 이 세션의 reviewer-lite 스폰은 정의 이전값(high)으로 나올 수 있다. 실측해 기록하고 불일치 사유를 완료 보고에 명시한다(max 실측은 다음 세션).
 
-### 5. 변경하지 않는 것
+## 리스크
 
-- JS(`portone_billing_controller.js`·`portone_payment_controller.js`)·SDK 로드 — 서버가 심어 주는 값만 쓰므로 무변경.
-- ~~`config/deploy.yml`·운영 credentials 값 — 운영은 라이브 키를 그대로 쓴다(분기 결과가 동일).~~ → 정정: credentials의 운영 값 자체가 사용자 편집으로 바뀌었다(아래 "결정·정정" 참조). `config/deploy.yml`은 무변경.
-- 라우트·마이그레이션 없음.
+| 리스크 | 대응 |
+|:--|:--|
+| T2 적용처 20곳+ — 누락·오표시 | 호출처 목록을 지시서에 전수 나열(실측 grep 기준), 테스트로 감사 IP 단언 보강, 7-S 전체 회귀 |
+| T2 rate limit에 스푸핑 가능 헤더 사용 | 헤더는 CF 터널 경유 요청에만 존재(운영 원본 포트 비공개 — AGENTS.md 배포 인프라), 단일 IP 형식 검증 + fallback. PRD에 근거 기록 |
+| T3 픽스처 변경이 travel 테스트와 재결합(패턴 2 폭탄) | 행별 용도 확인 후 변환, 변환 뒤 관련 테스트 즉시 실행, 날짜 의존 경계 판정 금지 규칙 지시서 명시 |
+| T4 마이그레이션·행위 변경 — 절약 모드(Flash/low)에서 섬세한 로직 | 지시서에 현재 구현·경계를 전부 명시, 리뷰에서 집중 검증, 실패 시 일반 모드 재위임 검토 |
+| T5 발송 심장부 인접 수정 | `steps_due_today`·스캔 불변 지시, 기존 dispatch·send 테스트 회귀 실행 |
+| 알림톡 템플릿 재검수 리스크 | T5는 문구·템플릿 무변경(선별 로직만)으로 설계 |
 
-## 변경 예상 파일
+## 파이프라인
 
-| 영역 | 파일 | 내용 |
-|:---|:---|:---|
-| Service | `app/services/port_one/channel_key.rb` (신설) | 환경별 채널 키 선택기 |
-| Service | `app/services/port_one/client_service.rb` | 채널 키 blank 가드 |
-| Controller | `app/controllers/app/billings_controller.rb` | 선택기 사용 |
-| Controller | `app/controllers/app/legal_documents_controller.rb` | 선택기 사용 |
-| Controller | `app/controllers/app/tax_invoices_controller.rb` | 선택기 사용 |
-| Service | `app/services/subscriptions/upgrade_service.rb` | 선택기 사용·주석 정정 |
-| View | `app/views/app/billings/show.html.erb` | 미설정 문구 정정 |
-| Test | `test/services/port_one/channel_key_test.rb` (신설)·`client_service_test.rb`·컨트롤러 테스트 3종·`upgrade_service_test.rb` | Tester |
-| Docs | `PRD.md`(PLAN-5 구현 확정·v0.48)·`AGENTS.md`(운영 노트) | Phase 2·9 |
-
-## 에이전트 지시 요약
-
-- **Developer**: 위 설계대로 구현. 선택기 테스트는 `live:`·`credentials:` 인자로 고정해 **로컬(마스터 키 있음)과
-  CI(마스터 키 없음) 모두에서 같은 결과**가 나오게 한다. 03 보고서에 콜사이트 4곳 매핑 기록.
-- **Reviewer**: ① 운영 경로 결과가 바뀌지 않는가(라이브 키) ② 비운영에서 라이브 키로 새는 경로가 남지 않았는가
-  (직접 `credentials.dig(:portone, :channel_key_…)` 참조 잔존 여부) ③ fail-closed(테스트 키 부재 시 nil·API 미호출)
-  ④ 테스트 밀봉 ⑤ 의존 방향 규약.
-- **Tester**: 선택기 정상(`live: true`→라이브 키, `live: false`→테스트 키·플래그 미정의 환경은 `live_channel?` false)·예외(비운영인데 테스트 키 없음 → nil, 라이브 키가
-  있어도 대체하지 않음·운영인데 라이브 키 없음 → nil·잘못된 kind) / 클라이언트 가드(API 미호출·전용 예외) / 잡 처리(전용 예외만 잡아 계속 진행) / 컨트롤러 3종의
-  데이터 속성에 선택기 값이 심어지는지(선택기 stub)·키 없을 때 결제 버튼 대신 안내 / `UpgradeService` 기본값이 선택기를 타는지(주입 없을 때) /
-  **결제 확정 검증**(금액 불일치·채널 종류 불일치·필드 누락 → 확정하지 않음·승인 요청에 totalAmount·isTest 전달) / 전체 회귀. 포트원 실호출 없음(TEST_GUARD·대역).
-
-## 결정·정정 (2026-11-25 리뷰 반영)
-
-- **운영 스토어 전환은 의도된 것임(사용자 확인)** — 리스크 4의 "운영 동작 변화는 없다"는 틀렸다. 작업 트리의 credentials는 운영 `store_id`·라이브 채널 키 값까지 바꿨고(기존 값은 `*_test`로 이동), 이 파일을 배포하면 운영 결제가 새 스토어로 나간다. 운영 DB에 옛 주문·빌링키는 0건, `api_secret`은 새 스토어에서 유효(직접 조회). 배포 전 확인: 새 스토어 웹훅 URL. 커밋은 credentials를 코드와 분리한다.
-- **테스트 채널 2개는 새 스토어의 채널임(사용자 확인)** — 스토어 ID는 환경 공통, 채널 키만 환경별(설계 그대로). 단 `_test` 값이 이전 운영 채널 키와 같아, 로컬 결제창이 뜨는지는 브라우저로 확인한다.
-- **리뷰 W-1**: 단건 결제 3곳(수금 패스·내용증명·세금계산서)도 채널 키가 없으면 결제 버튼 대신 안내 — PRD 문단과 코드를 맞춘다.
-- **리뷰 W-2**: 채널 키 없음은 `ArgumentError` 대신 전용 예외(`PortOne::ClientService::MissingChannelKey`). 갱신 잡은 루프 안에서 그 예외만 잡아 그 구독을 건너뛰고 계속, 재시도 잡은 잡아서 로그로 남긴다.
-- **리뷰 W-3**: 환경 이름 직접 비교 대신 규약 §9.4대로 환경 설정 플래그 `config.x.portone_live_channel`(`production.rb`만 true, 미정의 환경은 테스트 채널)를 쓴다. 동작은 같다.
-- **리뷰 W-4**: "실제 결제 없음"은 브라우저 확인 전 단정하지 않는다(AGENTS.md 운영 노트 정정).
-- **재리뷰 R-1(BLOCKER)·R-2(CRITICAL) — 결제 확정 검증 추가(기존 공백)**: 포트원 공식 OpenAPI v2(1.16.0) 원문 확인 — `ConfirmPaymentBody.totalAmount`·`isTest`는 "검증용 파라미터로 … 일치하지 않을 경우 오류가 반환됩니다. 값 전달을 권장합니다", `PaidPayment.channel.type`은 `LIVE`·`TEST`(required), `amount.paid`는 required. 기존 코드는 승인 요청에 둘을 보내지 않고 확정점(`Orders::FulfillPassService`)에서 상태만 봤다 → 라이브 결제가 시작되면 낮은 금액·테스트 채널 결제가 정가 상품으로 확정될 수 있다. 수정: ① `confirm_payment`에 `total_amount`·`is_test` 전달 ② 신설 `PortOne::PaymentVerifier.verify!(payment, order_amount:, live:)` — `amount.paid == 주문 금액`, `channel.type == (live ? "LIVE" : "TEST")`, 아니면 `VerificationError`(fail-closed) ③ `FulfillPassService`가 pending 주문을 paid로 바꾸기 직전에 검증. **정정(오케스트레이터가 스펙을 다시 확인해 발견)**: 승인 요청의 200 응답은 공식 `ConfirmedPaymentSummary`(`pgTxId`·`paidAt`만)라 금액·채널이 없다 → 콜백 경로는 승인 성공 뒤 **반드시 재조회**(`get_payment`)한 결제 건으로 검증한다(승인 응답으로 검증하면 정상 결제가 전부 실패 처리된다). 승인은 됐는데 재조회가 실패하면 실패 확정하지 않고 pending 유지로 웹훅 회복을 연다 ④ 콜백 경로는 검증 실패 시 주문을 실패 처리(사유 메타데이터·로그) 후 `PurchaseError`, 웹훅 경로는 확정하지 않고 주문을 실패 처리 후 200 ⑤ 대역(`FakePortOneClient`)과 기존 테스트의 가짜 응답에 금액·채널 반영. Plus 갱신(빌링키 차감)은 서버가 금액·채널을 지정하므로 대상이 아니다.
-
-## 리스크·모호점
-
-1. **빌링키는 채널에 묶인다** — 라이브 채널로 발급된 빌링키는 테스트 채널에서 결제되지 않고 그 반대도 마찬가지다.
-   로컬 DB에 라이브 채널로 카드 등록한 구독이 남아 있으면 로컬 자동 갱신이 실패 처리된다 → 로컬에서는 카드를 새로
-   등록해야 한다. 운영 DB는 영향 없음.
-2. **테스트 채널의 성격은 사용자가 포트원 콘솔에서 등록한 종류에 따른다**(KG이니시스 테스트 채널이면 테스트 카드만
-   결제됨). 실제 결제창이 뜨는지는 로컬 브라우저에서 확인이 필요하다(Phase 8은 서버 값·부팅만 확인).
-3. **테스트 채널 결제도 운영 웹훅 주소로 이벤트가 갈 수 있다** — 운영 웹훅은 모르는 결제 ID를 200으로 흡수하므로
-   무해(코드 확인). 로컬은 공개 URL이 없어 웹훅을 못 받으므로 결제 확정은 콜백 경로로만 된다(기존과 동일).
-4. ~~credentials.yml.enc 변경은 사용자 편집분 — 이 작업과 함께 커밋해야 운영 이미지에도 포함된다. 운영은 라이브 키를 그대로 쓰므로 운영 동작 변화는 없다.~~ → 정정(리뷰 B-1): credentials의 운영 스토어·라이브 채널 키 값이 바뀌었고 이는 사용자가 의도한 운영 스토어 전환이다(배포 시 운영 결제가 새 스토어로 나감). 커밋은 코드와 **별도**로 분리하고, **결제 확정 검증(R-1·R-2) 반영 전에는 커밋·배포하지 않는다**.
-5. **"테스트 환경"에서의 실제 호출** — 자동 테스트는 대역과 TEST_GUARD로 실호출이 차단돼 있어 테스트 채널 키가
-   실제로 쓰이지는 않는다(선택기 값만 검증). 실제 결제창 확인은 로컬(development)에서 한다.
+0 → 1-P → ✅승인(multiSelect·배치 1회) → 2(선택 태스크분 PRD 직렬) → 3-P(병렬 fan-out, 상한 3·2웨이브) → 3-S(소유권 대조·마이그레이션 1회·rubocop·zeitwerk) → 4 → 5(리뷰) → 6? → 7(테스트 보강·7-P) → 7-S(`bin/ci` 1회·시스템) → 8(실행 검증) → 9(보고·문서).

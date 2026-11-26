@@ -1,60 +1,52 @@
-# 08_run_report — 포트원 채널 키 환경 분리 + 결제 확정 검증 (PLAN-5)
+# 08_run_report — 후속 과제 뭉치: 인증 기록 파기 잡 + 클라이언트 IP 전역 통일 + 픽스처 날짜 폭탄 근본 해소 + 수신 거부 거부 시점 번호 고정 + 사전통보 실제 발송 시각 정합 (AUTH-9·ADMIN-2·Q32·VIEW-7·REM-11)
 
-2026-11-25 14:55~15:40 KST(문서·소스 수정 시각 기준 — 처음 적은 "18:20~19:20"은 오기) · 오케스트레이터 직접 수행 · 로컬 macOS(arm64) · Ruby 4.0.10 · Rails 8.1.4.1 · Puma 8.1.2 · 미커밋 작업 트리
+## 결론 (최종 상태 — 리뷰·수정·Tester 2분·통합 게이트까지 반영)
 
-## 결론
+| 태스크 | 구현 | 리뷰 | 신규·보강 테스트 |
+|:--|:--|:--|:--|
+| T1 인증 기록 파기 잡 | `PhoneVerifications::PurgeJob` + `PhoneVerification.purgeable`(24시간) + recurring.yml 매일 04:30 KST | APPROVED(B0·C0·W0) | 파기 단위 3건 + 테스터 보강(파기 뒤 가입 이중 검증·스케줄 등록 대조) |
+| T2 클라이언트 IP 전역 통일 | `ClientIp.of(request)`(IPAddr 기준) — 적용처 24곳 + 감사 IP 누락 2곳 | APPROVED(W3 → 모두 반영) | 헬퍼 실측표·감사 IP 단언 + 테스터 보강(rate limit 버킷 분리·새 IP 감지·ViewEvent.ip 경계) |
+| T3 픽스처 날짜 폭탄 근본 해소 | 고정 만료일 → ERB 상대값, 고정 날짜 의존 테스트 3곳 상대화, 재발 방지 가드 | APPROVED(W1 → 반영) | 재발 방지 가드 1건 + 테스터 회귀 확인(뷰어·청구서 계열) |
+| T4 수신 거부 거부 시점 번호 고정 | `clients.refused_phone` 마이그레이션 + 상속·전파 판정 변경 | APPROVED(W2 → 주석 보정·W-1은 오전 배치 산출물로 확인) | 동작표 a~c 고정(옛 한계 고정 1건 교체) + 테스터 보강(재접수·번호 이동·폴백 센서·전파 행 발송 가드·배지·고지 문구) |
+| T5 사전통보 실제 발송 시각 정합 | `Reminders::SendSchedule` 공용 값 객체 + `PrenoticeService` 선별 | APPROVED(W2 → 테스트 보강·PRD 보강) | SendSchedule 단위 8건·사전통보 5건 + 테스터 보강 8건(09:05 지연 슬롯 포함) |
 
-| 항목 | 결과 |
-|:---|:---|
-| `bin/rails db:prepare` | 정상 (마이그레이션 없음) |
-| 앱 부팅 | **성공** — "Rails 8.1.4.1 application starting in development"·Puma 3100 포트 리스닝·부팅 로그에 FATAL/ERROR/DEPRECATION 0건 |
-| 주요 경로 응답 | 아래 표 — 500 없음, 예외 0건 |
-| 웹훅(`/webhooks/portone`) | 모르는 결제 ID·빈 본문·알 수 없는 type 전부 200 흡수, 포트원 호출 0건 |
-| 개발 환경 선택기 | 테스트 채널 키 2개 선택(라이브 키와 다른 값), 검증기 기대값 TEST·KRW |
-| 운영 환경 설정 평가 | 라이브 채널 키 2개 선택(테스트 키와 다른 값), 검증기 기대값 LIVE |
-| 전체 테스트(직접 재실행) | **1,664 runs · 10,553 assertions · 0 failures · 0 errors** (마지막 반영 F-1~F-4 뒤 최종 수치 — 1,656 → +8) |
-| 시스템 테스트(직접 재실행) | 15 runs · 135 assertions · 0 failures |
-| RuboCop·zeitwerk·Brakeman | 430파일 0 offenses · 통과 · Errors 0·Security Warnings 0 |
-| 외부 API 실호출 | **0건** |
+**게이트**: `bin/ci` 통과(39.6초) — RuboCop 454파일 0 offenses · 젬 취약점 0 · importmap 취약점 0 · Brakeman 경고 0 · 전체 테스트 **1,885 runs 11,928 assertions 0 failures**(이번 배치 전 1,835 → +50) · 상수 재정의 경고 0 · 시드 통과. 시스템 테스트 전체 **23 runs 189 assertions 0 failures**. 개발 서버 기동 확인(공개 화면 200·`/app` 계열 비로그인 302·뷰어 가짜 토큰 404·비로그인 DELETE 422·로그 오류 0).
 
-## 요청 응답 (미로그인, `bin/rails server -p 3100`)
+**리뷰**: 4건 모두 APPROVED(BLOCKER 0·CRITICAL 0·WARNING 8). 수정 라운드에서 코드 4건(IPAddr 교체·감사 IP 2곳·픽스처 ERB 상수→지역 변수·주석 보정), 문서 2건(PRD REM-11 보강·운영 노트). 재리뷰 없음(경고 수준·변경면 작음 — 오케스트레이터가 diff·테스트로 직접 확인).
 
-| 요청 | 응답 | 판정 |
-|:---|:---|:---|
-| `GET /` | 200 | 정상 |
-| `GET /app/billing` | 302 → `/session/new` | 로그인 가드 정상 (채널 키를 담는 화면) |
-| `GET /app/legal_documents/new`·`/app/tax_invoices/new` | 302 → `/session/new` | 로그인 가드 정상 |
-| `GET /admin/session/new` | 200 | 정상 |
-| `POST /webhooks/portone` `Transaction.Paid` (모르는 paymentId) | 200 | 흡수 — 주문 미발견이라 재조회 전에 종료(포트원 미호출) |
-| `POST /webhooks/portone` 빈 본문 | 200 | `JSON::ParserError` 흡수 |
-| `POST /webhooks/portone` 알 수 없는 type | 200 | 비동기 대상 아님 — 흡수 |
+**Tester**: 테스터 2명의 신규·보강 테스트(A분 12건·B분 신규 5건+보강) 전부 통과, 앱 결함 없음. 이번 배치로 전체 테스트 수는 1,835 → 1,885(+50).
 
-`log/development.log` 해당 구간: `Completed 200` 6건·`Completed 302` 3건, 500·FATAL·RoutingError·NoMethodError 0건.
+**위임 실측**: 스폰 14회(에이전트 재개 1회 포함) 전부 프로필 일치 — developer-lite·tester-lite GLM-5.3-Flash/low, reviewer-lite GLM-5.3-Flash/**max**(오전에 올린 추론 수준 상향이 같은 세션의 다음 스폰부터 적용됨을 4/4로 실측).
 
-## 환경별 선택기·검증기 평가 (runner, 키 값은 출력하지 않고 credentials 항목과의 일치만 확인)
+**가장 중요한 발견 — 4일 뒤 터질 폭탄**: 핵심 픽스처 `delta_issued`의 링크 만료일이 2026-11-30로 고정돼 있어, 200곳 이상에서 쓰는 이 픽스처를 유효 링크로 쓰는 뷰어 컨트롤러·시스템 테스트가 **2026-12-01부터 모두 실패할 예정**이었다(T3 작업 중 발견). 픽스처를 상대값으로 바꾸고 고정 날짜에 의존하던 테스트 3곳을 고쳤으며, 앞으로 픽스처에 고정 미래 날짜가 들어오면 그날 바로 실패하는 가드 테스트를 추가했다.
 
-| 평가 | `live_channel?` | `.billing` | `.normal` | 검증기 기대 채널·통화 |
-|:---|:---|:---|:---|:---|
-| development (작업 트리 credentials) | false | `channel_key_billing_test`와 동일·라이브 키와 다름 | `channel_key_normal_test`와 동일·라이브 키와 다름 | TEST·KRW |
-| production 환경 설정(`RAILS_ENV=production`, 로컬 평가) | true | `channel_key_billing`(라이브)와 동일·테스트 키와 다름 | `channel_key_normal`(라이브)와 동일·테스트 키와 다름 | LIVE |
+**운영 영향**: 마이그레이션 1건(`clients.refused_phone` 컬럼 추가 + 기존 거부 행 소급 — 운영 거부 행 0건이라 실질 변경 없음). 배포 뒤 각 관리자의 첫 로그인에서 "신규 IP" 알림 메일·감사 1건이 한 번 발동한다(기존 IP가 전부 터널 주소였기 때문 — 정상). 파기 잡은 잡 컨테이너 재기동 뒤 첫 04:30 KST부터 돈다.
 
-검증기 동작(개발 환경 기대값): `amount.paid 4000`·`channel.type TEST`·`currency KRW`인 결제 건은 통과, `channel.type LIVE`인 결제 건은 `channel_mismatch`로 거절 — 환경 분리가 확정점에도 적용됨.
+**미커밋** — 커밋·배포는 사용자 요청 시. 오전 배치(회원 탈퇴·수신 거부 번호 단위·대시보드)와 같은 작업 트리에 쌓여 있다.
 
-## 최종 재확인 (마감 리뷰 WARNING F-1~F-4 반영 뒤 — 주문 생성 3곳에 재주문 차단 가드 추가)
+## 검증하지 못한 것
 
-- 서버 재기동 정상(부팅 로그 FATAL/ERROR 0건). `GET /` 200, `GET /app/billing`·`/app/legal_documents/new`·`/app/tax_invoices/new` 302 → 로그인.
-- `POST /app/legal_documents`·`/app/tax_invoices`·`/app/orders`(미로그인·CSRF 토큰 없음) → 422 — **CSRF 검증이 액션 실행 전에 차단한 기존 동작**(개발 로그: "Can't verify CSRF token authenticity", 쿼리 0회). 이번 변경과 무관.
-- `POST /webhooks/portone`(모르는 결제) → 200 흡수. development.log에 500·FATAL·RoutingError·NoMethodError 0건.
-- RuboCop 430파일 0 offenses · zeitwerk 통과 · Brakeman Errors 0·Security Warnings 0 · 전체 테스트 1,664 runs 0 failures · 시스템 테스트 15 runs 0 failures(모두 오케스트레이터 직접 재실행).
+- 운영에서 실제 `CF-Connecting-IP` 값이 감사 로그·세션에 기록되는지 — 배포 뒤 관리자 첫 로그인의 감사 로그(`login_success`·`new_ip_login`의 `ip`)로 확인.
+- 운영에서 파기 잡이 첫 04:30에 실행되는지 — `badeuldon-job` 로그 `[PhoneVerifications::PurgeJob] purged=N`.
+- 09:00 사전통보의 운영 동작(기본 시간대 회원은 종전과 같이 통보) — 런칭 테스트 G-03.
+- 가드 테스트의 미커버 날짜 형식(슬래시·점 날짜, ERB와 같은 줄에 섞인 리터럴) — 현재 관례(하이픈 ISO)에서는 문제없음.
 
-## 검증하지 못한 것 (실호출 금지 — 실제 결제로만 확인 가능)
+## 후속 과제 (이번 런에서 고치지 않음)
 
-- 실제 포트원 결제의 승인 응답 본문이 `pgTxId`·`paidAt`뿐인지, 재조회 응답의 `status`가 즉시 `PAID`인지, `amount.paid`·`channel.type`·`currency`의 실측값.
-- 로컬 브라우저에서 결제창·카드 등록 위젯이 실제로 뜨는지(`_test` 채널 2개의 소속·테스트 채널에서 실제 결제가 일어나지 않는지).
-- 운영 서버에서의 플랫 도달. 위 운영 평가는 로컬에서 운영 환경 설정으로 돌린 것이다.
+| # | 내용 | 제안 |
+|:--|:--|:--|
+| 1 | **Service 계층 감사 호출 12곳은 `ip:` 미기록**(`payments/record_service`·`admins/member_admin_service`·`role_service`·`account_purge_service`·`orders/refund_service`) — 컨트롤러 계층은 전부 기록. 결함 아님(ADMIN-2가 IP를 요구하지 않음)이지만 통일 미완 | 호출처에 `ClientIp.of(request)`를 넘기도록 서비스 인자 확장 — 후속 소형 배치 |
+| 2 | 시작 시각이 09시인 좁은 창 회원은 재예약 슬롯이 09:00라 알림톡 사전통보가 사실상 없다(대시보드 카드가 당일 취소 창) | "내일 09시 발송 예정"을 전날 09시에 미리 통보(사전통보를 내일분으로 확장) — 제품 개선 |
+| 3 | 수신 거부 레거시 nil 폴백(`refused_phone` 없는 거부 행만 현재 번호 기준 상속) — 운영에는 nil 행이 없고 테스트 데이터용 방어 경로 | 소유 밖 테스트 5파일의 단독 마킹을 보강한 뒤 폴백 제거(깨지는 센서 테스트를 함께 둠) |
+| 4 | 대시보드 「오늘 발송 예정」 후보 청구마다 3~7쿼리(5건 표시에 후보 전수 계산)·`reminder_actions_service.rb` 헤더 주석이 `SendSchedule` 헤더와 2중화 | 성능·주석 정리 |
+| 5 | (오전 배치에서 이월) 탈퇴 시 결제·계약 기록의 법정 5년 보존 vs 삭제 — 결정 필요 2번 | 사용자 결정·법무 확인 |
+
+## 런칭 테스트 문서
+
+- `LAUNCH_TEST_SCENARIOS.md` G-03에 "사전 알림은 그날 실제로 나갈 안내만" 변경 안내 추가, 체크리스트 §2.5 발송 규칙 보강 → 재생성(371항목·15단계, 테스트 1,885건). 기대값(기본 시간대 U1-C)은 변하지 않는다.
 
 ## 종료·정리
 
-- 서버 프로세스 종료·3100 포트 해제 확인.
-- `bin/dev`(foreman)는 비TTY 환경에서 CSS 감시 프로세스가 즉시 종료되어 전체가 내려가서(선례와 동일 — 이번 변경과 무관) `bin/rails server`를 직접 띄워 확인했다.
-- 작업 트리에 검증 부산물 없음.
+- PRD v0.51(AUTH-9 파기 잡 / ADMIN-2 클라이언트 IP 기준·Q32 / VIEW-7 거부 시점 번호 고정 / REM-11 실제 발송 시각 정합 + 좁은 창 회원 안내).
+- AGENTS.md: 규칙 색인 4행·구현 진행 상황·예정·운영 노트 5건.
+- `_workspace/`: 01_plan·02_prd_update·00_delegation_log(스폰 14회)·05_review(리뷰 4건 전문)·07_test_report(A분·B분)·`parallel/T1~T5·FIX1·FIX2/03_implementation.md`.

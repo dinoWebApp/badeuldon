@@ -1,8 +1,54 @@
 {
-  "domain": "REM·VIEW·PLAN — 수신 거부 청구 재개 차단 + 발송 상한 수동 합산",
+  "domain": "남은 후속(판단 위임) — 감사 IP 서비스 계층·수신 거부 레거시 폴백 제거·탈퇴 시 결제 기록 비식별 보관·기술 부채 2건",
   "currentPhase": null,
-  "pipelineType": "Full",
-  "parallelTasks": [],
+  "pipelineType": "parallel",
+  "parallelTasks": [
+    {
+      "id": "T1",
+      "name": "감사 로그 IP — 서비스 계층 12곳(ADMIN-2·Q32)",
+      "files": [
+        "app/services/payments/record_service.rb",
+        "app/services/admins/{role,member_admin,account_purge}_service.rb",
+        "app/services/orders/refund_service.rb",
+        "app/controllers/app/payments_controller.rb",
+        "app/controllers/admin/{base,admins,members,orders}_controller.rb"
+      ],
+      "status": "done"
+    },
+    {
+      "id": "T2",
+      "name": "수신 거부 레거시 nil 폴백 제거 + 테스트 헬퍼(VIEW-7·Q30)",
+      "files": [
+        "app/models/client.rb",
+        "test/test_helpers/refusal_test_helper.rb",
+        "test/test_helper.rb",
+        "단독 마킹 테스트 9파일"
+      ],
+      "status": "done"
+    },
+    {
+      "id": "T3",
+      "name": "탈퇴·계정 삭제 시 결제 기록 비식별 보관 5년(AUTH-1.5·ADMIN-3)",
+      "files": [
+        "db/migrate/(신설 1건)",
+        "db/schema.rb",
+        "app/models/withdrawn_payment_record.rb",
+        "app/models/user.rb",
+        "app/jobs/withdrawn_payment_records/purge_job.rb",
+        "config/recurring.yml"
+      ],
+      "status": "done"
+    },
+    {
+      "id": "T4",
+      "name": "기술 부채 — 픽스처 가드 강화·대시보드 서비스 주석 정리",
+      "files": [
+        "test/fixtures_no_future_date_test.rb",
+        "app/services/dashboards/reminder_actions_service.rb(주석만)"
+      ],
+      "status": "done"
+    }
+  ],
   "phaseHistory": [
     {
       "phase": 0,
@@ -153,7 +199,507 @@
       "phase": 9,
       "status": "done",
       "note": "완료 보고·정리 — LAUNCH_TEST_SCENARIOS.md 기대값 정정(I-01-4·F-04-2 대시보드 미구현 반영, 화면 문구 9곳 실제 문자열 정렬, C-02 기대값 정정), LAUNCH_TEST_CHECKLIST.md 재생성(시나리오 307+추가 53=360항목, 대조: 글자 불일치 0·참조 이상 0), AGENTS.md(규칙 색인 REM·PLAN·VIEW 행, 구현 진행 상황 항목, 운영 노트) 갱신, 메모리 갱신. 위임 실측 11회 전부 프로필 일치(리뷰 1회 사용량 한도 실패 후 재시도). 미커밋 — 커밋·배포는 사용자 요청 시"
+    },
+    {
+      "phase": 0,
+      "status": "done",
+      "note": "병렬 배치(일반) 시작 — main d658c78·작업 트리 깨끗함·원격 동기화. 이전 런 산출물을 _workspace_prev/로 이동. 런칭 전 결정 3건에 대한 오케스트레이터 판단(모두 구현 쪽)을 사용자가 /badeuldon_orchestrator_parallel \"진행해주세요\"로 요청. 사전 실측: 태스크별 테스트 DB(DATABASE_URL=sqlite3:tmp/parallel/<id>/test.sqlite3)로 격리 실행 가능(13 runs 0 failures·트리 무변경) — 동시 테스트의 공유 test.sqlite3 충돌 방지. DeliverJob은 discard_on RecordNotFound로 삭제된 청구 참조 잡을 버림"
+    },
+    {
+      "phase": 1,
+      "status": "done",
+      "note": "1-P 태스크 분해·병렬 안전 판정 — T0 공유 결선(선행·단독) + 병렬 그룹 G1(T1 회원 탈퇴·T2 수신 거부 번호 단위·T3 대시보드 오늘의 액션 3종). 3조건 충족(소유권 분리·의존 없음·공유 파일은 T0/Phase 2로 해소). 동시성 상한 3·태스크별 테스트 DB(DATABASE_URL) 격리. 01_plan.md 작성"
+    },
+    {
+      "phase": "gate",
+      "status": "approved",
+      "note": "AskUserQuestion multiSelect — 사용자가 T1·T2·T3 전부 선택(2026-11-26 10:57). 이후 재승인 없이 진행"
+    },
+    {
+      "phase": 2,
+      "status": "done",
+      "note": "PRD v0.50 — AUTH-1.5 구현 확정(유료 구독 즉시 종료·이메일 입력 확인·감사 로그·미수 청구 있어도 허용), VIEW-7 같은 회원 안 번호 단위, DASH-2 3종 구현 확정(정의·순서·종류별 5건), REM-11 대시보드 보류, 결정 기록 Q29~Q31. 02_prd_update.md 작성"
+    },
+    {
+      "phase": "3-P",
+      "status": "done",
+      "note": "T0 공유 결선 완료 — config/routes.rb 17행 `resource :profile, only: %i[edit update destroy]`, DELETE /app/profile → app/profiles#destroy 등록 확인. git diff 대조: routes.rb 한 줄만 변경"
+    },
+    {
+      "phase": "3-P",
+      "status": "done",
+      "note": "T2 수신 거부 번호 단위 완료 — Client#phone_digits·before_save inherit_refusal_from_same_phone(상속·되돌림 없음)·attr_reader refusal_inherited, Promises::RegisterService#propagate_refusal_to_same_phone(같은 트랜잭션·update_all·where(refused_at: nil) 멱등), ClientsController client_saved_notice 분기. 테스트 +10(client_test 4·register_service_test 3·clients_controller_test 3). 전용 DB 70 runs 0 failures·rubocop 0·zeitwerk 통과(Developer 보고). 지시서 오타(과과에→과거에) 스스로 정정"
+    },
+    {
+      "phase": "3-P",
+      "status": "done",
+      "note": "T1 회원 탈퇴 완료 — Users::WithdrawalService(신설: 이메일 확인→트랜잭션 내 감사 로그 member_withdrawal(admin nil·이메일 스냅샷·IP)→user.destroy!), ProfilesController#destroy(terminate_session 재사용→/ 303+notice, 실패→설정 303+alert)·edit/422 재렌더에 @withdrawal_summary 적재(미수 건수·잔액, Plus 상태 3분기, 패스 remaining_uses 합), profiles/edit.html.erb 최하단 회원 탈퇴 section(독립 DELETE 폼)+오타 정정, terms 제11조 ①항 문장 추가·②항 교체. 테스트: 서비스 6건 신설·컨트롤러 6건 추가(기존 12 무수정)·시스템 2건 작성(미실행). 전용 DB 24 runs 0 failures·rubocop 0·zeitwerk 통과(Developer 보고). 범위 밖 제안: test/controllers/pages_policy_test.rb에 제11조 신규 문구 회귀 고정(Phase 7 Tester에 위임 예정)"
+    },
+    {
+      "phase": "3-P",
+      "status": "done",
+      "note": "T3 대시보드 오늘의 액션 3종 완료 — DispatchService#scheduled_today_keys 신설(steps_due_today는 위임·동작 불변), Dashboards:: Query 3종(TodaysSendsQuery·PromisesDueTodayQuery·UnviewedIdleQuery), DashboardsController DASH_ACTION_LIMIT=5·load_reminder_actions, show.html.erb 다섯 종 PRD 순서 카드·외 N건, base_helper 배지·아이콘 3종. 테스트: 쿼리 신설·컨트롤러 추가·dispatch_service_test 추가·시스템 1건 작성(미실행). 전용 DB 82 runs 0 failures·rubocop 13파일 0·zeitwerk 통과(Developer 보고). 판단: 후보 범위 −17일~−4일로 교정(금요일 nominal의 월요일 소급 창), 최신 약속은 created_at,id 마지막 행, 미열람=status issued∧issued_at≤(오늘−3).end_of_day"
+    },
+    {
+      "phase": "3-S",
+      "status": "done",
+      "note": "통합 — 소유권 대조: 변경 48경로가 T0/T1/T2/T3 또는 오케스트레이터 문서에 정확히 속함(공유 파일 위반 0). DispatchService 변경 확인(steps_due_today가 scheduled_today_keys를 PRENOTICE_KEYS로 걸러 동작 보존). rubocop 441파일 0 offenses·zeitwerk 통과·db 변경 없음·통합 테스트(태스크 테스트+관련) 308 runs 1,747 assertions 0 failures"
+    },
+    {
+      "phase": 5,
+      "status": "done",
+      "note": "T2 리뷰 — APPROVED(B0·C0·W6). W-1(범위 밖) 거래처가 수신 거부(상속)여도 발행 폼의 첫 안내 체크박스가 그대로 나오고 issue_notice가 인큐됨(REFUSED로 막히지만 폼 문구 거짓·창 밖이면 발송 예정 행이 다음 창까지 남음) / W-2(설계 확인) 거부된 거래처의 번호를 바꾸면 행이 거부 상태로 남아 거부한 적 없는 새 번호의 상속 원천이 됨 / W-3 콜백은 모든 저장에서 실행(주석·계획은 등록·번호 변경) — 주석 정정·테스트 추가 / W-4 번호 비교 SQL 중복 → 스코프로 단일화 / W-5 테스트 4건 공백 / W-6 기존 데이터 소급 없음(운영 수신 거부 0건 — 소급 불필요 확인함). 위임 실측 GLM-5.4/high 일치"
+    },
+    {
+      "phase": 6,
+      "status": "done",
+      "note": "T2 리뷰 반영 위임 — W-1(거부 거래처 발행 폼 체크박스 대신 안내·issue_notice/반복 청구 발행 안내 인큐 건너뛰기)·W-3 주석·W-4 Client.same_phone_digits 스코프 단일화. W-2는 PRD VIEW-7에 알려진 한계·후속 과제로 기록(이번 배치 허용). W-6은 운영 수신 거부 0건으로 소급 불필요 확인"
+    },
+    {
+      "phase": 5,
+      "status": "done",
+      "note": "T1 리뷰 — CHANGES_REQUESTED(B0·C2·W8·정책 공백 확인 요청 5). C-1 테스트 날짜 폭탄: \"남은 수금 패스 10건\" 단언이 공유 픽스처 delta_active_pass(만료 2026-12-30)에 의존 → 12-31부터 실패(기존 billings_controller_test:91도 같은 폭탄) / C-2 탈퇴 화면 \"삭제되는 항목\"이 실제 연쇄 삭제 범위보다 좁음(결제·환불 내역·세금계산서 발행 내역·청구서 부속 기록 누락) / W-1 감사 로그 필터에 member_withdrawal 없음 / W-2 약관 날짜·부칙 미갱신·제7조⑦·제8조와의 관계 / W-3 confirm_email 빈 값 400 / W-4 고지 가독성 12px / W-5 문구(받을 권리 오독·해지 예약 상태) / W-6 잔액 계산식 중복(선택) / W-7 낡은 주석 / W-8 감사 detail 수치·보존 고지. 정책 공백: SALES 월 정산 기준 소실·재가입 시 체험·쿠폰 리셋·포트원 빌링키·바로빌 등록 잔존·결제 기록 5년 보존(법무)·미결제 주문. 위임 실측 GLM-5.4/high 일치"
+    },
+    {
+      "phase": 5,
+      "status": "done",
+      "note": "T3 리뷰 — CHANGES_REQUESTED(B0·C2·W8). C-1 토·일요일에도 \"오늘 오후 2시\" 카드(스캔은 평일 14시만) / C-2 REM-3 허용 창에 14시가 없으면 재예약되는데 카드는 \"오늘 오후 2시\" 고정 — 오케스트레이터가 리뷰 지시서에 미리 적은 두 의심 모두 성립. 모집단(자격·상한·보류·거부·종결·소급 창·후보 좁히기 −17/+1일·−4/+1일)은 스캔과 정합·누락 없음. 수정 규칙 3-A: 실제 발송 예정 시각(재예약 슬롯 scheduled_at 또는 user.next_remind_slot(다음 스캔 시각))이 오늘인 행만 카드에 싣고 그 시각을 문구에 표시. W-1 후보마다 3~7쿼리(후속 가능) / W-2 약속일 도래 뱃지가 녹색(완료 색) / W-3 테스트 4곳 / W-4 문구(경과 일수·조사) / W-5 Query→Service 의존·show 본문 13줄 / W-6 미열람=issued만(연체 되면 카드에서 빠짐) / W-7 5건 제한 범위 / W-8 선택 개선. 범위 밖 관찰: 당일 약속의 약속일 전날 안내가 당일 14시 발송·09시 사전통보도 같은 취약점. 위임 실측 GLM-5.4/high 일치"
+    },
+    {
+      "phase": 6,
+      "status": "done",
+      "note": "T2 리뷰 반영 완료(Developer 보고) — W-1 거부(상속 포함) 거래처의 초안 발행 폼은 체크박스 대신 중립 안내 상자, InvoicesController#issue의 enqueue_issue_notice_if_needed가 거부 거래처면 issue_notice 인큐 건너뜀(REFUSED 가드보다 창 판정이 앞서 생기는 「발송 예정」 pending 행 방지), RecurringInvoices::IssueService도 거부 거래처는 issue_notice만 건너뛰고 U1 통보는 인큐. SendService·DispatchService·routes·마이그레이션 무변경. W-3 주석 정정·W-4 Client.same_phone_digits 스코프 단일화(phone_digits를 delete(\"-\")로). 전용 DB 174 runs 1,059 assertions 0 failures·rubocop 10파일 0·zeitwerk 통과(Developer 보고 — 오케스트레이터 재확인 예정). 손댄 파일 6개(invoices show 뷰·invoices_controller·recurring issue_service·client.rb·테스트 2개)는 T1·T3 수정 소유 파일과 불겹침"
+    },
+    {
+      "phase": 6,
+      "status": "done",
+      "note": "T1·T3 리뷰 반영 수정 Developer 동시 스폰(소유 파일 불겹침·전용 DB tmp/parallel/T1·T3). T1: C-1 날짜 폭탄(테스트 안에서 패스 생성, billings_controller_test:91 포함)·C-2 삭제 항목 8종·W-1 감사 필터·W-2 약관 11-26·제11조 ②항(제7조·제8조 구분)·부칙·W-3 pattern+앵커 복귀·W-4/W-5 고지 문구·W-7 주석·W-8 감사 detail 수치. T3: C-1/C-2 실제 발송 예정 시각(Dashboards::ReminderActionsService 신설 — pending 슬롯 scheduled_at 또는 user.next_remind_slot(다음 스캔 시각), 오늘인 행만)·SCAN_HOUR/SCAN_WDAYS 상수+recurring.yml 대조 테스트·W-2 색·W-4 문구·W-5 Query는 Model만"
+    },
+    {
+      "phase": 6,
+      "status": "done",
+      "note": "T3 리뷰 반영 완료(Developer 보고) — Dashboards::ReminderActionsService 신설(send_at = pending 슬롯 scheduled_at, 지나간 슬롯은 다음 스캔 폴백, 없으면 user.next_remind_slot(다음 스캔 시각) → 오늘인 행만)·TodaysSendsQuery는 후보 Relation만·DispatchService에 SCAN_HOUR=14·SCAN_WDAYS 상수만 추가(메서드 무변경)·recurring.yml 대조 테스트·컨트롤러 show 4줄(DASH-1·4는 load_summary로)·배지·아이콘 색(약속일 도래 중립·미열람 주황)·dash_action_send_time_label·문구. 전용 DB 184 runs 995 assertions 0 failures·rubocop 12파일 0·zeitwerk 통과(Developer 보고 — 오케스트레이터 재확인 예정). W-1(쿼리 수)·W-8(카드 2장 등)은 후속 과제"
+    },
+    {
+      "phase": 6,
+      "status": "done",
+      "note": "T1 리뷰 반영 완료(Developer 보고) — C-1 테스트 안에서 델타 패스 전량 파기 뒤 90.days.from_now 패스 생성(통합은 travel_to 안·시스템은 상대 만료일만)·billings_controller_test 포함 / C-2 삭제 항목 8종+'필요한 내역은 탈퇴 전에 미리 저장해 주세요.'+전수 단언 / W-1 감사 필터 member_withdrawal / W-2 약관 2026-11-26·부칙 개정 이력·제11조 ②항(제7조⑦·제8조②③ 구분)·pages_policy_test 갱신 / W-3 pattern+section id=withdrawal 앵커 복귀 — params.expect가 빈 문자열에도 ParameterMissing을 던져 confirm_email_param 헬퍼(키 없음만 400, 빈 값은 서비스 불일치)로 지시대로 구현 / W-4·W-5 text-sm+굵게·미수 문구·Plus 2분기(paid_plus_cancelled) / W-7 주석 / W-8 감사 detail 수치. 전용 DB 189 runs 1,562 assertions 0 failures·rubocop 10파일 0·zeitwerk 통과(Developer 보고 — 오케스트레이터 재확인 예정). 남은 우려: 약관 30일 전 공지 조항과 당일 시행 표기 병존(오케스트레이터 확인 중)·payment.rb 낡은 주석(소유 밖)"
+    },
+    {
+      "phase": 4,
+      "status": "done",
+      "note": "T1·T3 수정분 오케스트레이터 직접 재확인 — 소스 diff 리딩(WithdrawalService·ProfilesController#destroy·confirm_email_param·탈퇴 section 8항목·약관 제11조 ②항·감사 필터·ReminderActionsService send_at ①②·next_scan_time·DispatchService 상수만)·소유권 대조 위반 0(변경 경로 전부 단일 태스크 소유·픽스처·locale·db 무변경)·변경 Ruby 36파일 rubocop 0 offenses·zeitwerk 통과·영향 테스트 17묶음 501 runs 3,325 assertions 0 failures(전용 DB tmp/parallel/orch). 약관 확인: 제14조 '중요한 내용 변경은 적용일 30일 전부터 공지'와 당일 시행 표기가 병존 — 2026-11-20 개정도 같은 방식(선례)·런칭 전이라 외부 회원 없음이 전제 → 재리뷰에 심각도 판단 요청, 완료 보고에 결정 필요로 명시"
+    },
+    {
+      "phase": 8,
+      "status": "done",
+      "note": "운영 읽기 전용 조회(개인정보 출력 없음 — 컨테이너 badeuldon-web-d658c78…): 회원 9(전원 active·최근 7일 신규 0·이름/이메일에 test 표시 없는 계정 3 — 실제 사용자 여부는 열어보지 않음)·구독 Plus 체험 1·주문 0·청구 0·거래처 0·수신 거부 0. 약관 제11조 당일 시행 표기의 판단 근거 — 사용자가 9개 계정이 본인 테스트 계정인지 확인할 사항으로 완료 보고에 올림"
+    },
+    {
+      "phase": 5,
+      "status": "done",
+      "note": "T1·T3 수정분 2차 리뷰 Reviewer 2명 병렬 진행 중(정적 — 약관 시행일 심각도 판단 요청 포함). 그 사이 오케스트레이터가 런칭 테스트 문서 갱신: 시나리오 §1(1번 해결·7번 약관 시행일 확인 신설)·§2.2(U1-D 역할·주의)·A-03-2·C-02·C-04 재작성(6항목)·F-07 재작성(번호 단위·U1-D 전용·6항목)·G-06·G-07·F-04-2·I-01-5·I-04 신설(5항목) / 생성기 v5(tmp/gen_launch_checklist_v5.py 백업 — F-07을 7단계 U1-D로·C-04를 13단계로·I-04 배치·§2 배정표·시간표·§8 1~5 수정 완료+6번 확인 필요) — 임시 생성 성공(시나리오 88·체크 316·수동 55·계 371), 최종 테스트 건수 확정 뒤 재생성 (완료)"
+    },
+    {
+      "phase": 5,
+      "status": "done",
+      "note": "T3 수정분 2차 리뷰 — APPROVED(B0·C0·W2). 1차 C-1(주말)·C-2(REM-3) 해소 — ②(user.next_remind_slot(14:00:00))가 실제 스캔(SendService#reschedule!의 next_remind_slot(Time.current))과 같은 시각을 냄(시작·종료 시각은 정수 저장). ① pending 슬롯 우선이 카드를 잘못 빼지 않음(같은 키 pending은 부분 유니크로 1행·보류하면 SUSPENDED로 막힘)·지나간 슬롯의 ② 폴백 타당·KST 일관·SCAN 상수=recurring.yml·steps_due_today/restartable?/PrenoticeService 불변·구조(Query→Model만·show 4줄·5건·Free 0건)·색·문구 문제없음. W-1(선택) 오늘 발송 예정 행이 만기일 순이라 5건 초과 시 오전 9시 슬롯 카드가 잘릴 수 있음 → send_at 정렬 1줄 / W-2(테스트) scheduled_at nil pending 가드 고정 테스트 없음(14시 발송 중 대시보드 200). 메모: dispatch_service 옛 설명 블록 중복·PRD DASH-2에 '지난 슬롯은 예정 아님' 보강 제안. 정적 리뷰. 위임 실측 GLM-5.4/high 일치"
+    },
+    {
+      "phase": 6,
+      "status": "done",
+      "note": "T3 2차 리뷰 마무리 완료(Developer 보고) — build_todays_sends 절단 전 sort_by.with_index [send_at, invoice.id, index](완전 동률은 steps_for 산출 순서 유지)·dispatch_service.rb 옛 steps_due_today 설명 블록 11행 삭제(주석만 — 남은 두 사실은 새 위치에 각 1회)·테스트 3건 신설(W-2 nil pending 13시/15시·W-1 정렬·컨트롤러 200+카드 1장). 전용 DB 187 runs 1,008 assertions 0 failures·rubocop 4파일 0·zeitwerk 통과(Developer 보고 — 오케스트레이터 재확인 예정)"
+    },
+    {
+      "phase": 4,
+      "status": "done",
+      "note": "T3 마무리 수정분 오케스트레이터 재확인 — build_todays_sends 절단 전 정렬(send_at·invoice.id·산출 순서) 확인, dispatch_service.rb 비주석 변경이 SCAN 상수 2개+steps_due_today 위임뿐임 확인, 영향 테스트 6묶음 187 runs 1,008 assertions 0 failures, 변경 Ruby 36파일 rubocop 0 offenses(전용 DB tmp/parallel/orch). T1 2차 리뷰는 Reviewer 진행 중"
+    },
+    {
+      "phase": 5,
+      "status": "done",
+      "note": "T1 수정분 2차 리뷰 — APPROVED(B0·C0·W6). 1차 C-1(날짜 폭탄)·C-2(삭제 항목 8종 — 실제 연쇄 삭제 범위와 일치·message_logs는 DB FK cascade)·W-2(약관 — 제7조⑦·제8조②③ 인용 맞음·정책 문서 테스트 8개 단언 대조)·W-3(빈 값·앵커 — 서버 분기·배열/해시 조작도 불일치)·W-4/W-5(문구·Plus 2분기)·W-8(감사 detail) 해소. 회귀 없음(세션 행 중복 삭제 안전·CSRF·타 회원 지정 불가·422 재렌더 요약 적재). WARNING 6: N-1 불일치 안내가 플래시(상단)에만 있어 #withdrawal 앵커 위치에서 화면 밖 / N-2 감사 IP request.remote_ip — 프록시 뒤 실값 미확정(전역 과제) / N-3 미수 문구 모호('받을 수 없습니다') / N-4 감사 목록 truncate 60에 잘림 / N-5 약관 당일 시행 표기와 제14조② / N-6 환불 예외 약속 vs 탈퇴 뒤 주문 삭제(포트원 콘솔 수동 환불). 범위 밖: X-1 CRITICAL — 같은 유형 날짜 폭탄 2건(test/controllers/admin/orders_controller_test.rb:89·test/system/admin_order_refund_test.rb:48, 2026-12-31부터 실패) / X-2 payment.rb·promise.rb '영구 보존' 낡은 주석. 약관 시행일 판단: WARNING — 외부 회원이 없으면 모순 없음, 외부 회원(특히 유료)이 있으면 오픈 전 필수 수정. 권고문장(부칙에 '정식 오픈 전 공고·같은 날 시행, 이후 개정은 제14조②' 명시). 지정 파일 5개 54 runs 0 failures(Reviewer 실행). 위임 실측 GLM-5.4/high 일치"
+    },
+    {
+      "phase": 6,
+      "status": "done",
+      "note": "T1 2차 리뷰 마무리 완료(Developer 보고) — X-1 날짜 폭탄 2건(admin/orders_controller_test '수금 패스 10건 차감'·system/admin_order_refund_test 잔여 0 — 픽스처 패스 파기 뒤 테스트 안 90.days.from_now 패스) / X-2 payment.rb·promise.rb 주석 / N-1 destroy 실패 분기에 flash[:withdrawal_error]+탈퇴 section 안 role=alert 한 줄(text-xs font-medium text-red-600)+컨트롤러 단언 / N-3 미수 문장 교체 / N-4 감사 목록 요약 셀 title 속성+전문 단언 / N-5 부칙에 '정식 오픈 전 공고·같은 날 시행, 이후 개정은 제14조 ②' 문장+회귀 단언. 전용 DB 73 runs 649 assertions 0 failures·rubocop 8파일 0·zeitwerk 통과(Developer 보고 — 오케스트레이터 재확인 예정). 안 고침: N-2(감사 IP)·N-6(환불 예외) 후속"
+    },
+    {
+      "phase": 4,
+      "status": "done",
+      "note": "T1 마무리 수정분 오케스트레이터 재확인 — 소스 diff 지시대로(withdrawal_error 플래시·탈퇴 section 안 role=alert·미수 문장·약관 부칙 문장·감사 목록 title 속성·payment/promise 주석)·영향 테스트 190 runs 1,574 assertions 0 failures·zeitwerk 통과(전용 DB tmp/parallel/orch). rubocop는 Tester A 작성 중인 test/models/client_test.rb의 배열 괄호 공백 6건만 — 테스터 마무리 때 재확인"
+    },
+    {
+      "phase": 7,
+      "status": "done",
+      "note": "Tester A(T2·T3 분) 완료 — 신규 21건 전부 통과·앱 결함 후보 없음. T2: 상속 거래처 등록→초안 상세(체크박스 부재·안내 문구)→send_notice=1 발행(DeliverJob 0건·직접 전달 flash)·반복 청구 상속 발행(noti_recurring_issued만)·SendService REFUSED 최종 방어선·전파(다수 형제·이미 거부된 형제 시각 유지·재접수 멱등·트랜잭션 롤백)·상속(하이픈 조합·검증 실패·W-2 알려진 한계 고정)·화면(배지·버튼 3종 미노출·재개/재시작 alert)·회원 간 격리. T3: 13:59:59 노출/14:00:00 소멸·실제 14시 스캔 뒤 시작 15시 회원의 14:30 카드 '오늘 15시'(① 경로)·종료 14시 회원 카드 없음·U1 향 pending 미포착·사유별 혼합 정확성·미열람+오늘 발송 예정 공존·보류하기 뒤 행 소멸·nil pending 기존 테스트 확인. T2 225 runs 1,457 assertions 0 failures(+14)·T3 197 runs 1,063 assertions 0 failures(+7)·시스템 테스트 2파일 3회 연속 통과·RuboCop 수정 파일 10개 0 offenses. 실행 중 실패 2건은 테스트 오류(due_on 누락·Row Struct 접근). 산출물 _workspace/07_test_report.md(T2·T3 분)"
+    },
+    {
+      "phase": 7,
+      "status": "done",
+      "note": "Tester B(T1 분) 완료 — 신규·보강 17건 전부 통과·앱 결함 후보 없음. 시스템 테스트 app_profile_withdrawal(2건)·admin_order_refund(X-1 수정분) 각 3회 연속 통과. 풍부한 데이터 연쇄 삭제(입금·약속·문의 응답·열람·발송 이력·예약 슬롯·반복 청구·AS 첨부·세금계산서 전부 0건 — 생성 선단언)·B-6 전수 조사(user_id 보유 13테이블 중 보존은 audit_logs만·나머지 0행)·예약 DeliverJob 흡수(발송 0건)·InvalidForeignKey 롤백·confirm_email 배열/해시 변조 303·키 없음 400·CSRF 422·재요청 멱등·불일치 안내 실화면 표시(N-1)·탈퇴 뒤 /b/:token 404+VIEW-6 본문·X-1 회귀(2026-12-31 travel_to 통과). 지정 배치 205 runs 1,716 assertions 0 failures·뷰어 회귀 2 runs 0 failures·RuboCop 9파일 0 offenses. 확인된 현재 동작: phone_verifications는 user_id가 없어 탈퇴 연쇄가 닿지 않음(만료 전까지 행 남음) / suspended 회원도 서비스상 탈퇴 가능(로그인이 막혀 화면 경로는 닫힘) / AS blob은 purge_later 시점 정리"
+    },
+    {
+      "phase": "7-S",
+      "status": "done",
+      "note": "bin/ci 통과(CI_EXIT=0, 38.8초) — rubocop 444파일 0 offenses·젬 취약점 0·importmap 취약점 0·Brakeman 경고 0·전체 테스트 1,835 runs 11,684 assertions 0 failures(이번 배치 전 1,707 → +128)·시드 통과. 시스템 테스트 전체 23 runs 189 assertions 0 failures(20 → +3: app_dashboard_actions 1·app_profile_withdrawal 2)"
+    },
+    {
+      "phase": 8,
+      "status": "done",
+      "note": "실행 검증(오케스트레이터 직접) — 개발 서버 기동(3017): / /terms /privacy /blog 200(/terms에 부칙 신규 문장 포함), /app·/app/profile/edit·/app/invoices/new 비로그인 302 → 로그인, 비로그인 DELETE /app/profile 422(CSRF), /b/가짜토큰 404. 로그 오류 0(내가 잘못 친 GET /app/profile 라우팅 에러 1건만). 운영 읽기 전용 조회는 앞서 완료(회원 9·Plus 체험 1·주문 0·청구 0·거래처 0). 새 발견(범위 밖·기존): phone_verifications에 user_id가 없고 삭제 잡이 없어 전화번호+코드 행이 무기한 남음(개인정보보호법 파기 의무·방침에 보존 기간 미기재) — 후속 과제로 보고"
+    },
+    {
+      "phase": 9,
+      "status": "done",
+      "note": "마무리 — 체크리스트 재생성(1,835)·대조·08_run_report·AGENTS.md·PRD 후속 기록·메모리·progress 리셋·완료 보고 (완료)"
+    },
+    {
+      "phase": 9,
+      "status": "done",
+      "note": "완료 보고·정리 — LAUNCH_TEST_SCENARIOS.md 갱신(§1 1번 해결·7번 약관 시행일 확인 신설·§2.2 U1-D 역할·A-03-2·C-02·C-04 재작성 6항목·F-07 재작성 6항목(U1-D 전용)·G-06·G-07·F-04-2·I-01-5·I-04 신설 5항목), LAUNCH_TEST_CHECKLIST.md 생성기 v5로 재생성(시나리오 88·체크 316·수동 55·계 371항목·15단계), AGENTS.md(규칙 색인 AUTH·DASH·VIEW·구현 진행 상황·예정[후속 과제]·운영 노트 4건), PRD(AUTH-9 알려진 한계·DASH-2 2차 보강), 08_run_report.md 작성, 메모리 갱신. 위임 실측 스폰 16회 전부 프로필 일치. 리뷰: T2 1차 APPROVED·T1/T3 2차 APPROVED. 최종 검증: bin/ci 통과(1,835 runs 0 failures)·시스템 테스트 23 runs 0 failures. progress.json의 history 항목 사이 쉼표 누락 3곳(오케스트레이터 수기 편집)을 복구해 JSON 유효화. 미커밋 — 커밋·배포는 사용자 요청 시"
+    },
+    {
+      "phase": 0,
+      "status": "done",
+      "note": "병렬 배치(절약) 시작 — 후속 과제 뭉치. main d658c78 + 미커밋 71경로(직전 배치·문서) 위에 쌓음(기존 관례 — 커밋 시 범위별 분리). 직전 배치 산출물을 _workspace_prev/로 회전. 사전 조사: 감사 IP 호출처 20곳(운영은 CF 터널 경유라 remote_ip 전부 동일값 — 감사·새 IP 알림·등록 rate limit이 사실상 무의미한 운영 결함 확인)·뷰어 viewer_client_ip 선례·픽스처 고정 만료일(invoices.yml token_expires_at 8행·payment_passes delta_active_pass — notices·coupons·referral_codes는 이미 ERB 선례)·prenotice_service.rb·recurring.yml fugit cron 형식. 제외: 대시보드 성능·문구(가치 낮음)·약관 시행일·법정 보존(사용자 결정 대기)·탈퇴 한계 5건(법무). reviewer-lite max 상향은 다음 세션 적용이라 이번 런 reviewer-lite 실측은 이전 정의일 수 있음 — 기록 후 보고"
+    },
+    {
+      "phase": "1-P",
+      "status": "done",
+      "note": "1-P 태스크 분해·병렬 안전 판정 — 후보 5종(T1 파기 잡·T2 클라이언트 IP·T3 픽스처·T4 거부 번호 고정[유일 마이그레이션]·T5 사전통보 정합). 3조건 충족(소유권 표·의존 없음·공유 파일은 T1=recurring.yml·T4=migrate·T3=fixtures 단독 소유). 동시성 3·2웨이브·태스크별 전용 DB. 01_plan.md 작성"
+    },
+    {
+      "phase": "gate",
+      "status": "approved",
+      "note": "AskUserQuestion multiSelect — 사용자가 T1~T5 전부 선택(2026-11-26 14:00). 이후 재승인 없이 진행"
+    },
+    {
+      "phase": 2,
+      "status": "done",
+      "note": "PRD v0.51 — AUTH-9 파기 잡 구현 확정·ADMIN-2 클라이언트 IP 기준(Q32 신설)·VIEW-7 거부 시점 번호 고정(refused_phone)·REM-11 실제 발송 시각 정합(문구 무변경). T3은 PRD 변경 없음(테스트 자산). 02_prd_update.md 작성"
+    },
+    {
+      "phase": "3-P",
+      "status": "done",
+      "note": "웨이브 1(T1·T2·T3) developer-lite 동시 스폰 — 소유 파일 불겹침·전용 DB tmp/parallel/T1·T2·T3 (완료)"
+    },
+    {
+      "phase": "3-P",
+      "status": "done",
+      "note": "웨이브 1 스폰 완료 — T1·T2·T3 developer-lite 동시 실행. 위임 실측 3회 전부 GLM-5.3-Flash/low 일치(00_delegation_log). 웨이브 2(T4·T5)는 웨이브 1 완료 수신 뒤 (완료)"
+    },
+    {
+      "phase": "3-P",
+      "status": "done",
+      "note": "T1 완료(Developer 보고) — PhoneVerifications::PurgeJob(신설, queue_as :default 기존 관례·retry_on ActiveRecord::Deadlocked·삭제 건수만 info 로그) + PhoneVerification PURGE_AFTER=24.hours·scope :purgeable + recurring.yml production·development에 매일 04:30 KST 등록 + 파기 잡 테스트 3건(25h/23h/방금/consumed 선별·24시간 경계 ±1초·멱등). 전용 DB 3 runs 9 assertions 0 failures·rubocop 3파일 0·zeitwerk 통과(Developer 보고 — 오케스트레이터 재확인 예정)"
+    },
+    {
+      "phase": "3-P",
+      "status": "done",
+      "note": "T1 완료로 빈 슬롯에 T4 선스폰(웨이브 2) — clients.refused_phone 마이그레이션(신설 1건·전용 개발 DB에만 적용해 schema.rb 갱신)·거부 접수/전파 시 refused_phone 저장·상속 판정을 refused_phone 기준으로. 동시 실행: T2·T3·T4(상한 3). T5는 T2/T3 완료 뒤 스폰 (완료)"
+    },
+    {
+      "phase": "3-P",
+      "status": "done",
+      "note": "T3 1차 완료(Developer 보고) — invoices.yml 헤더에 ERB 상수 블록(ACTIVE_TOKEN_EXPIRES_AT=30일 뒤·EXPIRED_TOKEN_EXPIRES_AT=10일 전) 신설, token_expires_at 8행 중 6행 상대 전환(delta_due_soon·viewed·promised·partially_paid·paid·voided), payment_passes.yml delta_active_pass를 90.days.from_now로 전환. 지정 6파일 139 runs 838 assertions 0 failures. **보류 2행 중 긴급 발견**: delta_issued(token_expires_at 2026-11-30)는 ViewerControllerTest가 travel_to(2026-12-01)로 만료 경계 판정에 쓰고 viewer 시스템 테스트 3파일은 travel 없이 유효 링크로 쓰는 교차 의존 — 2026-11-30부터 시스템 테스트가 실패하는 진짜 폭탄(테스트 코드 수정 필요 — T2 완료 뒤 후속 위임 예정). delta_overdue(2026-10-31)는 travel_to 고정 경계라 고정 유지가 정답. 1차 실행의 IPv6 45자 실패 1건은 T2 작업 중 변경과의 일시적 재결합으로 보고 — 3-S에서 확인"
+    },
+    {
+      "phase": "3-P",
+      "status": "done",
+      "note": "T2 완료(Developer 보고) — ClientIp.of(request) 신설(CF-Connecting-IP가 단일 IPv4/IPv6 형태일 때만 채택, 쉼표 목록·공백·빈 값·무헤더는 remote_ip 폴백) + 적용처 24곳 전수 교체(viewer 위임·authentication 세션·registrations rate_limit by+감사·profiles destroy 감사·admin sessions 5감사+last_login_ip+새 IP 비교+메일러·admin passwords·sales_reps 5·sales_commissions·sales sessions 4) — app/ 잔존 request.remote_ip 0건. 신설 client_ip_test 5케이스 + admin 로그인 CF 헤더 감사 IP 단언 보강. 지정 10파일 134 runs 1,026 assertions 0 failures·rubocop 0·zeitwerk 통과(Developer 보고 — 오케스트레이터 재확인 예정). 관찰: viewer 만료 토큰 2케이스가 T3 픽스처 중간 상태에서 일시 실패(T3의 delta_issued 전환→복귀와 정합)"
+    },
+    {
+      "phase": "3-P",
+      "status": "done",
+      "note": "T2 완료·T3 1차 완료로 T5 스폰(14:09 — 실측 일치), T3 후속 재개(14:10 — delta_issued 폭탄 해소[viewer_controller_test 만료 경계 2곳을 token_expires_at + 1.minute 상대 travel로] + invoices.yml delta_issued를 ACTIVE_TOKEN_EXPIRES_AT로 + 재발 방지 가드 테스트 test/fixtures_no_future_date_test.rb[픽스처 고정 미래 날짜 리터럴 있으면 그날 바로 실패]). 동시 실행: T3후속·T4·T5(상한 3). 오케스트레이터 재확인: T1·T2 영향 테스트 86 runs 0 failures·T2 교체 diff 지시대로 (완료)"
+    },
+    {
+      "phase": "3-P",
+      "status": "done",
+      "note": "T4 완료(Developer 보고) — 마이그레이션 20261126050721_add_refused_phone_to_clients(clients.refused_phone string nullable + 기존 거부 행 방어적 소급 UPDATE, 전용 dev DB에만 적용해 schema.rb 갱신) / register_service: 접수 마킹 update_columns(refused_at:, refused_phone:), 전파 update_all에 refused_phone 포함 / client.rb: 상속 원천을 refused_phone == phone_digits 기준으로 전환·상속 시 refused_phone 기록, refused_phone이 nil인 레거시 행만 현재 번호 폴백(소유 밖 5개 테스트 파일을 건드리지 않고 기존 시나리오 통과용) / 행 단위 refused?·되돌림 없음·화면 문구 불변(clients_controller 무수정). 대상 8파일 224 runs 0 failures·rubocop 6파일 0·zeitwerk 통과(Developer 보고 — 오케스트레이터 재확인 예정). 옛 한계 동작 고정 테스트 1건을 올바른 동작으로 교체·정상 행 번호 이동 경계 1건 신설. Developer 우려: nil 폴백 경로 유지 여부(없으면 update_column(:refused_at) 단독 마킹이 한계 부활) — 리뷰 판정 요청"
+    },
+    {
+      "phase": "3-P",
+      "status": "done",
+      "note": "T5 완료(Developer 보고) — Reminders::SendSchedule 신설(값 객체 — send_at_for ① pending 슬롯 미래 scheduled_at ② user.next_remind_slot(다음 스캔)·next_scan_time, 대시보드 프라이빗 2메서드를 그대로 이전한 단일 출처) / Dashboards::ReminderActionsService는 위임(동작 불변 — 기존 대시보드 테스트 22건 무수정 통과) / PrenoticeService notify_prenotice_targets에 today_send? 필터(steps_due_today 단일 진입점 유지, 실제 발송 예정 시각이 오늘인 키가 하나라도 있을 때만 통보 — 종료 14시·시작 15시·비허용 요일·주말 소급분의 재예약 건을 '오늘 발송 예정'으로 알리지 않음, 템플릿·문구 무변경). 신설 send_schedule_test 8건 + prenotice_service_test 보강 5건(음성·양성 대조). 타깃 스위트 209 runs 0 failures·rubocop 0·zeitwerk 통과(Developer 보고 — 오케스트레이터 재확인 예정). Developer 우려: 09:00 정각 실행과 오늘 09:00 재예약 슬롯의 경합(극단 케이스 오알림 가능성)"
+    },
+    {
+      "phase": "3-P",
+      "status": "done",
+      "note": "T3 후속 완료(Developer 보고) — viewer_controller_test 만료 경계 travel_to 2곳을 invoice.token_expires_at + 1.minute 상대화 / invoices.yml delta_issued.token_expires_at를 ACTIVE_TOKEN_EXPIRES_AT(30일 뒤)로 전환 / 재발 방지 가드 test/fixtures_no_future_date_test.rb 신설(fixtures/*.yml의 ERB 밖 20xx-xx-xx 미래 리터럴 → 실패, 인라인 마커 예외 지원) — 조사: 현재 미래 고정 리터럴 0건. 단위 6파일 100 runs·시스템 4파일 14 runs 0 failures·rubocop 0. **잔존 보고**: test/controllers/app/invoices_controller_test.rb:651-668 '만료 임박·만료 표기' 테스트가 delta_issued 만료 2026-11-30을 정확히 고정 의존(travel 11-24 '만료 임박'·리터럴 문구·travel 12-01 '만료') — 상대값 전환으로 지금 실패(오케스트레이터 재실행에서도 같은 1건 실패 확인: invoices_controller_test:650) → 3-S에서 상대화 위임"
+    },
+    {
+      "phase": "3-P",
+      "status": "done",
+      "note": "T3 마지막 후속 완료 — invoices_controller_test '만료 임박·만료 표기' 테스트 1건을 픽스처 상대 시각(token_expires_at - 6.days / + 1.minute / - 20.days)과 문구 보간(display_date %Y-%m-%d 확인)으로 교체. 지정 5세트 123 runs 746 assertions 0 failures·rubocop 0. delta_issued 폭탄 근본 해소 + 가드 test/fixtures_no_future_date_test.rb"
+    },
+    {
+      "phase": "3-S",
+      "status": "done",
+      "note": "통합 — recurring.yml YAML 파싱 확인(production·development 양쪽 phone_verifications_purge 등록)·zeitwerk 통과·변경 Ruby 64파일 rubocop 0 offenses(db/schema.rb는 자동 생성·기존 스타일이라 인자 지정 시에만 146건 — bin/ci 대상 아님)·개발 DB 마이그레이션 1회 적용(20261126050721 — add_column + 소급 UPDATE, 스키마 버전 2026_11_26_050721). 통합 테스트 실행 중 (완료)"
+    },
+    {
+      "phase": "3-S",
+      "status": "done",
+      "note": "통합 완료 — 소유권 대조 위반 0(이번 배치 발자국: T1 jobs/phone_verifications·phone_verification.rb·recurring.yml / T2 concerns/client_ip.rb·컨트롤러 9개 / T3 fixtures 2개·viewer_controller_test·invoices_controller_test 1테스트·fixtures_no_future_date_test / T4 마이그레이션 1건·schema.rb·client.rb·register_service.rb / T5 send_schedule.rb·prenotice_service.rb·reminder_actions_service.rb 위임). 통합 테스트(jobs·controllers 전반·models·services·queries·가드) 1,699 runs 10,350 assertions 0 failures(전용 DB tmp/parallel/orch). 관찰: invoices.yml ERB 상수(ACTIVE_TOKEN_EXPIRES_AT 등)가 픽스처 재로드마다 'already initialized constant' 경고 — 리뷰 수정 차례에 지역변수로 교체 예정"
+    },
+    {
+      "phase": 5,
+      "status": "done",
+      "note": "리뷰 4건 병렬 스폰(reviewer-lite) — R-T2 클라이언트 IP(보안) / R-T4 수신 거부 번호 고정 / R-T5 사전통보 정합+SendSchedule 추출 / R-T1·T3 파기 잡+픽스처·가드 (완료)"
+    },
+    {
+      "phase": 5,
+      "status": "done",
+      "note": "리뷰어 4개 스폰(14:18) 위임 실측 — reviewer-lite 4회 전부 GLM-5.3-Flash/max 일치. **실측 정정**: 오전의 reviewer-lite thoughtLevel high→max 상향(규약 v4.2.2)은 새 세션 없이 같은 세션의 다음 스폰부터 적용됐다(사전 안내 '새 세션부터'는 틀린 예상 — AGENTS.md 변경 이력·전역 규약 4.2.2 이력 행·프로젝트 사본·메모리를 실측대로 정정, 사본은 바이트 동일 재동기화) (완료)"
+    },
+    {
+      "phase": 5,
+      "status": "done",
+      "note": "T2 리뷰 — APPROVED(B0·C0·W3). 헬퍼 판정 규칙이 Q32·ADMIN-2 문언과 일치·적용처 24곳 diff 전수 대조 1:1·app/ 잔존 request.remote_ip 0건(폴백 본체만)·rate_limit 람바 동일 문맥·시그니처 불변·뷰어 위임 동등(비정상 비어 있지 않은 값은 폴백으로 수렴 — Q32 규격상 개선)·신뢰 경계 성립(CF 엣지 덮어쓰기·운영 직접 경로 없음)·AdminSession은 IP 비교 로직 없어 과거 동일값 잔존 영향 없음. W-1 IPv6 정규식이 느슨(':'·':::'·'1:::2'·'::ffff:1.2.3' 통과, IPV4 '999.999.999.999' 통과) → IPAddr.new 기반 판정 제안 / W-2 admin/tickets_controller.rb:71 ticket_close 감사에 ip 없음(ADMIN-2 유일 누락)·app/subscriptions_controller.rb:50 coupon_redeemed도 ip 없음 / W-3 배포 후 각 관리자 첫 로그인에 신규 IP 알림 1회 발동(기존 last_login_ip가 터널 IP) — 운영 노트 기록 권고. 정적 리뷰"
+    },
+    {
+      "phase": 5,
+      "status": "done",
+      "note": "T5 리뷰 — APPROVED(B0·C0·W2). SendSchedule 추출이 오전 T3 2차 리뷰로 검증된 send_at 규칙을 1:1 이전(nil 가드·>= 경계·14:00:00→내일 경계·SCAN 상수 단일 출처)·대시보드 위임 완전 동작 불변(정렬·5건·*_total·Free 0건, 테스트 파일 무수정 통과)·의존 방향 정합(공개 진입점만)·사전통보 선별이 steps_due_today 위에 필터만 얹음(모집합·멱등·due_soon 경로 불변)·케이스 ①~⑥ 추적에서 거짓 통보 경로 없음·09:00 정각 경합 대책 불요. W-1(테스트 정합성) '전날 재예약 오늘 09시 슬롯 통보' 테스트가 travel_to 09:00:00.000 정각 동률 분기만 증명 — 운영(09:00+ε)에서는 >= 실패로 ② 폴백 → 통보 없음이 지배적(안전 방향) → 09:05 지연 슬롯 케이스 테스트 추가 권고 / W-2(문서) 시작 09시 좁은 창 회원의 재예약 슬롯은 항상 09:00이라 사전통보 잡과 겹쳐 알림톡 사전통보를 구조적으로 거의 받지 못함 — 취소 창은 대시보드 카드(자정~09시)가 제공, PRD REM-11 한 줄 보강 권고(코드 불변). 메모: reminder_actions_service 헤더 11~22행의 규칙 설명 2중화(포인터 있음 — 후속 정리). Tester 중점 제안 6건. 정적 리뷰"
+    },
+    {
+      "phase": 5,
+      "status": "done",
+      "note": "T4 리뷰 — APPROVED(B0·C0·W2). 마이그레이션 적합(add_column 메타데이터 연산·소급 UPDATE는 rollback 시 add_column 자동 되돌림으로 무모순·test DB는 schema:load라 소급이 없어 폴백과 짝)·접수 마킹(update_columns·콜백 우회는 의도)·전파(같은 트랜잭션·전파 행마다 refused_phone 기록)·시나리오 a~d 정합(재접수 시 현재 번호 기준 전파는 채무자가 그 번호로 거부한 것이므로 정당)·레거시 nil 폴백은 유지 권고(운영엔 nil 행 없음·test DB 폴백 의존 — 기술 부채로 기록, 후속 2단계 제거)·first는 PK 오름차순 결정적·불변 확인(refused?·REFUSED 가드·재개 거부·clients_controller의 이번 배치 변경 없음). 지정 3파일 80 runs 0 failures(Reviewer 실행). W-1 보고 불일치 — clients_controller.rb client_saved_notice(+17행)·clients_controller_test(+84행)가 T4 보고서에 없음 → **오케스트레이터 확인: 이 변경은 오전 배치(직전 T2 '등록 안내')의 산출물**로 이번 T4가 아님(위임 로그·01_plan 소유 표와 정합) — T4는 클라이언트 컨트롤러 무수정. W-2 client.rb:118 주석 '= source.refused_phone'이 폴백 경로에서는 부정확(자기 치유 동작은 바람직) → 주석 보정. Tester 중점 제안 4건"
+    },
+    {
+      "phase": 5,
+      "status": "done",
+      "note": "T1·T3 리뷰 — T1 APPROVED(B0·C0·W0·관찰 2) / T3 APPROVED(B0·C0·W1). T1: purgeable 24h가 모든 창(1분·1시간·30분·5분) 미침해·delete_all 멱등·로그 건수만·queue 관례·recurring.yml 양쪽 블록 최상위 키·04:30 기존 시간대 미중복(운영: job 재기동 후 유효·첫 실행 다음 04:30 KST·purged=N 로그로 확인) / T3: ERB TimeWithZone 보간이 KST 오프셋을 명시해 기존 규칙과 정합·활성 6행이 travel 고정·travel 없는 양쪽에서 항상 유효·패턴 2 위반 0·상대화 3곳 단언 의미 유지·가드 견고·ERB 밖 미래 리터럴 0건. I-1(W): invoices.yml ERB 상수가 재렌더링마다 'already initialized constant' 경고 → notices.yml 선례(`<% now = Time.current %>`)처럼 지역 변수로 전환 권고. 관찰: retry_on Deadlocked는 SQLite에서 사실상 미발동(무해·유지)·가드 O-2(ERB 혼합 줄·슬래시·점 날짜 미탐 — 한계 문서화). Reviewer 실행 4 runs·65 runs 0 failures"
+    },
+    {
+      "phase": 6,
+      "status": "done",
+      "note": "리뷰 반영 수정 — FIX1(developer-lite, 14:30 스폰): ClientIp를 IPAddr 기반으로 교체+테스트(변형 값 전수)·admin/tickets ticket_close·app/subscriptions coupon_redeemed 감사에 ip 추가+단언·client.rb:118 주석 보정 / FIX2(스폰 예정): invoices.yml ERB 상수 → 지역 변수 (완료)"
+    },
+    {
+      "phase": 6,
+      "status": "done",
+      "note": "FIX2 완료(Developer 보고) — invoices.yml ERB 헤더의 ACTIVE_TOKEN_EXPIRES_AT·EXPIRED_TOKEN_EXPIRES_AT 상수를 지역 변수(active_token_expires_at·expired_token_expires_at — notices.yml 선례)로 전환, 참조 7곳 교체, 값·의도 불변. 대문자 상수 참조 grep 0건·지정 4파일 115 runs 714 assertions 0 failures·'already initialized constant' 경고 0건 실측. FIX1(IPAddr 교체·감사 IP 2곳·주석) 진행 중"
+    },
+    {
+      "phase": 6,
+      "status": "done",
+      "note": "FIX1 완료(Developer 보고) — client_ip.rb를 IPAddr 기반으로 교체(require ipaddr·IPAddr.new 성공 시 원문 헤더 그대로 반환·그 외 remote_ip 폴백), client_ip_test에 실측표 고정(음성 6종 폴백·양성 5종 채택) — 조정 1건: zone id(fe80::1%eth0)은 이 Ruby의 IPAddr이 유효로 파싱해 채택으로 고정 / admin/tickets_controller ticket_close·app/subscriptions_controller coupon_redeemed 감사에 ip: ClientIp.of(request) 추가 + CF 헤더를 실은 감사 IP 단언 테스트 각 1건(쿠폰 경로는 포트원 스텁 내) / client.rb:117-119 주석 보정(코드 불변). 소유 5파일 61 runs·ClientIp 경유 회귀 40 runs 0 failures·rubocop 0·zeitwerk 통과(Developer 보고 — 오케스트레이터 재확인 예정)"
+    },
+    {
+      "phase": 7,
+      "status": "done",
+      "note": "Phase 7 Tester 스폰 예정(tester-lite) — 리뷰 Tester 중점 제안 반영: T5 사전통보(09:05 지연 슬롯·정각 경합·두 스텝 갈라짐·시작 10시 회원·due_soon 병행·대시보드↔사전통보 동치) / T2 클라이언트 IP(rate limit 버킷 분리·새 IP 감지 CF 경로·ViewEvent.ip 경계) / T4 재접수·번호 이동·폴백 센서·전파 행 발송 가드·고지 문구 / T1·T3 회귀 확인 (완료)"
+    },
+    {
+      "phase": 7,
+      "status": "done",
+      "note": "Tester B(T2·T1·T3분) 완료 — 신규 5건·보강 5건 전부 통과, 코드 버그 없음. T2: registrations_ip_rate_limit_test 신설(CF 헤더 IP별 rate limit 버킷 분리 20회 429→다른 헤더 통과·헤더 없으면 remote_ip 버킷) / admin sessions CF 헤더 새 IP → new_ip_login 감사(ip=헤더)·AdminMailer.new_login 인자·last_login_ip 갱신·재로그인 무통보 / viewer ViewEvent.ip IPv6 채택·쉼표 목록·':'·999.999.999.999 → REMOTE_ADDR 수렴 / FIX1 감사 ip 단언 통과 확인. T1: perform 뒤 방금·consumed 행 유지→consumed_recently 통과 / recurring_registration_test 신설(양쪽 블록 등록 대조) / 가입 플로우 회귀 14 runs. T3: viewer 4파일·invoices_controller·invoice_test·가드 145 runs 935 assertions 0 failures·already initialized constant 경고 0건. rubocop 0·외부 API 실호출 없음. 스캔(보고 전용): 컨트롤러 감사 호출은 전부 ip 보유, Service 계층 12곳(payments/record_service·admins/member_admin_service·role_service·account_purge_service·orders/refund_service)은 ip 없음 — 후속 후보(결함 아님). Tester A(T5·T4분) 진행 중"
+    },
+    {
+      "phase": 7,
+      "status": "done",
+      "note": "Tester A(T5·T4분) 완료 — 신규 12건 전부 통과(253 runs 1,392 assertions 0 failures·rubocop 0·솔라피 실호출 0), 앱 결함 없음. T5 prenotice_service_test 8건: 09:05 실행+오늘 09:00 pending 슬롯 → 통보 0건(리뷰 W-1)·sent 선점 → 0·due 키가 내일 슬롯 → 0/due_keys 밖 키 슬롯 무영향 → 1·시작 10시·종료 14시 회원의 10:00 슬롯 → 통보·noti_due_soon 병행 회귀 2건·대시보드↔사전통보 동치 3창. T4 5건: 번호 이동 거부 행 재접수(R 불변·현재 번호만 전파·A 행 무영향)·전파 거래처의 다른 청구 REFUSED skip 이력(P4)·레거시 단독 마킹 행의 폴백 상속+자기 치유(폴백 제거 시 깨지는 센서)·1순위 경로 상속 등록 고지 문구·전파 직후 배지·재개 버튼. 확인된 현재 동작: 한 청구의 steps_due_today에 사전통보 키 2개가 같은 날 도래하는 조합은 구조적으로 불가능(키 간격 6일 vs 소급 창) — '두 스텝 갈라짐' 제안은 키 격리 단언으로 대체"
+    },
+    {
+      "phase": "7-S",
+      "status": "done",
+      "note": "통합 게이트 시작 — bin/ci(rubocop·bundler-audit·importmap audit·brakeman·전체 테스트) + 시스템 테스트 전체 (완료)"
+    },
+    {
+      "phase": "7-S",
+      "status": "done",
+      "note": "bin/ci 통과(CI_EXIT=0, 39.6초) — rubocop 454파일 0 offenses·젬 취약점 0·importmap 취약점 0·Brakeman 경고 0·전체 테스트 1,885 runs 11,928 assertions 0 failures(이번 배치 전 1,835 → +50)·시드 통과·상수 재정의 경고 0건. 시스템 테스트 전체 23 runs 189 assertions 0 failures(12-01부터 실패할 예정이던 viewer 시스템 테스트 포함 — 픽스처 상대값 전환으로 통과)"
+    },
+    {
+      "phase": 8,
+      "status": "done",
+      "note": "실행 검증(오케스트레이터 직접) — 개발 서버(3018): / /terms /privacy /blog /session/new 200, /app·/app/profile/edit·/app/invoices/new·/app/clients 비로그인 302 → 로그인, /b/가짜토큰 404(VIEW-6), CF 헤더 요청 200, 비로그인 DELETE /app/profile 422(CSRF), 로그 오류 0. 개발 DB runner sanity: ClientIp 헤더 있음/없음 동작·refused_phone 컬럼 존재·거부 행 중 refused_phone 누락 0·SendSchedule.next_scan_time = 내일 14:00(KST)·recurring.yml dev 엔트리 확인. 운영 잡 컨테이너는 `cmd: bin/jobs`(Solid Queue 전체 — 반복 스케줄 포함)라 새 잡은 배포(잡 재기동) 때 등록된다"
+    },
+    {
+      "phase": 9,
+      "status": "done",
+      "note": "마무리 — 체크리스트 재생성(1,885)·AGENTS.md 진행 상황·08_run_report·02_prd_update 보강·메모리·progress 리셋·완료 보고 (완료)"
+    },
+    {
+      "phase": 9,
+      "status": "done",
+      "note": "완료 보고·정리 — LAUNCH_TEST_SCENARIOS.md G-03 변경 안내·LAUNCH_TEST_CHECKLIST.md 재생성(371항목·테스트 1,885)·AGENTS.md(규칙 색인 4행·구현 진행 상황·예정·운영 노트 5건)·PRD(REM-11 보강 포함 v0.51)·02_prd_update 보강·08_run_report.md 작성·메모리 갱신(신규 followups-batch-lite-run·날짜 폭탄 4번째 패턴·하네스 실측 정정). 위임 실측 스폰 14회 전부 프로필 일치(reviewer-lite는 max — 오전 상향이 같은 세션부터 적용). 리뷰 4건 APPROVED. 최종 검증: bin/ci 1,885 runs 0 failures·시스템 23 runs 0 failures. 미커밋 — 커밋·배포는 사용자 요청 시"
+    },
+    {
+      "phase": 0,
+      "status": "done",
+      "note": "병렬 배치(절약) 시작 — 사용자가 남은 후속의 판단을 위임('알아서 판단해서 진행') + '운영 서버 계정은 100% 테스트 계정, 관련 정보는 다 삭제해도 됨'. main d658c78 + 미커밋(오전·오후 배치·문서) 위에 쌓음. 직전(오후) 배치 산출물을 _workspace_prev/로 회전하되 아직 미커밋인 오전 배치 산출물은 _workspace_prev/_20261126_am_withdrawal/으로 보존(기존 1세대 로테이션은 미커밋 산출물을 잃게 됨). 사실 조사: 서비스 계층 감사 호출 중 ip 없는 곳 12곳(payment 1·role 5·account_purge 1·member_admin 2·refund 3 — 컨트롤러 계층은 전부 ip 보유), 단독 마킹 update_column(:refused_at) 테스트 약 28곳/12파일, 두 삭제 경로(회원 탈퇴·관리자 계정 삭제)가 모두 user.destroy! 사용, orders 컬럼(user_id·product·amount·status·pg_order_id·pg_payment_id·pg_billing_key·paid_at·metadata·refunded_at·refund_reason·item_type), User의 has_many :orders dependent: :destroy 선언 순서(콜백 prepend 필요). 사용자 발언으로 해소: 약관 시행일 결정(운영 계정 전부 테스트 → 당일 시행 유지). 운영 테스트 계정 삭제는 지금 실행하지 않음(런칭 테스트가 기존 Plus 계정을 U1-C로 사용·되돌릴 수 없는 삭제 — 정리 단계에서 실행 권장)"
+    },
+    {
+      "phase": "1-P",
+      "status": "done",
+      "note": "1-P 판단·분해 — T1 감사 IP 서비스 계층 / T2 수신 거부 레거시 폴백 제거 / T3 탈퇴·계정 삭제 시 결제 기록 비식별 보관 5년(결정 필요 ② 구현 — 마이그레이션 1건) / T4 기술 부채(픽스처 가드 강화·주석 정리). 뺀 것: 전날 사전통보(알림톡 템플릿 변경·검수 필요), 대시보드 쿼리 최적화(영향 작고 심장부 리스크), 티켓 3년 보존(비식별화 설계 필요·법무), 운영 테스트 계정 삭제(런칭 테스트 뒤). 3조건 충족(T1·T3이 계정 삭제 경로를 함께 다루지만 T1은 서비스 인자·T3은 User 콜백으로 파일 불겹침). 01_plan.md 작성"
+    },
+    {
+      "phase": "gate",
+      "status": "approved",
+      "note": "AskUserQuestion multiSelect — 사용자가 T1~T4 전부 선택(2026-11-26 15:11). 이후 재승인 없이 진행"
+    },
+    {
+      "phase": 2,
+      "status": "done",
+      "note": "PRD v0.52 — AUTH-1.5 결제 기록 비식별 보관 구현 확정(두 삭제 경로 공통·User 콜백·탈퇴 시각부터 5년·관리 화면 없음·티켓 기록 3년 보존은 미구현 한계로 추가) / ADMIN-3 ④ 보존 추가 / ADMIN-2 서비스 계층 감사 기록도 ip / VIEW-7 레거시 폴백 제거 / 결정 기록 Q33. 사용자 발언으로 약관 시행일 결정 해소(운영 계정 전부 테스트 — 당일 시행 유지·문서 반영은 Phase 9). 02_prd_update.md 작성"
+    },
+    {
+      "phase": "3-P",
+      "status": "done",
+      "note": "웨이브 1 — T1(서비스 계층 감사 IP)·T2(폴백 제거+헬퍼)·T3(결제 기록 비식별 보관·마이그레이션 1건) developer-lite 동시 스폰. T4(가드 강화·주석 정리)는 첫 슬롯이 비면 스폰 (완료)"
+    },
+    {
+      "phase": "3-P",
+      "status": "done",
+      "note": "T1 완료(Developer 보고) — 서비스 5개 진입점에 선택 인자 ip: nil 추가(Payments::RecordService / Admins::RoleService create_admin!·change_role!·unlock!·record_denied! / Admins::MemberAdminService toggle_suspension!·change_plan! / Admins::AccountPurgeService.call / Orders::RefundService.new)·서비스 내 감사 호출 12곳 전부 ip 전달(awk 전수 1+2+5+1+3)·호출 컨트롤러 5개에 ip: ClientIp.of(request). 신규 테스트 11건(서비스 9·컨트롤러 2 — CF 헤더 → 회원 정지·환불 감사 ip, 환불은 포트원 스텁). 서비스 3디렉터리 107 runs 0 failures·rubocop 19파일 0·zeitwerk 통과(Developer 보고). Developer 관찰: invoices_controller_test '만료 임박' 1건이 자기 실행에서 실패 — 오후 배치에서 이미 상대 travel로 고쳐진 테스트(직후 bin/ci 1,885건 통과)이므로 T2의 동시 편집 중 상태일 가능성 → 3-S에서 오케스트레이터가 재실행해 판정"
+    },
+    {
+      "phase": "3-P",
+      "status": "done",
+      "note": "T1 완료로 빈 슬롯에 T4(픽스처 가드 강화·대시보드 서비스 주석 정리) 스폰. 동시 실행: T2·T3·T4 (완료)"
+    },
+    {
+      "phase": "4",
+      "status": "done",
+      "note": "T1 재확인(오케스트레이터) — diff 지시대로·서비스 계층 감사 호출 중 ip 없는 곳 0건(멀티라인 인지)·서비스 3디렉터리 107 runs 0 failures. T4 스폰(15:24 — 실측 일치). 동시 실행 T2·T3·T4"
+    },
+    {
+      "phase": "3-P",
+      "status": "done",
+      "note": "T4 완료(Developer 보고) — fixtures_no_future_date_test: ERB 태그 부분만 제거한 나머지 텍스트를 검사(text_outside_erb — ERB 혼합 줄의 고정 날짜 탐지, 여러 줄 블록 추적 유지) + DATE_LITERAL_PATTERN에 점·슬래시 구분자·월 01~12/일 01~31 범위 제한(계좌번호·전화번호·BD-20260901-001 오탐 없음 — 실측) + 판정 로직을 private future_date_literals(text)로 분리해 가드 동작 6건 고정 + 픽스처 전수 검사 통과(고정 미래 날짜 0건) / reminder_actions_service 헤더 ①② 규칙 13줄을 SendSchedule 포인터 4줄로 축소(코드 변경 0). 지정 3경로 47 runs 216 assertions 0 failures·rubocop 2파일 0(Developer 보고 — 오케스트레이터 재확인 예정). 남은 실행: T2·T3"
+    },
+    {
+      "phase": "5",
+      "status": "done",
+      "note": "T1 리뷰 스폰(15:27 — reviewer-lite GLM-5.3-Flash/max 실측 일치). T4 재확인: 가드 판정 로직 리딩·reminder_actions_service 비주석 변경 0건·47 runs 0 failures. T2·T3 Developer 진행 중 — 완료 뒤 각각 리뷰 스폰(T2+T4 합산 리뷰, T3 단독) (완료)"
+    },
+    {
+      "phase": "3-P",
+      "status": "done",
+      "note": "T2 완료(Developer 보고) — client.rb 상속 원천을 refused_phone 단일 기준으로(폴백 제거)·test/test_helpers/refusal_test_helper.rb 신설(mark_refused — refused_at+refused_phone 동시 기록)·소유 9파일 단독 마킹 26건 교체·센서 테스트 반전('단독 마킹 행은 상속 원천이 아니다'). 소유 8파일 219 runs·서비스 134 runs 0 failures·rubocop 0·zeitwerk 통과(Developer 보고). **사고 보고**: 교체 작업 중 `git show HEAD:` 원본 덮어쓰기 실수로 미커밋 상태인 오전·오후 배치의 테스트 추가분이 삭제됨 — todays_sends_query_test.rb(untracked·전소 → '형제 테스트 관례로 전체 재작성'), clients_controller_test·invoices_controller_test·clients_reminders_test·invoices_reminders_test의 Q30 테스트가 작업 중 캡처한 덤프로 복원('캡처에 없던 꼬리 단언은 형제 테스트 문언으로 재구성'). 오케스트레이터가 피해 범위 조사·원본 대조 시작. 추가: 폴백 제거로 소유 밖 2파일(send_service_test:353·issue_service_test:254)이 실패 → 후속 위임 예정. T1이 관찰한 invoices_controller_test '만료 임박' 실패은 T2의 HEAD 덮어쓰기가 원인(픽스처 변경 탓이 아님)"
+    },
+    {
+      "phase": "3-P",
+      "status": "done",
+      "note": "T3 완료(Developer 보고) — 마이그레이션 20261126090000_create_withdrawn_payment_records(컬럼 화이트리스트·pg_order_id 유니크·withdrawn_at not null — 전용 dev DB에만 적용해 schema.rb 갱신) / WithdrawnPaymentRecord(RETENTION=5.years·scope :expired·self.archive!(user) — 전체 상태 복사·이미 보관된 pg_order_id 제외 후 insert_all) / User before_destroy :archive_payment_records, prepend: true / WithdrawnPaymentRecords::PurgeJob + recurring.yml 양쪽 04:35 KST / 테스트 모델 7·잡 4·recurring 대조 1·탈퇴 서비스 보관 단언. 전용 DB 27 runs 237 assertions 0 failures·rubocop 0·zeitwerk 통과(Developer 보고 — 재확인 예정). Developer 주의: 전용 test.sqlite3에 runner 잔여 행 오염이 있어 파일 재생성으로 해소(runner 사용은 전용 dev DB 마이그레이션만 허용된 것이었음 — 규칙 위반 관찰, 외부 호출 가드 내) / assert_equal(nil, nil)이 힌트 예외로 실패 처리돼 nil 분기로 작성"
+    },
+    {
+      "phase": "3-S",
+      "status": "done",
+      "note": "통합 전 사고 조사 — T2 Developer의 `git show HEAD:` 덮어쓰기 피해 범위 확인 중. ZCode 아티팩트(~/.zcode/cli/artifacts — workspace_file_before_change 스냅샷 10,503건·1,898경로)를 색인해 덮어쓰기 전 원본 복구 가능성 확인. 작업 트리 전체 백업을 tmp/backups/worktree-20261126-1532.tar.gz(git-ignored)로 확보 (완료)"
+    },
+    {
+      "phase": "3-S",
+      "status": "done",
+      "note": "사고 조사·복구 완료(오케스트레이터 직접 — 기계적 복원). ZCode 아티팩트 workspace_file_before_change 스냅샷에서 덮어쓰기 전 원본 재구성(패치 적용 불일치 0): 피해 5개 파일 전부 확인 — T2의 첫 Edit이 본 길이가 원본과 다름(clients_controller_test 13352 vs 18164·invoices_controller_test 23294 vs 28596·clients_reminders_test 2651 vs 3766·invoices_reminders_test 31078 vs 33085·todays_sends_query_test 삭제 후 재작성). T2 복원분과 대조한 실제 손실: invoices_controller_test — 오후 배치가 고친 '만료 임박' 상대 travel 테스트가 고정 날짜로 되돌아감(T1·T2가 본 실패의 원인)·include ActiveJob::TestHelper 삭제·테스트명 변경 / invoices_reminders_test — 상속 거부 청구 테스트의 배너 단언 2개·재개/재시작 요청 뒤 상태 불변 단언 4개 삭제 / clients_controller_test — 1순위 상속 테스트의 리다이렉트·refused_phone·목록 배지 단언 삭제 / clients_reminders_test — 단언 2개 삭제. 복구: 원본+T2 의도 교체(mark_refused 17곳) 판으로 4개 파일 복원(기계적 복사)·T2의 주석 갱신 1곳은 유지 → 관련 9묶음 226 runs 1,328 assertions 0 failures. 그 밖 T2가 sed로 고친 4파일(invoice_test·viewer_refusal_test 2종·app_invoice_reminders_test)은 원본+의도 교체와 바이트 동일. todays_sends_query_test.rb는 오후 배치의 마지막 수정분이 Edit 밖(도구 미기록)이라 스냅샷에 없어 T2의 재작성본(10테스트)을 유지 — Phase 7 Tester가 쿼리 명세 대비 커버리지 점검. **오케스트레이터 자체 실수**: 복구 스크립트가 재구성 원본을 임시 폴더가 아닌 실제 경로에 써서 5파일이 원본 상태로 바뀜(약 5분) → 사고 직전 백업(tmp/backups/worktree-20261126-1532.tar.gz)에서 T2 상태로 복원(바이트 동일 확인) 후 의도된 복원만 다시 적용. 잃은 것 없음. 교훈: 복구 스크립트 출력 경로 단언 추가·Developer 지시서에 'git show/checkout으로 파일 쓰기 금지' 명시·장기 배치 전 작업 트리 백업"
+    },
+    {
+      "phase": "5",
+      "status": "done",
+      "note": "T1 리뷰 — APPROVED(B0·C0·W1). 서비스 계층 감사 호출 13/13 ip 전달(T1 12곳+withdrawal 기존 1)·RoleService는 호출마다 새 인스턴스(내부 denial→record_denial까지 @ip 상속)·RefundService 3경로·AccountPurgeService 온전 전달·하위 호환(무인자 호출처 전수 무변경)·컨트롤러 5곳 ip: ClientIp.of(request)·액션 10줄 초과 없음·규약 §4.2 충족·테스트 5스위트 ip 값 비교+컨트롤러 CF 헤더 2건(스텁 내). W-1 member_admin_service_test에 'ip 미전달 → nil' 호환 테스트 없음 → Tester. 관찰(귀속 확인 요청): 픽스처 상대값화·C-1/X-1 수정이 T1 소유 밖 파일에 있다 → 오케스트레이터 확인: 오후·오전 배치 산출물(T1 아님). Reviewer 실행 73 runs·34 runs 0 failures"
+    },
+    {
+      "phase": "5",
+      "status": "done",
+      "note": "T2 후속(소유 밖 2줄 mark_refused 교체 — T2 Developer 재개, git 쓰기 금지 지시) 진행 중 / 리뷰 R-T2+T4·R-T3 스폰 예정 (완료)"
+    },
+    {
+      "phase": "6",
+      "status": "done",
+      "note": "T2 후속 완료 — 소유 밖 2곳(send_service_test:353·issue_service_test:254) mark_refused 1줄씩 교체(행 단위 판정만 쓰는 336·235는 유지). 두 파일 65 runs 398 assertions 0 failures·rubocop 0(Developer 보고). 지시대로 git 쓰기 없음·Edit만 사용"
+    },
+    {
+      "phase": "5",
+      "status": "done",
+      "note": "리뷰 2건 스폰 — R-T3(결제 기록 비식별 보관: 콜백 prepend 확실성·비식별성 화이트리스트·PG 번호 역조회 가능성·멱등·파기·방침 정합) / R-T2+T4(폴백 제거·헬퍼·복원 4파일 교체분·todays_sends_query_test 재작성본의 명세 대비 커버리지·가드 강화·주석 정리) (완료)"
+    },
+    {
+      "phase": "3-S",
+      "status": "done",
+      "note": "통합 완료 — 배치 편집 경로 39개 전부 단일 태스크 소유(동시 수정 0)·15:33 백업 대비 변경 = 복원 4파일·T2 후속 2파일·보고서·progress 뿐(T3 코드는 백업 시점에 완성)·개발 DB 마이그레이션 1회(withdrawn_payment_records — 스키마 버전 2026_11_26_090000)·recurring.yml 파기 잡 production·development 등록 확인·변경 Ruby 99파일 rubocop 0 offenses·zeitwerk 통과·app 전체 감사 호출 중 ip 없는 곳 0건·T3+T2후속 92 runs 635 assertions 0 failures"
+    },
+    {
+      "phase": "5",
+      "status": "done",
+      "note": "T2·T4 리뷰 — 모두 APPROVED(T2 B0·C0·W1 / T4 B0·C0·W1). T2: 폴백 제거 정합(refused_phone 단일 기준·nil 거부 행은 자기 행만 차단)·운영 nil 행 부재 전제 성립(refused_at 쓰기 경로 3곳+소급 마이그레이션 전부 두 컬럼 동시)·되돌림 없음·행 단위 가드·전파 불변·헬퍼는 on_load(:active_support_test_case) include로 전역 사용 가능·복원 4파일의 mark_refused 17곳 전수 대조 정확·센서 테스트 반전 정확·todays_sends_query_test 재작성본은 쿼리 명세와 일치(빠진 경계는 Tester 제안: promised_on −4·+1·this_week kind·링크 만료 제외·시퀀스 종결 제외). T4: text_outside_erb 견고·DATE_LITERAL_PATTERN 오탐 전수 불매치·가드 자체 단언 6건 타당·주석 축소분 포인터 정확. W-1(T2) client_test.rb에 파일 로컬 mark_refused!가 전역 헬퍼와 이중 존재 → 통일 / W-2(T4) 불가능 날짜 리터럴(2026-02-30 등)에서 Date.parse가 예외를 던져 가드가 보고 대신 크래시 → rescue 처리. 정적 리뷰"
+    },
+    {
+      "phase": "5",
+      "status": "done",
+      "note": "T3 리뷰 — APPROVED(B0·C0·W3). A 콜백 확실성 모두 PASS(prepend 선두 실행·두 삭제 경로 모두 user.destroy!·User.delete/delete_all 우회 경로 전수 없음·같은 트랜잭션·롤백 테스트 실측) / B 비식별성 PASS(컬럼 화이트리스트 실측·pg_order_id는 서버 채번 UUID라 회원 식별자 없음·문자열 값 전수 스캔·남은 역조회 경로는 PG 운영자뿐 — 방침 §3과 모순 없음·법률 자문 아님) / C 멱등·enum·파기·마이그레이션 PASS. W-1 모델·마이그레이션 주석의 'read_attribute로 정수값을 직접 복사'가 사실과 다름(Rails 8.1 EnumType#cast는 라벨 문자열을 돌려주고 insert_all이 보관 모델의 매핑으로 같은 정수로 직렬화 — 동작은 정확) → 주석 교정 / W-2 관리자 계정 삭제 경로의 보관이 테스트되지 않음 → account_purge_service_test에 단언 추가 / W-3 탈퇴 화면에 '법정 보존 사본이 남는다'는 안내가 없음(방침과 모순은 아니나 투명성 공백) → 안내 1줄 보강. Reviewer 실행 27 runs 0 failures. 4건 리뷰 모두 APPROVED(B0·C0·W6)"
+    },
+    {
+      "phase": "6",
+      "status": "done",
+      "note": "FIX3 스폰 예정(developer-lite) — T2 W-1 client_test 로컬 mark_refused! → 전역 헬퍼 통일 / T4 W-2 가드의 Date.parse rescue(불가능 날짜)+자체 테스트 / T3 W-1 주석 교정 / T3 W-2 관리자 계정 삭제 경로 보관 단언 / T3 W-3 탈퇴 화면 보존 안내 1줄+단언 / 모델 테스트 ⑥ 이름 정정 (완료)"
+    },
+    {
+      "phase": "6",
+      "status": "done",
+      "note": "FIX3 스폰(15:54 — 실측 일치): client_test 로컬 mark_refused! → 전역 헬퍼 / 가드 Date.parse 실패를 오탐 보고로+자체 테스트 / 모델·마이그레이션 enum 주석 교정 / 모델 테스트 ⑥ 이름 / account_purge_service_test 보관 단언 / profiles/edit.html.erb 보존 안내 1줄+단언. 지시서에 'git으로 워크트리 파일을 쓰지 않는다·수정은 Edit/Write만' 명시. 동시 실행: Tester(쿼리 경계 5건·감사 IP E2E — 파일 불겹침) (완료)"
+    },
+    {
+      "phase": "7",
+      "status": "done",
+      "note": "Tester 스폰(15:55 — 실측 일치) — A: todays_sends_query_test 빠진 경계(promised_on −4·+1·this_week kind·링크 만료 제외·시퀀스 종결 제외) / B: T1 W-1 member_admin nil 호환·컨트롤러 CF 헤더 E2E(admins 생성·역할·잠금 해제 / require_owner 거부 / 과다입금)·RoleService 내부 denial 경로·환불 실패 감사 ip·ip 없는 감사 호출 전수 스캔 (완료)"
+    },
+    {
+      "phase": "6",
+      "status": "done",
+      "note": "FIX3 완료(Developer 보고) — T2 W-1: client_test 로컬 mark_refused! 정의 삭제·9곳 전역 헬퍼로 교체(기본 시각 의존 3곳은 at: 명시) / T4 W-2: 가드가 Date.parse 실패(존재하지 않는 날짜)를 예외 대신 오판자로 보고+자체 테스트 1건 / T3 W-1: 모델·마이그레이션 주석을 실제 메커니즘으로 교정(코드 무변경) / 관찰 ③: 테스트 ⑥ 이름 '4년 1일 전' / T3 W-2: account_purge_service_test에 paid 주문 직접 생성 → 삭제 뒤 주문 0건·WithdrawnPaymentRecord 1건 단언 / T3 W-3: 탈퇴 안내에 '결제 기록은 관계 법령에 따라 회원과 연결되지 않는 형태로 5년간 보관됩니다 (개인정보처리방침 §3).' 1줄+컨트롤러 단언. 전용 DB 95 runs 691 assertions 0 failures·rubocop 7파일 0·git 쓰기 명령 미사용(Developer 보고 — 재확인 예정)"
+    },
+    {
+      "phase": "4",
+      "status": "done",
+      "note": "FIX3 재확인(오케스트레이터) — 15:33 백업 대비 변경이 FIX3 소유 파일+Tester 진행 파일+문서뿐·모델·마이그레이션 비주석 변경 0건·`mark_refused!` 0건·FIX3 대상 100 runs 715 assertions 0 failures·변경 Ruby 101파일 rubocop 0 offenses"
+    },
+    {
+      "phase": "2-하네스",
+      "status": "done",
+      "note": "하네스 규약 v4.2.3 동기화(사고 계기) — 병렬 fan-out 위임 제약에 '워크트리 되돌림 금지' 행 추가: 전역 규약 §6.14.5 제약 표·버전·이력 행 / 프로젝트 사본 바이트 동일 / 전역 harness 스킬 §3.5 / 프로젝트 오케스트레이터 스킬 §6.14(현행 규약 참조 v4.2.3) / AGENTS.md 변경 이력·운영 노트. AGENTS.md 규칙 색인(AUTH·ADMIN·VIEW)·예정·운영 노트 3건(결제 기록 비식별 보존 운영·서브에이전트 지시서 git 금지·백업)도 갱신"
+    },
+    {
+      "phase": "7",
+      "status": "done",
+      "note": "Tester 완료 — 신규 13건 전부 통과(196 runs 1,142 assertions 0 failures·rubocop 7파일 0·외부 API 실호출 0), 앱 코드·픽스처 무수정, 앱 결함 없음. A: todays_sends_query_test 빠진 경계 5건(promised_on 오늘−4·오늘+1 포함 경계 / this_week kind 후보 / 링크 만료 제외 / 시퀀스 종결 제외 — 후보 Relation 설계 유지). B: 감사 IP 8건(T1 W-1 member_admin ip 미지달 → nil 호환 / 컨트롤러 CF 헤더 E2E 3건 — admins 생성·역할·잠금 해제 / staff 환불 시도 → require_owner 거부 admin_console_denied / 과다입금 payment_over_recorded / RoleService 내부 denial 2건 — admin_role_denied·admin_unlock_denied·admin_create_denied / 환불 확정 실패 order_refund_failed). 전수 스캔: app 전체 AuditLogs::RecordService.call 30곳 중 ip 누락 0건. 1차 실행의 테스트 오류 2건(Promise 과거 약속일 검증·this_week 서버 산정 약속일)은 테스트 수정으로 해소"
+    },
+    {
+      "phase": "7-S",
+      "status": "done",
+      "note": "통합 게이트 시작 — bin/ci + 시스템 테스트 전체 (완료)"
+    },
+    {
+      "phase": "7-S",
+      "status": "done",
+      "note": "bin/ci 통과(CI_EXIT=0, 1분 33초) — rubocop 461파일 0 offenses·젬 취약점 0·importmap 취약점 0·Brakeman 경고 0·전체 테스트 1,927 runs 12,109 assertions 0 failures(이번 배치 전 1,885 → +42)·상수 재정의 경고 0·시드 통과. 시스템 테스트 전체 23 runs 189 assertions 0 failures(새 헬퍼 mark_refused가 시스템 테스트에서도 로드됨 — viewer_refusal·app_invoice_reminders 포함)"
+    },
+    {
+      "phase": 8,
+      "status": "done",
+      "note": "실행 검증(오케스트레이터 직접) — runner sanity(개발 DB 읽기 전용): User 파괴 콜백 순서 첫 번째가 :archive_payment_records(연관 dependent 콜백보다 앞 — prepend 확인)·withdrawn_payment_records 컬럼 화이트리스트 실측(회원 식별자·빌링키·metadata 없음)·RETENTION 5 years·파기 잡 클래스 로드·ClientIp 동작. 개발 서버(3019): / /terms /privacy /blog /session/new /admin/session/new 200, /app·/app/profile/edit·/app/invoices/new·/app/clients 비로그인 302 → 로그인, /b/가짜토큰 404, 비로그인 DELETE /app/profile 422(CSRF), CF 헤더 요청 정상, 로그 오류 0(/app/payments는 라우트가 아닌 내 오타 URL — 실제 결제 라우트는 /app/invoices/:invoice_id/payments). 체크리스트 재생성(테스트 1,927건·371항목)"
+    },
+    {
+      "phase": 9,
+      "status": "done",
+      "note": "마무리 — AGENTS.md 진행 상황·08_run_report·메모리·progress 리셋·완료 보고 (완료)"
+    },
+    {
+      "phase": 9,
+      "status": "done",
+      "note": "완료 보고·정리 — AGENTS.md(규칙 색인 3행·구현 진행 상황·결정 2건 해소 표기·예정·운영 노트 3건·하네스 변경 이력 v4.2.3)·PRD v0.52·08_run_report.md(사고 보고 포함)·런칭 체크리스트 재생성(371항목·테스트 1,927)·메모리 갱신(사고 2건 교훈·스냅샷 복구법·하네스 v4.2.3·이번 배치). 위임 실측 스폰 10회 전부 프로필 일치. 리뷰 4건 APPROVED. 최종 검증: bin/ci 1,927 runs 0 failures·시스템 23 runs 0 failures. 운영 테스트 계정 삭제는 실행하지 않음(런칭 테스트에서 사용·되돌릴 수 없음). 미커밋 — 커밋·배포는 사용자 요청 시"
+    },
+    {
+      "phase": "2-하네스",
+      "status": "done",
+      "note": "사용자 요청으로 reviewer-lite thoughtLevel을 max→high로 복귀(규약 v4.2.4) — 프로필·전역 규약·전역 스킬·프로젝트 사본·AGENTS.md 동기화. 적용 확인: 읽기 전용 reviewer-lite 스폰 2회(런타임 리로드 16:14:22 직후·약 3분 뒤) 모두 여전히 effort=max → 이미 스폰된 유형은 현재 세션에서 바뀌지 않음(새 세션 필요). 오전 기록의 '같은 세션 다음 스폰부터 적용'은 오판이었음을 확정 — 규약 4.2.2 이력 행·AGENTS.md·위임 로그·메모리를 정정 (2026-11-26T16:19:25+09:00)"
     }
   ],
-  "lastUpdated": "2026-11-26T09:18:35+09:00"
+  "lastUpdated": "2026-11-26T16:19:25+09:00"
 }

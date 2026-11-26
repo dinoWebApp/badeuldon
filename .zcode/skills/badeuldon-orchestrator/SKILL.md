@@ -9,7 +9,7 @@ description: 받을돈(BadeulDon) 개발 오케스트레이터. 신규 기능 �
 
 사용자의 개발 요청을 Phase 0~9 파이프라인으로 통제하여, PRD 비즈니스 규칙과 ARCHITECTURE_CONVENTION 아키텍처를 준수하는 코드가 구현·리뷰·테스트되도록 보장한다. 오케스트레이터는 **절대 직접 코드를 수정하지 않는다** — 구현은 Developer, 검증은 Reviewer, 테스트는 Tester 서브에이전트에게 위임한다.
 
-이 스킬은 일반(`badeuldon_orchestrator`)·절약(`badeuldon_orchestrator_lite`)·병렬 배치(`badeuldon_orchestrator_parallel`·`badeuldon_orchestrator_parallel_lite`) 명령어가 공유한다. 일반/절약 모드는 아래 Phase 규칙 전체를 동일하게 적용하며, 모드 차이는 호출하는 서브에이전트 프로필뿐이다. 병렬 배치 명령어로 진입하면 문서 말미의 **§6.14 병렬 배치 파이프라인** 절이 일반 Phase 절차에 우선 적용된다(2026-11-04 채택, 당시 규약 v4.1.1 — 현행 규약 v4.2.0).
+이 스킬은 일반(`badeuldon_orchestrator`)·절약(`badeuldon_orchestrator_lite`)·병렬 배치(`badeuldon_orchestrator_parallel`·`badeuldon_orchestrator_parallel_lite`) 명령어가 공유한다. 일반/절약 모드는 아래 Phase 규칙 전체를 동일하게 적용하며, 모드 차이는 호출하는 서브에이전트 프로필뿐이다. 병렬 배치 명령어로 진입하면 문서 말미의 **§6.14 병렬 배치 파이프라인** 절이 일반 Phase 절차에 우선 적용된다(2026-11-04 채택, 당시 규약 v4.1.1 — 현행 규약 v4.2.3).
 
 - **일반 모드 프로필**: `badeuldon-developer`, `badeuldon-reviewer`, `badeuldon-tester`
 - **절약 모드 프로필**: `badeuldon-developer-lite`, `badeuldon-reviewer-lite`, `badeuldon-tester-lite`
@@ -133,7 +133,7 @@ Phase 간 데이터는 `_workspace/` 파일로 전달: `00_delegation_log.md`(�
 2. 의존 없음 — 같은 배치 다른 태스크 산출물을 참조하지 않음(완료된 선행 산출 참조는 허용)
 3. 공유 파일 비수정 — 라우트 결선(`config/routes.rb`)·마이그레이션 체인·PRD/AGENTS·`progress.json` 직접 수정 없음
 
-**fan-out 위임 제약** (각 병렬 Developer/Tester 지시서 필수): 소유권 화이트리스트(자기 태스크 파일만) · 자체 검증은 자기 파일/경로 스코프만(전체 테스트 금지) · repo-wide 명령(전체 마이그레이션·부트) 3-S 이후 · 문서 수정 금지(Phase 2 확정분) · 스폰 직후 effort 실측 `00_delegation_log.md` 기록.
+**fan-out 위임 제약** (각 병렬 Developer/Tester 지시서 필수): 소유권 화이트리스트(자기 태스크 파일만) · 자체 검증은 자기 파일/경로 스코프만(전체 테스트 금지) · repo-wide 명령(전체 마이그레이션·부트) 3-S 이후 · 문서 수정 금지(Phase 2 확정분) · 스폰 직후 effort 실측 `00_delegation_log.md` 기록. · **워크트리 되돌림 금지** — `git show HEAD:`·`git checkout`·`git restore`·`git stash` 등 git 명령으로 워크트리 파일을 쓰거나 되돌리지 않는다(미커밋 변경이 쌓인 트리에서 이전 배치의 작업을 지울 수 있다 — 2026-11-26 사고). 원본 확인은 `git diff` 읽기만, 파일 수정은 Edit/Write 도구만.
 
 **상태·산출물**: `progress.json`은 오케스트레이터만 기입 — `pipelineType: "parallel"` + `parallelTasks: [{id, name, files, status}]`. 태스크별 산출물은 `_workspace/parallel/<task-id>/`(03_implementation·07_test_report), 배치 수준 산출물은 기존 `_workspace/`.
 

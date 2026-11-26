@@ -1,70 +1,91 @@
-# 01_plan — 수신 거부 청구의 재개 차단 + 발송 상한에 수동 발송 합산 (2026-11-25, 일반 모드·Full)
+# 01_plan — 병렬 배치(절약): 남은 후속 — 판단 위임 (2026-11-26, lite 모드·parallel)
 
-## 배경·발견 경로
+## 배경
 
-- 런칭 테스트 체크리스트(`LAUNCH_TEST_CHECKLIST.md` §8)를 만들며 코드를 읽고 찾은 2건이다. 브라우저로 확인한 것은 아니다(2026-11-25 코드 기준).
-- 사용자 지시(2026-11-25): "1번 2번은 자체적으로 판단해서 진행해주세요" — 승인 선택 질의는 사전 승인으로 갈음하고 제품 판단은 오케스트레이터가 내린다.
+사용자: "남은 후속을 알아서 판단해서 진행해주세요. 현재 운영 서버의 계정들은 100프로 테스트 계정들입니다. 관련 정보들은 다 삭제해도됩니다."
 
-## 결정
+### 사용자 발언으로 해소된 것 (문서 반영 — 코드 변경 없음)
+1. **결정 필요 ①(약관 제11조 당일 시행 vs 제14조 30일 공지) → 해소.** 운영 회원 9개가 전부 테스트 계정이므로 "개정 전 약관으로 계약한 실제 회원"이 없다 — 2026-11-26 당일 공고·시행과 부칙 문장("정식 오픈 전 공고·같은 날 시행, 이후 개정은 제14조 ②")이 그대로 유효하다. 약관 수정 없음. 런칭 테스트 문서 §1-7·체크리스트 §8-6을 "확인 완료"로 갱신한다.
+2. **운영 테스트 계정·데이터 삭제 — 지금은 실행하지 않는다.** 삭제 허용은 받았지만(되돌릴 수 없는 운영 데이터 삭제) 런칭 테스트 계획이 기존 Plus 계정을 U1-C로 쓰고 있어 지우면 테스트 준비가 깨진다. 런칭 테스트의 정리 단계(`LAUNCH_TEST_CHECKLIST.md` §6) 또는 별도 요청 때 실행하는 것이 맞다고 판단했다.
 
-| # | 문제 | 결정 | 근거 |
-|:--|:--|:--|:--|
-| 1 | 수신 거부한 거래처의 종결 청구에 「안내 다시 보내기」 버튼이 보이고, 요청도 "정기 안내를 다시 진행합니다"로 성공 안내하지만 발송은 영원히 되지 않는다(`restart_sequence!`는 `sequence_finished_at`만 지우고 `Client#refused_at`은 유지 — `reminders_dispatchable`에서 영구 제외). | 거부된 거래처의 청구는 버튼을 **노출하지 않고**, `restart_reminders` 요청은 **상태 변경 없이 사유 안내로 거부**한다. | VIEW-7(수신 거부 의사 표현 — U1이 되돌리지 않는다), 뷰 주석의 설계 의도("수신거부 → 안내만"), `ClientsController#resume_reminders` 주석("수신거부는 재개 대상이 아니다 — 채무자 의사"). 회원에게 틀린 안내를 주는 결함. |
-| 2 | 자동 시퀀스 상한이 시퀀스성 템플릿 sent만 세어, 발행 안내(issue_notice) 문구로 수동 5통을 보낸 청구에도 다음 자동 단계가 발송된다(채무자 향 총 6통). | 자동 상한 집계에 **수동 발송(origin=manual, 템플릿 무관)을 합산**해 수동+시퀀스 합계 5통에서 자동 단계를 차단한다. 자동 1회성 3종(issue_notice·partial_paid·paid_thanks)은 계속 집계 밖. | PRD PLAN-3·Q11: "수동 발송도 템플릿 무관 총량 5통 하드리밋에 포함 … 상한의 산정 대상은 시퀀스성 자동 발송 **및 수동 발송**" — 종전 구현은 이 취지에 미달했다. Q10(자동 1회성 제외)은 유지. |
+### 오케스트레이터 판단 — 이번 배치에 넣을 것 (코드)
+직전 두 배치의 완료 보고가 남긴 후속 중 **코드로 바로 되고 리스크가 관리 가능한 것** 4건.
 
-## 범위
+| ID | 태스크 | Rule ID | 규모 | 왜 하는가 |
+|:--|:--|:--|:--|:--|
+| T1 | **감사 로그 IP — 서비스 계층 12곳 보완**: 서비스가 감사를 남길 때 컨트롤러의 `ClientIp.of(request)` 값을 전달받아 기록 | ADMIN-2·Q32 | Standard | 오후 배치 T2에서 컨트롤러 계층은 통일했으나 서비스 계층(`payments/record_service`·`admins/{role,member_admin,account_purge}_service`·`orders/refund_service`)은 IP가 비어 있다 |
+| T2 | **수신 거부 레거시 nil 폴백 제거**: `refused_phone`이 없는 거부 행을 상속 원천으로 보던 방어 경로를 없애고, 테스트의 단독 마킹을 헬퍼로 통일 | VIEW-7·Q30 | Small | 운영엔 nil 행이 없고(T4 소급) 폴백은 "우회 마킹이 옛 한계를 부활시켜도 통과시키는" 기술 부채 — 리뷰가 2단계 제거를 권고 |
+| T3 | **탈퇴·계정 삭제 시 결제 기록 비식별 보관(5년)**: 회원 행이 삭제될 때 주문(결제·환불)의 **식별 불가능한 사본**을 별도 테이블에 남기고 5년 뒤 파기 | AUTH-1.5·ADMIN-3, 개인정보방침 §3 | Standard+마이그레이션 1건 | 결정 필요 ②(법정 5년 보존 vs 탈퇴 시 삭제)의 구현 — 오후 보고에서 "주문을 식별 불가능하게 바꿔 보관"을 권장했던 안. 방침 §3이 이미 "계약·결제 기록 5년 보존"을 예외로 못박고 있어 코드가 방침을 따르게 한다 |
+| T4 | **기술 부채 2건**: 픽스처 가드 강화(ERB와 같은 줄에 섞인 날짜·슬래시·점 날짜도 탐지) + 대시보드 서비스 헤더 주석 2중화 정리 | (테스트 자산) | Fast | 리뷰 O-2·메모 |
 
-### 수정 1 — VIEW-7·REM-12/13 (수신 거부 청구 재개 차단)
-
-| 파일 | 변경 |
+### 판단상 이번 배치에서 **빼는 것**
+| 후속 | 빼는 이유 |
 |:--|:--|
-| `app/views/app/invoices/show.html.erb` | 버튼 분기 `elsif @invoice.sequence_finished?`에 `&& !@invoice.client.refused?`를 추가해 버튼·보조 문구를 숨긴다. 상태 배너는 이미 거부 안내가 우선이라 바꾸지 않는다. 주석(199~201행)의 설계 의도를 실제와 맞게 정정한다. |
-| `app/controllers/app/invoices_controller.rb` | `restart_reminders` 첫 줄에 거래처 수신 거부 가드 — 상태 변경 없이 같은 화면으로 303 + `flash[:alert]`("이 거래처가 추가 안내 수신을 거부하여 자동 안내를 다시 진행할 수 없습니다."). |
+| 시작 09시 좁은 창 회원의 **전날 사전통보** | 알림톡 템플릿 문구("오늘 … 발송 예정")가 내일 발송과 맞지 않아 **새 템플릿 등록·솔라피 검수**(외부 서비스·검수 주기)가 필요한 제품 변경 — 자동 배치로 진행할 성격이 아님. 현행은 대시보드 카드가 취소 창을 제공(PRD REM-11 기록) |
+| 대시보드 후보별 쿼리 수 최적화 | 후보가 날짜 범위로 좁혀져 실영향이 작고, 발송 심장부(`DispatchService`)에 배치 조회 경로를 추가하는 리스크가 큼 |
+| 티켓(분쟁 처리) 기록 3년 보관 | 티켓 본문은 개인정보를 품어 비식별화 기준 설계가 필요(법무) — T3는 구조화된 결제 기록으로 한정 |
+| 운영 테스트 계정 삭제 | 위 2번 |
 
-유지되는 것: 청구 건 단위 보류 재개(`resume_reminders`), 거래처 보류 재개, 수신 거부하지 않은 종결 청구의 재개(기존 2개 테스트), 수동 발송(`remind`는 `reminders_active?`일 때만 노출 + `SendService` REFUSED 가드).
+## 병렬 안전 판정 (§6.14 3조건)
 
-### 수정 2 — PLAN-3·Q10/Q11·REM-8 (상한 집계 합산)
+| 조건 | 판정 | 근거 |
+|:--|:--|:--|
+| 1. 파일 소유권 분리 | **충족** | 아래 표. 단 **T1·T3이 모두 계정 삭제 경로와 관련**하나 — T1은 서비스 인자(`ip:`)만, T3은 `User` 모델 콜백만 건드려 파일이 겹치지 않는다(`account_purge_service.rb`는 T1 소유, T3은 무수정) |
+| 2. 의존 없음 | **충족** | 서로의 산출물을 참조하지 않음 |
+| 3. 공유 파일 비수정 | **충족** | 마이그레이션·`config/recurring.yml`은 T3 단독. routes·PRD·AGENTS·progress.json은 태스크가 직접 수정하지 않음 |
 
-| 파일 | 변경 |
-|:--|:--|
-| `app/models/message_log.rb` | 상한 집계 범위를 "채무자 향 sent 중 (시퀀스성 템플릿 **또는** origin=manual)"로 바꾼다. 호출처는 `SendService#cap_reached?`와 테스트뿐이라 범위·메서드 이름을 의미에 맞게 바꾼다(`counted_for_cap` 스코프 + `MessageLog.cap_sent_count`). |
-| `app/services/reminders/send_service.rb` | `cap_reached?`가 새 집계를 쓴다. `manual_cap_reached?`(수동 가드 — 채무자 향 sent 전체 5통)는 바꾸지 않는다. 주석 보강. |
+## 파일 소유권 표
 
-집계 정의: `recipient_role = debtor AND status = sent AND (template_key IN SEQUENCE_TEMPLATE_KEYS OR origin = manual)`.
+| 태스크 | 앱 코드 | 테스트 |
+|:--|:--|:--|
+| T1 | `app/services/payments/record_service.rb` · `app/services/admins/role_service.rb` · `app/services/admins/member_admin_service.rb` · `app/services/admins/account_purge_service.rb` · `app/services/orders/refund_service.rb` · 호출처: `app/controllers/app/payments_controller.rb` · `app/controllers/admin/base_controller.rb` · `app/controllers/admin/admins_controller.rb` · `app/controllers/admin/members_controller.rb` · `app/controllers/admin/orders_controller.rb` | `test/services/payments/` · `test/services/admins/` · `test/services/orders/` · `test/controllers/admin/{admins,members,orders}_controller_test.rb` · `test/controllers/app/payments_*_test.rb` |
+| T2 | `app/models/client.rb` | 신설 `test/test_helpers/refusal_test_helper.rb` + `test/test_helper.rb`(require 1줄) · 단독 마킹을 쓰는 테스트(아래 목록) · `test/models/client_test.rb`(센서 테스트 반전) |
+| T3 | `db/migrate/`(신설 1건) · `db/schema.rb` · `app/models/withdrawn_payment_record.rb`(신설) · `app/models/user.rb`(콜백 1개) · `app/jobs/withdrawn_payment_records/purge_job.rb`(신설) · `config/recurring.yml` | 신설 `test/models/withdrawn_payment_record_test.rb` · `test/jobs/withdrawn_payment_records/` · `test/services/users/withdrawal_service_test.rb` |
+| T4 | `app/services/dashboards/reminder_actions_service.rb`(**주석만**) | `test/fixtures_no_future_date_test.rb` |
 
-### 마이그레이션·라우트
+금지(전 태스크 공통): `config/routes.rb` · `db/`(T3 외) · `PRD.md`·`AGENTS.md`·런칭 테스트 문서 · `config/locales/*` · `test/fixtures/*` · `config/recurring.yml`(T3 외) · 다른 태스크의 소유 파일.
 
-없음.
+## 확정 규칙 (Phase 2에서 PRD에 기록)
 
-## 에러 조건·경계 (테스트 시나리오)
+### T1 서비스 계층 감사 IP
+- 서비스 진입점에 선택 인자 `ip: nil`을 추가하고 서비스 안의 `AuditLogs::RecordService.call`에 `ip:`를 넘긴다. 컨트롤러 호출처는 `ip: ClientIp.of(request)`를 넘긴다.
+  - `Payments::RecordService.new(invoice:, amount:, paid_on:, notify_thanks: true, ip: nil)` — 입금 기록은 회원 행위(감사 액션은 기존 그대로).
+  - `Admins::RoleService.create_admin!`·`change_role!`·`unlock!`·`record_denied!`에 `ip:`.
+  - `Admins::MemberAdminService.toggle_suspension!`·`change_plan!`에 `ip:`.
+  - `Admins::AccountPurgeService.call(admin:, user:, confirm_email:, ip: nil)`.
+  - `Orders::RefundService.new(admin:, order:, reason:, client:, ip: nil)` — 감사 3종(attempt·failed·refund)에 기록.
+- 인자를 주지 않는 호출(runner·기존 테스트)은 기존대로 nil — 기존 테스트가 깨지지 않아야 한다. 액션 본문 10줄 이내 유지.
 
-1. 수신 거부 거래처의 종결 청구: 상세 화면에 「안내 다시 보내기」가 없고 거부 안내 배너는 있다.
-2. 같은 청구에 `POST restart_reminders`: 303 + alert, `sequence_finished_at` 유지.
-3. 수신 거부하지 않은 종결 청구: 버튼 노출·재개 성공은 기존대로(회귀).
-4. 수동 발행 안내(issue_notice) 5통을 보낸 청구: 다음 자동 시퀀스 단계는 `CAP_REACHED` skip, API 호출 0.
-5. 수동 4통 + 자동 시퀀스 1통 = 5통: 그다음 자동 단계 `CAP_REACHED`.
-6. 자동 1회성(partial_paid·paid_thanks·자동 issue_notice)은 상한 도달에도 발송되고 집계되지 않는다(Q10 유지).
-7. 수동 가드는 기존대로: 채무자 향 sent 전체 5통에서 6번째 수동 발송 차단.
-8. 수동으로 보낸 시퀀스성 템플릿(confirm_d1 등)은 종전과 같이 집계된다(회귀).
+### T2 수신 거부 폴백 제거
+- `Client#inherit_refusal_from_same_phone`의 2순위 폴백(`.or(siblings.where(refused_phone: nil).same_phone_digits(phone_digits))`)을 **삭제** — 상속 원천은 `refused_phone == phone_digits`만. `refused_phone`이 없는 거부 행은 자기 자신만 거부(발송 차단은 유지)이고 상속을 퍼뜨리지 않는다(덜 차단하는 안전한 방향).
+- 테스트 공용 헬퍼 `mark_refused(client, at: Time.current)`(`update_columns(refused_at:, refused_phone: client.phone_digits)`)를 신설하고 `test/test_helper.rb`에서 require. `update_column(:refused_at, …)` 단독 마킹을 쓰는 테스트를 전부 헬퍼로 교체(상속을 기대하는 시나리오가 정상 작동하도록). 파일: `test/queries/dashboards/todays_sends_query_test.rb` · `test/models/client_test.rb` · `test/models/invoice_test.rb` · `test/system/viewer_refusal_test.rb` · `test/system/app_invoice_reminders_test.rb` · `test/controllers/viewer_refusal_test.rb` · `test/controllers/app/invoices_controller_test.rb` · `test/controllers/app/clients_controller_test.rb` · `test/controllers/app/invoices_reminders_test.rb` (grep으로 전수 확인).
+- "폴백 센서" 테스트(`client_test.rb`)는 뜻을 반전해 **"refused_phone 없는 단독 마킹 행은 상속 원천이 아니다"**를 고정.
 
-## 문서
+### T3 결제 기록 비식별 보관
+- 트리거: `User`의 `before_destroy`(**`prepend: true`** — `has_many :orders, dependent: :destroy`보다 먼저 실행돼야 주문이 지워지기 전에 사본을 남긴다). 회원 탈퇴(`Users::WithdrawalService`)·관리자 계정 삭제(`Admins::AccountPurgeService`)가 모두 `user.destroy!`를 쓰므로 **두 경로가 한 콜백으로 보장**된다. 같은 트랜잭션 안.
+- 테이블 `withdrawn_payment_records`(식별 정보 없음): `product`(int) · `item_type`(int) · `amount`(int) · `status`(int) · `pg_order_id`(string, 유니크 — 멱등) · `pg_payment_id`(string) · `order_created_at` · `paid_at` · `refunded_at` · `withdrawn_at`(not null) · timestamps. **넣지 않는 것**: `user_id`·이메일·이름·전화번호·`pg_billing_key`·`metadata`(구매자 정보 포함 가능)·`refund_reason`(자유 텍스트).
+- 모델 `WithdrawnPaymentRecord`: `self.archive!(user)` — `user.orders` 각 행을 위 컬럼으로 복사(`insert_all`·`pg_order_id` 유니크로 멱등 — `on_duplicate_skip`는 SQLite에서 미지원이면 `insert_all(..., record_timestamps: true)` 후 `ActiveRecord::RecordNotUnique` 구조가 아니면 find_or_create_by — 안전한 방식을 Developer가 테스트로 확인), `scope :expired`(withdrawn_at < 5년 전). 관리 화면은 만들지 않는다(콘솔·runner로 조회 — 문서에 조회 예시 기록).
+- 파기: `WithdrawnPaymentRecords::PurgeJob`(만료 행 삭제·건수만 로그) + `config/recurring.yml` 매일 04:35 KST(production·development).
+- 보존 기간은 **탈퇴 시점부터 5년**(법정 기간의 가장 보수적인 기준). 마이그레이션은 이 배치의 유일한 것.
 
-- Phase 2(오케스트레이터): PRD v0.49 — PLAN-3 문단 보완, VIEW-7 구현 확정, 결정 기록 Q28.
-- 완료 뒤: `LAUNCH_TEST_SCENARIOS.md`(G-07-3·G-05-4 기대값을 수정 후 동작으로), `LAUNCH_TEST_CHECKLIST.md` 재생성(§8 1·2 해소), AGENTS.md 구현 진행 상황.
+### T4 기술 부채
+- `test/fixtures_no_future_date_test.rb`: ERB 태그가 섞인 줄은 **줄 전체를 건너뛰지 말고 ERB 태그 부분만 제거한 뒤 검사**, 날짜 구분자 `-`·`/`·`.` 모두 탐지. 현재 픽스처가 모두 통과해야 함.
+- `app/services/dashboards/reminder_actions_service.rb` 헤더의 ①② 규칙 설명(11~22행)을 `Reminders::SendSchedule`로 안내하는 짧은 포인터로 축소(코드 변경 없음).
+
+## 동시성·검증 설계
+- 동시성 상한 3: 웨이브 1 = T1·T2·T3, T4는 먼저 끝난 슬롯에 스폰.
+- 태스크별 전용 테스트 DB `tmp/parallel/<task-id>/test.sqlite3`. T3의 마이그레이션은 전용 개발 DB에만 적용해 `db/schema.rb` 갱신, 통합 단계에서 개발 DB에 1회 적용.
+- 리뷰어는 reviewer-lite(GLM-5.3-Flash/max — 오후 실측), 테스터는 tester-lite.
 
 ## 리스크
 
-- 같은 작업 트리에 포트원 런의 미커밋 변경(60파일)이 있다. 서브에이전트 지시서에 "범위 밖 파일 불가령·git 상태 변경 금지"를 명시한다.
-- 상한 합산으로 수동 발송을 많이 쓴 청구는 다음 자동 단계가 막힐 수 있다 — 의도된 동작이며 운영 데이터는 사실상 테스트 계정뿐이다.
-- 서브에이전트 테스트는 솔라피·포트원·메일 실호출 금지(기존 stub 헬퍼만 사용, 임시 재현 테스트 금지).
+| 리스크 | 대응 |
+|:--|:--|
+| T3 콜백 순서 — `prepend: true`를 빠뜨리면 주문이 먼저 삭제돼 사본이 0건 | 지시서에 명시, 모델 테스트로 "탈퇴 후 보관 행 수 == 탈퇴 전 주문 수" 단언, 리뷰 집중 |
+| T3가 개인정보를 보관 테이블에 복사하는 것 | 컬럼 화이트리스트를 지시서에 명시, 테스트로 `user_id`·이메일·빌링키·metadata가 보관 행에 없음을 단언 |
+| T2 폴백 제거로 단독 마킹 테스트가 깨짐 | 헬퍼 일괄 교체 + 전체 대상 파일 실행, 깨진 것은 헬퍼로 해결(앱 로직 추가 금지) |
+| T1 서비스 시그니처 변경의 파급 | `ip:`는 선택 인자(기본 nil) — 인자 없는 기존 호출·테스트는 무변경 통과 |
+| 법적 해석(T3 보관 기준·식별 불가능성) | 오케스트레이터·리뷰어 판단은 코드·방침 정합 기준 — 법무 확인 권장을 보고에 명시 |
 
-## 위임 계획
-
-| Phase | 프로필 | 산출물 |
-|:--|:--|:--|
-| 3 | `badeuldon-developer` | 소스 + 기존 테스트 갱신 + `_workspace/03_implementation.md` |
-| 4 | 오케스트레이터 | rubocop·zeitwerk |
-| 5 | `badeuldon-reviewer` | `_workspace/05_review.md` |
-| 6 | `badeuldon-developer`(필요 시) | 리뷰 이슈 최소 수정 |
-| 7 | `badeuldon-tester` | 테스트 + `_workspace/07_test_report.md` |
-| 8~9 | 오케스트레이터 | `_workspace/08_run_report.md`·보고 |
+## 파이프라인
+0 → 1-P → ✅승인(multiSelect) → 2(PRD v0.52 직렬) → 3-P(웨이브 1: T1·T2·T3 → T4) → 3-S(소유권·마이그레이션 1회·rubocop·zeitwerk) → 5 리뷰(4건 병렬) → 6? → 7 테스터 보강 → 7-S(`bin/ci`·시스템) → 8 실행 검증 → 9 문서·보고(약관 시행일 결정 해소 반영 포함).

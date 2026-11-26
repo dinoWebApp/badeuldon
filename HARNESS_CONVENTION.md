@@ -1,8 +1,11 @@
 # Harness Convention — ZCode Desktop 범용 개발 자동화 하네스 구성 규약
 
-**버전**: 4.2.1
-**최종 수정일**: 2026-11-23
+**버전**: 4.2.4
+**최종 수정일**: 2026-11-26
 
+> v4.2.4: 절약 모드 `{project}-reviewer-lite`의 추론 수준을 `max` → `high`로 복귀(§9.2 6단계 표) — 사용자 요청. v4.2.2의 상향을 되돌린다.
+> v4.2.3: 병렬 fan-out 위임 제약에 **워크트리 되돌림 금지**(§6.14.5) 추가 — git 명령으로 워크트리 파일을 쓰거나 되돌리지 않는다(2026-11-26 사고 계기).
+> v4.2.2: 절약 모드 `{project}-reviewer-lite`의 추론 수준을 `high` → `max`로 상향(§9.2 6단계 표) — GLM-5.3-Flash의 `reasoningLevels`에 max가 존재함을 ListModels로 확인했다. 일반 Reviewer(GLM-5.4/high)와 나머지 프로필은 기존 그대로다.
 > v4.2.1: 일반 모드 Reviewer 모델을 GLM-5.3 → GLM-5.4로 상향(§1.4·§9.2 6단계) — 메인·Developer·Tester와 절약 모드 프로필은 기존 그대로다.
 
 ---
@@ -428,7 +431,7 @@ injectAgentsMd: true
 - Reviewer 프로필은 가능한 한 읽기 전용 도구만 부여한다. ZCode에서 도구 제한을 설정한 경우 허용 목록에 없는 도구는 호출할 수 없다.
 - ZCode 서브에이전트 frontmatter에는 OMP의 `autoloadSkills`와 동등한 범용 스킬 자동 할당 필드가 없다. 필수 규칙은 루트 `AGENTS.md`/PRD와 각 에이전트의 시스템 프롬프트에 포함하고, 오케스트레이터 명령어가 공통 오케스트레이터 스킬을 로드하도록 한다.
 - `model`은 `providerId/modelId` 슬래시 형식(예: `"account:zai-individual-coding-plan/GLM-5.3-Flash"`)으로 쓴다 — bare 이름은 `model`·`thoughtLevel`이 조용히 탈락한다(§1.4 제약 3).
-- 파일에서 모델 ID를 변경한 뒤에는 새 ZCode 세션에서 적용 여부를 검증한다(§9.2 7단계 실측 명령).
+- 파일에서 모델 ID나 `thoughtLevel`을 변경한 뒤에는 새 ZCode 세션에서 적용 여부를 검증한다(§9.2 7단계 실측 명령). 런타임은 `.zcode/agents/` 변경을 감지해 리로드하지만, **이미 그 세션에서 스폰된 적 있는 유형은 옛 값으로 계속 스폰된다**(2026-11-26 실측 — 스폰된 적 없는 유형은 첫 스폰 때 읽히므로 '바로 적용된 것처럼' 보일 수 있다).
 
 ### 4.3 Developer 에이전트 (구현)
 
@@ -1191,6 +1194,7 @@ Phase 8 → 9: 실행 검증·완료 보고 — 직렬
 | **자체 검증 스코프 제한** | 린터·타입 검사는 자기 파일 단위로만 실행. 전체 pytest·전체 mypy 금지 — 형제 태스크의 진행 중 코드로 인한 오탐 방지 |
 | **repo-wide 명령 금지** | `alembic revision --autogenerate`, 전체 테스트, 애플리케이션 기동은 통합(3-S) 완료 후에만 |
 | **문서 수정 금지** | PRD/AGENTS는 Phase 2에서 이미 확정 — Developer는 코드만 |
+| **워크트리 되돌림 금지** | `git show HEAD:`·`git checkout`·`git restore`·`git stash` 등 git 명령으로 워크트리 파일을 쓰거나 되돌리지 않는다 — 미커밋 변경이 쌓인 트리에서 이전 배치의 작업을 지울 수 있다(2026-11-26 사고: 병렬 Developer가 `git show HEAD:`로 테스트 5파일을 덮어씀). 원본 확인은 `git diff` 읽기만, 파일 수정은 Edit/Write 도구만(ZCode 파일 변경 스냅샷도 그 변경만 기록한다). 미커밋 배치가 있으면 fan-out 전에 작업 트리 백업을 권장 |
 | **위임 실측** | 스폰 직후 effort 실측 → `_workspace/00_delegation_log.md` 기록 (§4.6과 동일, 병렬 스폰 전체 대상) |
 
 #### 6.14.6 통합 단계 (Phase 3-S)
@@ -1634,7 +1638,7 @@ skills: "{project}-orchestrator"
 ---
 name: "{project}-reviewer"
 description: "{프로젝트} 코드 리뷰 전문가. 비즈니스 규칙, 보안, 권한, 데이터 무결성을 검증한다."
-model: "account:zai-individual-coding-plan/GLM-5.3"
+model: "account:zai-individual-coding-plan/GLM-5.4"
 thoughtLevel: high
 color: blue
 injectAgentsMd: true
@@ -1687,3 +1691,6 @@ HARNESS_CONVENTION §6.14 병렬 배치 파이프라인 규칙을 따른다.
 > | 2026-11-02 | 4.1.1 | **프로젝트 문서의 병렬 후보 힌트 관행 신설(§6.14.11)** — §6.14 채택 프로젝트는 AGENTS.md 로드맵에 후보 조합 블록·PRD에 병렬 분해 후보 기록 규칙 노트를 두고, 각 청크 Phase 2 확정 시 해당 절에 태스크·예상 소유 파일을 기록한다. 힌트는 요청 구성용이며 Phase 1-P 판정이 항상 우선(충돌 시 힌트 갱신). §2.2 AGENTS.md 필수 섹션 로드맵 항목에 언급 추가. 메타 스킬($harness)의 생성(§3.1·§3.2·§3.3·§3.5)·감사(§2) 지침 동기화 |
 > | 2026-11-11 | 4.2.0 | **승인 게이트 선택 질의 전환(§6.13)** — 플랜 보고 후 `AskUserQuestion` 도구로 표준 선택지(승인 — 계속 진행 / 수정 요청 / 중단)를 띄워 승인을 받고, 자유 텍스트 승인은 폴백으로 유지. §6.14 병렬 태스크 선택·확정은 `AskUserQuestion` `multiSelect` 질의로 명시(파이프라인 다이어그램·위험 표·부록 C.4 동기화). 이 행은 4.2.1 작성 시 누락을 발견해 소급 기록했다 |
 > | 2026-11-23 | 4.2.1 | **일반 모드 Reviewer 모델 GLM-5.3 → GLM-5.4 상향(§1.4 모델 프로필 표·§9.2 6단계 프로필 표)** — 메인·Developer·Tester와 절약 모드 프로필은 기존 유지(`GLM-5.4-Flash`는 없음). 사전 조건·최초 구성 요청 템플릿의 모델 표시명에 GLM-5.4 추가, GLM-5.4의 추론 수준(`low`·`high`·`max`) 명시, 요금제에 따라 GLM-5.4가 없을 때의 예외 처리 지침 신설. 메타 스킬($harness) §3.3·§3.4 표 동기화 |
+> | 2026-11-26 | 4.2.2 | **절약 Reviewer 추론 수준 상향(§9.2 6단계 프로필 표)** — `{project}-reviewer-lite`의 `thoughtLevel`을 high → max로. GLM-5.3-Flash의 reasoningLevels가 `low`·`high`·`max`임을 ListModels로 확인(같은 세션에서 변경 뒤 처음 스폰된 reviewer-lite 4회가 전부 `effort=max`였다 — 단 이 유형은 변경 전에 그 세션에서 스폰된 적이 없었다. **이 문장의 '새 세션 없이 적용' 해석은 4.2.4에서 뒤집혔다**: 이미 스폰된 유형은 파일을 되돌리고 런타임이 리로드한 뒤에도 옛 값으로 계속 스폰된다). 일반 Reviewer(GLM-5.4/high)·메인·Developer·Tester·절약 developer/tester는 기존 유지. 부록 C.3 일반 Reviewer 예시의 잔존 GLM-5.3을 GLM-5.4로 정정(v4.2.1 누락분). 메타 스킬($harness) §3.4 표 동기화 |
+> | 2026-11-26 | 4.2.3 | **병렬 fan-out 위임 제약 보강(§6.14.5) — 워크트리 되돌림 금지** 행 추가: `git show HEAD:`·`checkout`·`restore`·`stash`로 워크트리 파일을 쓰거나 되돌리지 않는다(미커밋 변경이 쌓인 트리에서 이전 배치 작업 소실 — 2026-11-26 사고: Developer가 원본 확인용으로 덮어써 테스트 5파일 손상, ZCode 파일 변경 스냅샷으로 복구). 파일 수정은 Edit/Write 도구만, 미커밋 배치가 있으면 fan-out 전 작업 트리 백업 권장. 메타 스킬($harness) §3.5·프로젝트 오케스트레이터 스킬 §6.14 동기화 |
+> | 2026-11-26 | 4.2.4 | **절약 Reviewer 추론 수준 복귀(§9.2 6단계 프로필 표)** — `{project}-reviewer-lite`의 `thoughtLevel`을 max → high로(사용자 요청). v4.2.2의 상향을 되돌린다. 일반 Reviewer(GLM-5.4/high)·나머지 프로필은 기존 그대로. 메타 스킬($harness) §3.4 표 동기화. **실측**: 복귀 뒤 같은 세션에서 2회 스폰(런타임 로그 `Subagent 配置文件更新完成` 16:14:22 직후와 약 3분 뒤) 모두 여전히 `effort=max` — **이미 스폰된 적 있는 에이전트 유형의 `thoughtLevel`은 현재 세션에서 바뀌지 않는다. 새 세션(⌘N)에서 첫 스폰으로 확인한다** |

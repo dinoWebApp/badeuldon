@@ -1,151 +1,139 @@
-# 07_test_report — 포트원 채널 키 환경 분리 + 결제 확정 검증 (PLAN-5·Tester 단계, 2026-11-25)
+## B분 — T2·T1·T3
 
-## 요약
+2026-11-26 · Tester(절약 모드) · 격리 DB `DATABASE_URL=sqlite3:tmp/parallel/TSTB/test.sqlite3` · 시스템 테스트·전체 스위트 미실행(오케스트레이터 게이트 대상)
 
-| 항목 | 값 |
-|:---|:---|
-| 신규·보강 테스트 | **66건 추가**(단위·통합 65 + 시스템 1) — 기존 0건 수정, 기존 단언 보존 |
-| 비시스템 전체 | `bin/rails test` — **1,656 runs · 10,504 assertions · 0 failures · 0 errors · 0 skips**(기준선 1,590/10,003 대비 +66 runs · +501 assertions) |
-| 시스템 전체 | `bin/rails test:system` — **15 runs · 135 assertions · 0 failures**(기준선 14/131 대비 +1) |
-| RuboCop | `bin/rubocop test/` — 201 files inspected, **no offenses** |
-| Zeitwerk | `zeitwerk:check` — all is good |
-| 포트원 실호출 | **0건** — 전 경로 대역(`FakePortOneClient` 주입/생성자 교체, `with_http_transport` 전송 대역, 가드 경로는 API 호출 전 예외 + TEST_GUARD 방어선) |
-| app 버그(BUG-n) | **없음** — 전 시나리오가 구현대로 동작했다. 테스트 자체 오류 2건(transport stub을 끼워 가드를 우회한 케이스·nil metadata 접근)은 스스로 수정 |
-| credentials 의존 | 없음 — 선택기·검증기·가드·화면 모두 `credentials:`·`live:` 인자 또는 `with_portone_channel_keys` 일시 교체로 고정(로컬=마스터 키 有, CI=無 동일 결과). `config.x.portone_live_channel`은 교체 후 `ensure`에서 원복 |
+### 실행 명령·결과
 
-## 그룹별 시나리오 표
+```
+DATABASE_URL=sqlite3:tmp/parallel/TSTB/test.sqlite3 bin/rails test \
+  test/controllers/concerns/client_ip_test.rb \
+  test/controllers/registrations_ip_rate_limit_test.rb \
+  test/controllers/admin/sessions_controller_test.rb \
+  test/controllers/viewer_controller_test.rb \
+  test/jobs/phone_verifications/purge_job_test.rb \
+  test/jobs/phone_verifications/recurring_registration_test.rb \
+  test/controllers/admin/tickets_controller_test.rb \
+  test/controllers/app/subscriptions_coupon_test.rb
+  → 74 runs, 514 assertions, 0 failures, 0 errors, 0 skips
 
-### A. 채널 키 선택기 `PortOne::ChannelKey` — 신설 `test/services/port_one/channel_key_test.rb`(10건)
+DATABASE_URL=sqlite3:tmp/parallel/TSTB/test.sqlite3 bin/rails test \
+  test/controllers/viewer_controller_test.rb test/controllers/viewer_refusal_test.rb \
+  test/controllers/viewer_promises_test.rb test/controllers/viewer_promises_rate_limit_test.rb \
+  test/controllers/app/invoices_controller_test.rb test/models/invoice_test.rb \
+  test/fixtures_no_future_date_test.rb
+  → 145 runs, 935 assertions, 0 failures, 0 errors, 0 skips (T3 회귀)
 
-| 구분 | 시나리오 | 테스트 | 결과 |
-|:---|:---|:---|:---|
-| 정상 | `live: true` → 기본 키(billing·normal) | 운영 기대(live: true)… | 통과 |
-| 정상 | `live: false` → `_test` 키(billing·normal) | 비운영 기대(live: false)… | 통과 |
-| 경계 | kind 문자열("billing"/"normal") | kind는 문자열도 심볼과 동일… | 통과 |
-| 예외 | 비운영인데 테스트 키 없음 + 라이브 키 有 → **nil(라이브 대체 금지)** | 비운영에서 테스트 키가 없으면… | 통과 |
-| 예외 | 운영인데 라이브 키 없음 → nil | 운영 기대인데 라이브 키가 없으면… | 통과 |
-| 예외 | `portone` 블록 없음(CI) → nil | credentials에 portone 블록이 없어도… | 통과 |
-| 예외 | kind `:foo`/nil/""/"billing_test"/정수 → ArgumentError(메시지에 billing/normal) | 허용 kind는 billing·normal뿐… | 통과 |
-| 경계 | test 환경 `live_channel?` = false(플래그 미정의) | live_channel?는 test 환경(플래그 미정의)… | 통과 |
-| 경계 | 플래그 행렬 true→live, "true"·nil·1·false→테스트 채널(**`== true` 비교 유지** — Rails 8.1 config.x 미정의 키는 truthy OrderedOptions) | live_channel?는 true만 라이브로 판정… | 통과(ensure 원복) |
-| 정상 | `.billing`/`.normal`이 `fetch` 기본 인자를 탄다(kind만 전달·kwargs {} — 실제 credentials 비의존) | .billing과 .normal은 fetch를 kind만 넘겨… | 통과 |
+DATABASE_URL=sqlite3:tmp/parallel/TSTB/test.sqlite3 bin/rails test \
+  test/controllers/registrations_controller_test.rb
+  → 14 runs, 87 assertions, 0 failures (가입 플로우 AUTH-9 회귀 — 파기 잡 무영향)
 
-### B. 클라이언트 가드·본문 — `test/services/port_one/client_service_test.rb`(보강 2건)
+bin/rubocop (수정·신규 5파일) → no offenses
+```
 
-| 구분 | 시나리오 | 결과 |
-|:---|:---|:---|
-| 예외 | `issue_billing_key`에 channel_key nil/""/"   " → `MissingChannelKey`(ArgumentError 아님·`refute_kind_of`)+ HTTP 요청 0건 | 통과 |
-| 예외 | `charge_billing_key` 동일 → `MissingChannelKey` + HTTP 요청 0건 | 통과 |
-| 정상 | `confirm_payment` 본문 `totalAmount`·`isTest`·`currency` 전달 — **기존 테스트가 정확한 본문 등식으로 이미 고정**(`{storeId, paymentToken, totalAmount, isTest, currency}`) — 추가 보강 불요 | 통과(기존) |
+### 신규·수정 테스트 목록
 
-### C. 갱신·재시도 잡 — 신설 `test/jobs/subscription_renewal_job_test.rb`(3건) + `dunning_retry_test.rb`(보강 2건)
+| 파일:테스트 | Rule ID |
+|:--|:--|
+| `test/controllers/registrations_ip_rate_limit_test.rb` — "인증번호 발송 IP 한도는 CF-Connecting-IP별로 버킷이 분리된다"(20회 초과 429 → 다른 헤더 IP는 별도 버킷 통과) | AUTH-9·Q32 |
+| `test/controllers/registrations_ip_rate_limit_test.rb` — "헤더 없는 요청은 remote_ip 버킷에 묶여 같은 한도가 적용된다" | AUTH-9·Q32 |
+| `test/controllers/admin/sessions_controller_test.rb` — "CF-Connecting-IP 헤더의 새 IP는 new_ip_login 감사·new_login 메일(헤더 IP 인자)을 유발하고 재로그인은 무통보다" | AUTH-7.4·Q32 |
+| `test/controllers/viewer_controller_test.rb` — "단일 IPv6 CF-Connecting-IP는 원문 그대로 기록된다" | SHARE-3·Q32 |
+| `test/controllers/viewer_controller_test.rb` — "쉼표 목록 CF-Connecting-IP는 채택되지 않고 remote_ip로 수렴한다" | SHARE-3·Q32 |
+| `test/controllers/viewer_controller_test.rb` — "콜론만 있는 값·옥텟 이탈 값 CF-Connecting-IP도 remote_ip로 수렴한다" | SHARE-3·Q32 |
+| `test/jobs/phone_verifications/purge_job_test.rb` — "perform 뒤에도 방금 생성·consumed 행이 남아 가입 이중 검증(consumed_recently)이 통과한다" | AUTH-9 |
+| `test/jobs/phone_verifications/recurring_registration_test.rb` — "recurring.yml에 파기 잡이 production·development 양쪽에 04:30 KST로 등록돼 있다"(신설 파일 — reminder_actions 선례 대조 방식) | AUTH-9 |
 
-| 구분 | 시나리오 | 테스트 | 결과 |
-|:---|:---|:---|:---|
-| 예외 | 키 없음: 차감 대상(active·빌링키)은 가드로 건너뛰고 **선기록 pending 주문은 롤백으로 미잔존**(dunning 0·next_retry_at nil·상태 active 유지), **해지 후 주기 종료 구독은 만료 강등이 정상 처리**(클라이언트 무호출 경로) | 채널 키가 없어도 차감 대상만 건너뛰고… | 통과 |
-| 정상 | 건너뛰기 시 `Rails.logger.error("[SubscriptionRenewalJob] user=…")` 기록(`broadcast_to` 캡처) | 채널 키 미등록으로 건너뛴 구독은 오류 로그… | 통과 |
-| 예외 | 전용 예외 아님: `ArgumentError`(대역 주입)는 잡이 삼키지 않고 실패 — 롤백으로 오염 없음 | 전용 예외가 아닌 코드 오류는 잡이 삼키지… | 통과 |
-| 예외 | `DunningRetryJob`: 키 없음 → `dunning_stage`·`next_retry_at`·주문 수 **무변경**(설정 오류 ≠ 카드 거절), 잡 실패 없음 | 채널 키 미등록 재차감은 dunning 단계… | 통과 |
-| 예외 | `DunningRetryJob`: `ArgumentError`는 잡 밖으로 — 범용 rescue 금지 | 전용 예외가 아닌 코드 오류는 재시도 잡도… | 통과 |
+### FIX1 추가분 확인 (있으면 확인만 — 통과)
 
-### D. `PortOne::PaymentVerifier` 행렬 — `test/services/port_one/payment_verifier_test.rb`(신설 파일, 보강 15건)
+- `test/controllers/admin/tickets_controller_test.rb` CF 헤더(203.0.113.51) → `ticket_close` 감사 ip 단언 — 통과
+- `test/controllers/app/subscriptions_coupon_test.rb` CF 헤더(203.0.113.42) → `coupon_redeemed` 감사 ip 단언(with_portone_client 스텁) — 통과
 
-| 구분 | 시나리오 | 결과 |
-|:---|:---|:---|
-| 정상 | 기본(TEST·4,000원·KRW) 통과 + payment 그대로 반환 / Float 4,000.0 통과 / `live: true`+LIVE·`live: false`+TEST 각각 통과 | 통과 |
-| 예외(금액) | 100·5,000 → `amount_mismatch` / paid nil·amount 키 누락 → 실패 / `"4000"`(문자열) → 실패 / amount가 String·Array·Integer → 실패(TypeError 아님) / payment nil·"PAID"·Array → 실패 | 통과 |
-| 예외(채널) | `live: true`인데 TEST·`live: false`인데 LIVE / type 누락·`"TEST "`(공백)·`"test"`(소문자)·`:TEST`(심볼) → `channel_mismatch` / channel이 String·Array·Integer → 실패(TypeError 아님) | 통과 |
-| 예외(통화) | "USD"·nil·키 누락 → `currency_mismatch`(detail에 expected=KRW) | 통과 |
-| 예외 | **문자열 키 해시 → amount_mismatch**(관대 수용 금지) | 통과 |
-| 경계 | `live:` nil/"true"/1/0/"" → TEST 기대 해석(LIVE 거절·TEST 통과 — 라이브 해석 경로 없음) | 통과 |
-| 정상 | `VerificationError`가 `reason`·`detail`·message(라벨 "금액 불일치/채널 불일치/통화 불일치"·접두 "결제 확정 검증 실패") 운반 | 통과 |
-| 예외 | 10종 비정상 응답 전부 `VerificationError`로 정규화 — TypeError·NoMethodError·KeyError 없음(REASON_LABELS 키 순환) | 통과 |
-| 정상 | 검증 순서 금액→채널→통화(기존 5건 유지·재확인) | 통과(기존) |
+### 감사 호출 `ip:` 누락 전수 스캔 결과 (보고 전용 — 수정 없음)
 
-### E. `Orders::PurchaseService` 콜백 경로 — 보강 10건
+컨트롤러 계층 `AuditLogs::RecordService.call`은 전부 `ip:` 보유(registrations·subscriptions·sales_reps 5곳·sales/sessions 3곳·tickets·sales_commissions·passwords·profiles·admin/sessions). 다만 **Service 계층 호출 11곳은 `ip:` 인자가 없다**(컨트롤러가 아닌 곳이라 request 접근이 없는 구조 — `Service→Current/params 금지` 규약상 컨트롤러에서 ip를 넘겨야 하나 미구현):
 
-| 구분 | 시나리오 | 핵심 단언 | 결과 |
-|:---|:---|:---|:---|
-| 정상 | 세금계산서 주문(tax_invoice·300원) 정상 확정 — paid·paid_at·metadata에 재조회 스냅샷(amount.paid)·**패스 0건**·승인 요청 인자(`total_amount: 300, is_test: true, currency: "KRW"`)·legal/tax도 `FulfillPassService` 경유 | 통과 |
-| 예외 | 금액 불일치(재조회 paid=100) → `PurchaseError`("결제 확인에 실패했습니다…")·주문 **failed**·paid_at nil·`verification_failed?`·metadata `code=PAYMENT_VERIFICATION_FAILED`+`verification.reason=amount_mismatch`+`VERIFICATION_FAILED_MESSAGE`·**pg_payment_id 스냅샷**·패스 0·승인 1회+재조회 1회·메시지에 내부 값 미노출 | 통과 |
-| 예외 | 채널 불일치(`paid_payment(live: true)`를 비운영 기대에) → `channel_mismatch`·failed | 통과 |
-| 예외 | 통화 불일치(USD) → `currency_mismatch`·failed | 통과 |
-| 경계 | 즉시 승인 채널(토큰 없음)도 검증 실패 → failed(승인 호출 0건·재조회 1회) | 통과 |
-| 예외 | 모호 실패(TIMEOUT) 회복 재조회 불일치 → pending 회복이 아니라 **failed 확정**(pending_recovery 미기록) | 통과 |
-| 경계 | ALREADY_PAID 회복 재조회 불일치 → failed 확정 | 통과 |
-| 경계 | 승인 성공 뒤 재조회가 **PAID 아님**(PAY_PENDING) → failed 금지·**pending 유지**+`pending_recovery`·재조회 재시도 0회(기존 TIMEOUT 회귀와 별개 변형) | 통과 |
-| 경계 | 승인 요청 자체 거부(400 PG_PROVIDER_ERROR) → failed지만 `metadata["verification"]` **nil**·`verification_failed?` false — `record_failure!` 경로와 분리 | 통과 |
-| 경계 | legal_doc 주문 검증 실패 기록도 `metadata["invoice_id"]` 보존(B-1 병합) | 통과 |
-| (H 이관) | 이미 paid 주문의 재검증 실패 기록 무시(멱등)는 모델 계층에서 고정(H 그룹) | — |
+- `app/services/payments/record_service.rb:101`
+- `app/services/admins/member_admin_service.rb:45`, `:98`
+- `app/services/admins/role_service.rb:33`, `:47`, `:63`, `:81`, `:100`
+- `app/services/admins/account_purge_service.rb:38`
+- `app/services/orders/refund_service.rb:82`, `:240`, `:322`
 
-### F. 웹훅 `Webhooks::PortOneController` — 보강 5건
+(단, `users/withdrawal_service.rb:33`은 ip를 인자로 받아 기록함 — 서비스 경유도 구현 가능함을 보이는 선례.) ADMIN-2 완전 커버를 위한 후속 과제 후보 — 결함 아님(요구 범위는 컨트롤러 진입점).
 
-| 구분 | 시나리오 | 핵심 단언 | 결과 |
-|:---|:---|:---|:---|
-| 예외 | pending + `Transaction.Paid` + 재조회 금액 불일치 → 확정 없이 **failed**·`verification_failed?`·reason 기록·**pg_payment_id 스냅샷(웹훅 경로도 R2-5 단일 구현 경유)**·패스 0·**응답 200**·재조회 정확 1회 | 통과 |
-| 예외 | 채널 불일치(LIVE)·통화 불일치(USD) → 동일 실패 처리 + 200 | 통과 |
-| 경계 | 같은 Paid 이벤트 재수신 → 멱등 무변경(metadata 등식 — `mark_verification_failed!`가 이미 failed인 주문을 건드리지 않음) | 통과 |
-| 예외 | **일반 PG 거절 failed 주문 + Transaction.Paid**(재조회는 PAID·금액 일치) → paid로 되돌려지지 않음·paid_at nil·PG 사유 보존·verification nil·`updated_at` 불변(update! 미실행 프록시) — R2-1 가드가 **failed 전체**에 적용됨 | 통과 |
-| 정상 | pending→failed 동기화·paid→cancelled(환불)·R2-1 검증 실패 주문 회귀·Plus 갱신 `settle_renewal` 무검증 경로 — **기존 테스트 9건 유지로 회귀 확인** | 통과(기존) |
+### 앱 결함 후보
 
-### G. 회원 화면(컨트롤러·통합) — billings 3건·legal_documents 7건·tax_invoices 5건
+**없음.** 모든 보강 시나리오가 현재 구현과 일치해 통과했다(FAIL 테스트 0건 — 결함 재현 없음).
 
-| 화면 | 시나리오 | 결과 |
-|:---|:---|:---|
-| billings#show | 선택기 고정값이 `data-portone-payment-channel-key-value`·`data-portone-billing-channel-key-value`에 그대로 심김 + 결제하기 1 | 통과 |
-| billings#show(checkout) | normal 키 nil → 결제하기 0 + "결제 채널이 설정되지 않았습니다" + **`data-controller=portone-payment` 블록 유지**(W-1 결정 범위) | 통과 |
-| billings#show | billing 키 nil → 카드 등록 버튼(속성) 0 + 안내 | 통과 |
-| legal_documents#show | 키 nil → 버튼 0 + 안내 + 위젯 블록 유지 / 키 有+연락처 無 → 연락처 안내 / 키·연락처 有 → 결제하기 1 + 키 값 속성 | 통과 3건 |
-| legal_documents#show | 검증 실패 주문 → "결제 확인에 실패했습니다. 고객지원(문의)으로 연락해 주세요." + "다시 결제하지 말아 주세요" + 문의 링크 + **재주문 버튼 없음** / `payment_failed=1` 파라미터와 와도 **검증 실패 안내 우선** / 일반 PG 실패 주문은 기존 재주문 안내·버튼 유지(회귀) | 통과 3건 |
-| legal_documents (R2-1 변형) | 검증 실패 legal_doc 주문 + 정상 금액 `Transaction.Paid` 재수신 → failed 유지·paid_at nil·`invoice_id` 보존 → download는 **워터마크 미리보기**(정식 PDF와 바이트 다름) | 통과 |
-| tax_invoices#show | 키 nil(pending·설정 완료 사용자) → 버튼 0 + 안내 + 위젯 블록 유지 / 키·연락처 有 → 결제하기 1 + 키 속성 / 연락처 無 → 연락처 안내 | 통과 2건 |
-| tax_invoices#show | 검증 실패 → 문의 안내 + "다시 결제하지 말아 주세요" + 재발행 버튼 없음 + 일반 실패 분기 미노출 / `payment_failed=1` 우선순위 / 일반 PG 실패는 기존 "다시 발행 요청" 유지(회귀) | 통과 3건 |
+### 확인된 현재 동작 (결함 아님 — 정책 고정)
 
-### H. `Order#mark_verification_failed!` 모델 — 보강 4건
+- `fe80::1%eth0`(zone id)은 IPAddr이 유효 주소로 파싱해 헤더에서 채택된다 — FIX1 실측표와 동일(FIX1 테스트가 고정).
+- 쉼표 목록·`:`·`999.999.999.999`는 원문 기록 없이 `REMOTE_ADDR`로 수렴 — 기존 `.presence`와 달라진 유일 지점이 의도대로 동작함을 고정.
+- 헤더 없는 등록 rate limit은 기존대로 remote_ip 버킷(127.0.0.1) 20회/1h.
+- 파기 잡은 consumed(30분 창)·방금 생성 행을 유지해 `consumed_recently` 가입 이중 검증이 무영향.
 
-| 구분 | 시나리오 | 결과 |
-|:---|:---|:---|
-| 정상 | pending → failed + `pg_payment_id`(=pg_order_id) + metadata(code·message·`verification{reason,detail}`) + true 반환 | 통과 |
-| 정상 | 기존 metadata(invoice_id) 보존 병합(B-1) | 통과 |
-| 예외 | 이미 paid → 무변경 + false(paid_at·metadata 보존) / 이미 failed(일반 PG) → 사유 미덮어쓰기 + false(경합 멱등) | 통과 |
-| 경계 | `verification_failed?`는 "failed + 검증 코드 일치"만 true — 일반 failed·paid(코드 有라도)·pending false | 통과 |
+### 플레이크 관찰
 
-### I. 시스템 테스트 — 신설 `test/system/app_billing_channel_key_notice_test.rb`(1건)
+- 없음. 3회 실행 구간(단독/회귀/가입)에서 재현 불안정 0건.
+- T3 지시 사항: `already initialized constant` 경고 — 회귀 실행 출력에서 **0건**(grep -c = 0, FIX2의 I-1 ERB 지역 변수 전환 반영 확인).
 
-- 채널 키 nil 상태에서 로그인 → /app/billing 체크아웃 도달 → "결제 채널이 설정되지 않았습니다" 표시·"결제하기" 버튼 없음·위젯 블록 유지. **"결제하기" 클릭 없음**(SDK 실호출 차단 원칙), 로그인·이동·렌더만 검증.
-- `with_portone_channel_keys`는 프로세스 공유 대역이라 서버 스레드에도 적용되며 블록 종료 시 복원.
-- 안정성: 단독 파일 기준 **10/10 통과**. 전체 시스템 스위트 16회 샘플에서 2회 실패 — 모두 **기존 테스트의 선존재 플레이크**(`AppLegalDocumentPdfTest` 로그인 단계 — 1차 리뷰 O-3과 동일, `ViewerPromiseTest` 1회)로 신규 테스트와 무관. 따라서 유지함.
+---
 
-## 발견한 app 버그(BUG-n)
+## A분 — T5·T4
 
-**없음.** 전 시나리오(선택기·가드·잡·검증기·콜백·웹훅·화면·모델)가 구현 보고(03_implementation §1~§10)와 동일하게 동작했다. 테스트 작성 중 생긴 오류 2건은 모두 테스트 측 결함이었다:
+2026-11-26 · Tester(절약 모드) · 격리 DB `DATABASE_URL=sqlite3:tmp/parallel/TSTA/test.sqlite3` · 시스템 테스트·전체 스위트 미실행(오케스트레이터 게이트 대상)
 
-1. **잡 테스트의 대역 선택 오류(수정 완료)** — `SubscriptionRenewalJob`·`DunningRetryJob`의 키 미등록 시나리오를 `with_portone_client(fake)`로 실행하면 가드(`ClientService#ensure_channel_key!`)를 지나 가짜가 그대로 응답해 시나리오가 성립하지 않았다. 가드는 실제 ClientService 계층의 것이므로 전송 계층 대역 없이 실제 클라이언트로 실행(가드가 HTTP 전에 예외 — 우발적 유출은 TEST_GUARD가 잡 밖으로 노출)하도록 수정하고 재검증했다.
-2. **nil metadata 접근(수정 완료)** — `OrderTest` 멱등 테스트에서 metadata 없이 만든 paid 주문의 `metadata["code"]` 접근을 `metadata&.dig("code")`로 수정.
+### 실행 명령·결과
 
-## 커버하지 못한 영역과 이유
+```
+DATABASE_URL=sqlite3:tmp/parallel/TSTA/test.sqlite3 bin/rails test \
+  test/services/reminders test/services/dashboards test/models/client_test.rb \
+  test/services/promises test/controllers/app/clients_controller_test.rb \
+  test/controllers/app/clients_reminders_test.rb test/controllers/app/invoices_reminders_test.rb
+→ 253 runs, 1392 assertions, 0 failures, 0 errors, 0 skips
 
-| 영역 | 이유 |
-|:---|:---|
-| 포트원 실제 응답 필드 실측(`amount.paid`·`channel.type`·`currency` 실값·`pgTxId`/`paidAt` 승인 응답) | 실호출 금지 — 첫 실결제 1건으로 기록해야 하는 운영 과제(03 §9·§10 남은 리스크 유지) |
-| 웹훅 `get_payment` `ApiError` → 500(포트원 재시도 유지) 단언 | 기존 스위트에 이 경로의 통합 테스트가 없고, 컨트롤러가 재조회 실패를 흡수하지 않는 동작은 ActionDispatch::IntegrationTest에서 예외 전파 단언으로 가능하나 이번 매트릭스(F 그룹) 지시 범위 밖 — 후보로 남김 |
-| 콜백↔웹훅 경합에서 검증 실패 기록 정확 1회(리뷰 §7-8) | 실스레드 경합은 `purchase_service_concurrency_test.rb`(기존)가 커버하며, 검증 실패 조합의 경합 변형은 이번 지시 매트릭스 밖 — `mark_verification_failed!`의 경합 멱등은 H에서 잠금 단독으로 고정 |
-| 세금계산서 주문 검증 실패 → 바로빌 SOAP 호출 0건(리뷰 §7-11) 단언 | 검증 실패 시 paid 전환이 없어 `FulfillTaxInvoiceService`에 도달하지 않는 것이 구현이며, 발행 경로 자체는 기존 `fulfill_tax_invoice_service_test`·`tax_invoice_settle_test`가 검증 — 중복 단언으로 판단해 생략 |
-| 시스템 테스트의 검증 실패 주문 화면 E2E | 컨트롤러 통합 테스트(G)가 동일 표면을 검증하며 시스템 테스트는 지시대로 채널 키 미설정 화면 1건만 수행(안정성 기준 충족) |
-| `LAUNCH_TEST_SCENARIOS.md` 등 사용자 문서의 로컬 결제창 확인 | 브라우저 수동 확인 영역(리뷰 W-4·R-3 유지 항목) |
+bin/rubocop (신규·수정 테스트 5파일) → no offenses
+```
 
-## 실행 명령과 결과
+솔라피 실호출 0건 — 발송 경로는 기존 주입 체계(FakeSolapiClient 생성자 주입·SendService client: 인자)만 사용.
 
-| 명령 | 결과 |
-|:---|:---|
-| `mise exec -- bin/rails test` | **1,656 runs, 10,504 assertions, 0 failures, 0 errors, 0 skips** |
-| `mise exec -- bin/rails test:system` | **15 runs, 135 assertions, 0 failures, 0 errors, 0 skips** |
-| `mise exec -- bin/rails test:system test/system/app_billing_channel_key_notice_test.rb`(단독×10) | 10/10 — 1 runs, 4 assertions, 0 failures(전체 스위트의 간헐 실패는 기존 AppLegalDocumentPdfTest·ViewerPromiseTest — 1차 리뷰 O-3 동일) |
-| `mise exec -- bin/rubocop test/` | 201 files inspected, no offenses |
-| `mise exec -- bin/rails zeitwerk:check` | all is good |
+### 신규 테스트 목록 (12건)
 
-## 변경 파일(전부 test/ — app·문서·credentials 무변경)
+T5 — 사전통보 실제 발송 시각 정합(`test/services/reminders/prenotice_service_test.rb`):
 
-- 신설: `test/services/port_one/channel_key_test.rb` · `test/jobs/subscription_renewal_job_test.rb` · `test/system/app_billing_channel_key_notice_test.rb` · (`test/services/port_one/payment_verifier_test.rb` — Developer가 재리뷰 단계에서 만든 5건에 행렬 15건 보강)
-- 보강: `test/test_helpers/portone_stubbing.rb`(`with_portone_channel_keys` 헬퍼 — ensure 복원 계약) · `client_service_test.rb` · `dunning_retry_test.rb` · `purchase_service_test.rb` · `webhooks/portone_controller_test.rb` · `billings_controller_test.rb` · `legal_documents_controller_test.rb` · `tax_invoices_controller_test.rb` · `order_test.rb`
-- 기존 테스트 수정(기존 단언 변경): **0건**
+| 테스트 | Rule ID |
+|:--|:--|
+| 「09:05 실행에서 오늘 09시 pending 슬롯은 경과로 보아 통보하지 않는다 — 운영 지배 분기」(② 폴백=수 09:00까지 단언 — 리뷰 W-1 필수분) | REM-11 |
+| 「오늘 09시 슬롯이 이미 sent면 예정이 소멸해 통보하지 않는다 — 정각 경합 삼태계 ①」(②=위 테스트·③=기존 동률 테스트 — 주석 상호 참조) | REM-11 |
+| 「due 키가 내일 슬롯에 미뤄져 있으면 통보하지 않는다 — 슬롯 시각이 우선한다」 | REM-11 |
+| 「다른 키의 pending 슬롯은 사전통보 판정에 흘러들지 않는다 — due 키만 산정한다」 | REM-11 |
+| 「시작 10시·종료 14시 회원은 오늘 10시 슬롯을 ①로 통보한다 — 09시 겹침은 시작 09시 회원 특유」(리뷰 W-2 경계) | REM-11 |
+| 「기본 창 회원의 noti_prenotice와 noti_due_soon은 병행한다」 | NOTI-1 |
+| 「종료 14시 회원은 prenotice는 생략돼도 noti_due_soon은 나간다」 | NOTI-1·REM-11 |
+| 「대시보드 오늘 발송 예정 카드와 사전통보는 같은 상태에서 함께 갈린다 — 기본 창·종료 14시·시작 15시」(카드 send_at 14:00/15:00까지 단언) | DASH-2·REM-11 동치 |
+
+T4 — 수신 거부 번호 고정:
+
+| 파일:테스트 | Rule ID |
+|:--|:--|
+| `test/services/promises/register_service_test.rb` — 「번호를 바꾼 거부 행의 재접수는 현재 번호만 전파하고 거부 시점 번호는 불변이다」(R 불변=A·B 전파·A 행 무영향) | VIEW-7·Q30 — 리뷰 Tester 1(5-d) |
+| `test/services/promises/register_service_test.rb` — 「refusal 전파로 거부된 거래처의 다른 청구 발송은 REFUSED skip으로 기록된다」(skip 이력 1건·실발송 0) | VIEW-7·Q30·P4 |
+| `test/models/client_test.rb` — 「레거시 단독 마킹(refused_phone nil) 행도 현재 번호로 상속하며 상속 행은 자기 치유된다」(**폴백 제거 시 깨지는 의도된 센서** — 주석 명시) | VIEW-7·Q30 |
+| `test/controllers/app/clients_controller_test.rb` — 「refused_phone이 채워진 원천의 상속 등록도 고지 문구로 303 안내된다」(1순위 경로 — 기존 4테스트는 폴백 경로) | VIEW-7·Q30 |
+| `test/controllers/app/clients_reminders_test.rb` — 「refusal 전파로 거부된 거래처의 목록·상세에는 수신 거부 배지가 보이고 재개 버튼이 없다」(실제 RegisterService 접수 경로의 전파) | VIEW-7·Q30 |
+
+### 앱 결함 후보
+
+**없음.** 추가한 12건이 모두 현재 구현대로 통과했다(코드 수정 0건·실패 재현 테스트 0건).
+
+### 확인된 현재 동작 (결함 아님 — 설계 공간의 기록)
+
+- **한 청구의 steps_due_today에 사전통보 키 2개가 같은 날 도래하는 조합은 구조적으로 불가능** — base 트랙 키 간격 6일(confirm_d1↔requeue_d7·final_d14)·약속 트랙의 사전통보 키는 promise_overdue 하나뿐이고 소급 창(공칭일~다음 평일)이 절대 겹치지 않는다. 리뷰 중점 3의 "두 스텝 갈라짐"은 (a) due 키가 내일 슬롯으로 미뤄지면 통보 0 (b) due_keys 밖 키의 슬롯은 무영향으로 통보 1 — 키 격리 단언으로 대체했고 `today_send?`의 `any?` 의미는 이 조합으로 검증된다.
+- 정각 경합 삼태계: sent 선점 → 0·pending 경과(09:05) → 0·동률(09:00:00) → 1 — 거짓 양성 없음으로 수렴.
+- 전파는 "지금 그 번호를 가진 미거부 행"만 대상이며, 거부 행의 번호 이동 뒤 재접수는 refused_phone(거부 시점 번호)을 갱신하지 않는다 — 이동 전·후 번호 양쪽의 차단 논리가 일관.
+
+### 플레이크 관찰
+
+- 없음. 동일 스위트 2회 반복 실행에서 편차 0.
+- 대시보드 동치 테스트는 3개 창을 한 테스트에서 순회하며 `MessageLog.where(invoice_id:).delete_all`로 상태 초기화(기존 주말 소급분 테스트와 같은 travel 블록 내 대조 패턴).
+- SendRow는 invoice 객체 비교를 쓴다(`row.invoice == invoice` — Struct에 invoice_id 접근자 없음).
+- 기존 테스트 무수정 — 전건 기존 선례 헬퍼(`run_prenotice`·`assert_prenotice_step_present`·`ReminderFactories`) 재사용.
