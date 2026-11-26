@@ -109,4 +109,95 @@ class OrderTest < ActiveSupport::TestCase
       assert_includes Order.failed, refunded_failed
     end
   end
+
+  # ── PLAN-5 결제 확정 검증 실패 기록(재리뷰 R2-5 — 단일 구현 계약) ──
+
+  test "mark_verification_failed!는 pending 주문을 failed로 바꾸고 결제 ID·검증 사유를 남긴다 (PLAN-5)" do
+    travel_to(Time.zone.parse("2026-11-25 10:00")) do
+      order = users(:delta).orders.create!(product: :collection_pass, amount: 4_000,
+                                           pg_order_id: "order-verify-failed-1")
+
+      assert order.mark_verification_failed!(reason: "amount_mismatch",
+                                             detail: "paid=100 expected=4000"),
+             "적용되면 true를 반환한다"
+
+      order.reload
+      assert_predicate order, :failed?
+      assert_predicate order, :verification_failed?
+      assert_nil order.paid_at
+      assert_equal "order-verify-failed-1", order.pg_payment_id       # 결제 ID 스냅샷
+      assert_equal Order::VERIFICATION_FAILED_CODE, order.metadata["code"]
+      assert_equal Order::VERIFICATION_FAILED_MESSAGE, order.metadata["message"]
+      assert_equal({ "reason" => "amount_mismatch", "detail" => "paid=100 expected=4000" },
+                   order.metadata["verification"])
+    end
+  end
+
+  test "mark_verification_failed!는 기존 metadata(invoice_id)를 보존하고 병합한다 (B-1 선례)" do
+    order = users(:delta).orders.create!(product: :collection_pass, item_type: :legal_doc,
+                                         amount: Order::LEGAL_DOC_PRICE,
+                                         pg_order_id: "order-verify-merge-1",
+                                         metadata: { invoice_id: 42 })
+
+    assert order.mark_verification_failed!(reason: "channel_mismatch",
+                                           detail: "type=LIVE expected=TEST")
+
+    order.reload
+    assert_equal 42, order.metadata["invoice_id"], "청구 역참조가 유실되지 않는다"
+    assert_equal Order::VERIFICATION_FAILED_CODE, order.metadata["code"]
+    assert_equal "channel_mismatch", order.metadata.dig("verification", "reason")
+  end
+
+  test "mark_verification_failed!는 이미 확정된 주문을 건드리지 않고 false를 반환한다 (경합 멱등)" do
+    travel_to(Time.zone.parse("2026-11-25 10:00")) do
+      # 이미 paid — 확정 뒤의 늦은 검증 실패 통지로 되돌리지 않는다
+      paid_order = users(:delta).orders.create!(product: :collection_pass, amount: 4_000,
+                                                pg_order_id: "order-verify-paid-1")
+      paid_order.update!(status: :paid, paid_at: Time.current, pg_payment_id: "order-verify-paid-1")
+      assert_not paid_order.mark_verification_failed!(reason: "amount_mismatch",
+                                                      detail: "paid=1 expected=4000"),
+                "paid 확정은 되돌리지 않는다"
+      paid_order.reload
+      assert_predicate paid_order, :paid?
+      assert_not_nil paid_order.paid_at
+      assert_nil paid_order.metadata&.dig("code"), "paid 주문에 검증 실패 코드가 남지 않는다"
+
+      # 이미 failed(일반 PG 거절) — 사유를 검증 실패로 덮어쓰지 않는다
+      failed_order = users(:delta).orders.create!(product: :collection_pass, amount: 4_000,
+                                                  pg_order_id: "order-verify-failed-2",
+                                                  status: :failed,
+                                                  metadata: { code: "PG_PROVIDER_ERROR",
+                                                              message: "카드 한도 초과" })
+      assert_not failed_order.mark_verification_failed!(reason: "amount_mismatch",
+                                                        detail: "paid=1 expected=4000")
+      failed_order.reload
+      assert_equal "PG_PROVIDER_ERROR", failed_order.metadata["code"]
+      assert_nil failed_order.metadata["verification"]
+      assert_not_predicate failed_order, :verification_failed?
+    end
+  end
+
+  test "verification_failed?는 검증 실패 코드가 남은 failed만 참이다 (일반 실패·paid·pending은 거짓)" do
+    verify_failed = users(:delta).orders.create!(product: :collection_pass, amount: 4_000,
+                                                 pg_order_id: "order-verify-pred-1")
+    verify_failed.mark_verification_failed!(reason: "amount_mismatch", detail: "x")
+
+    assert_predicate verify_failed.reload, :verification_failed?
+
+    normal_failed = users(:delta).orders.create!(product: :collection_pass, amount: 4_000,
+                                                 pg_order_id: "order-verify-pred-2",
+                                                 status: :failed,
+                                                 metadata: { code: "PG_PROVIDER_ERROR" })
+    assert_not_predicate normal_failed, :verification_failed?
+
+    paid = users(:delta).orders.create!(product: :collection_pass, amount: 4_000,
+                                        pg_order_id: "order-verify-pred-3")
+    paid.update!(status: :paid, paid_at: Time.current,
+                 metadata: { code: Order::VERIFICATION_FAILED_CODE })
+    assert_not_predicate paid.reload, :verification_failed?     # paid면 코드가 있어도 거짓
+
+    pending = users(:delta).orders.create!(product: :collection_pass, amount: 4_000,
+                                           pg_order_id: "order-verify-pred-4")
+    assert_not_predicate pending, :verification_failed?
+  end
 end

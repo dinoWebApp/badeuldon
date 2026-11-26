@@ -35,7 +35,10 @@ class App::LegalDocumentsControllerTest < ActionDispatch::IntegrationTest
     order = @user.orders.legal_docs.sole
     assert_equal @invoice.id, order.metadata["invoice_id"]
 
-    fake = FakePortOneClient.new(get_payment: { id: order.pg_order_id, status: "PAID" })
+    fake = FakePortOneClient.new(
+      get_payment: FakePortOneClient.paid_payment(id: order.pg_order_id,
+                                                  amount: Order::LEGAL_DOC_PRICE)
+    )
     with_portone_client(fake) do
       post "/webhooks/portone",
            params: { type: "Transaction.Paid", data: { paymentId: order.pg_order_id } }.to_json,
@@ -95,6 +98,46 @@ class App::LegalDocumentsControllerTest < ActionDispatch::IntegrationTest
     assert_response :redirect
     assert_redirected_to app_legal_document_path(paid_order)
     assert_predicate paid_order.reload, :paid?
+  end
+
+  test "F-1: 검증 실패 주문이 있는 청구의 create는 새 주문을 만들지 않고 그 주문으로 되돌린다" do
+    sign_in_as @user
+    failed_order = create_legal_order
+    failed_order.mark_verification_failed!(reason: "amount_mismatch", detail: "paid=100 expected=5000")
+
+    assert_no_difference -> { @user.orders.legal_docs.count } do
+      post app_legal_documents_path, params: { invoice_id: @invoice.id }
+    end
+
+    assert_response :redirect
+    assert_redirected_to app_legal_document_path(failed_order)
+    assert_equal Order::VERIFICATION_FAILED_REORDER_NOTICE, flash[:alert]
+  end
+
+  test "F-1: 검증 실패 주문이 있으면 대기 주문이 있어도 재사용해 결제창을 열지 않는다" do
+    sign_in_as @user
+    failed_order = create_legal_order
+    failed_order.mark_verification_failed!(reason: "channel_mismatch", detail: "type=LIVE expected=TEST")
+    create_legal_order  # 대기 주문이 함께 있어도 검증 실패 주문이 우선이다(pending 가드보다 앞)
+
+    assert_no_difference -> { @user.orders.legal_docs.count } do
+      post app_legal_documents_path, params: { invoice_id: @invoice.id }
+    end
+
+    assert_redirected_to app_legal_document_path(failed_order)
+  end
+
+  test "F-1 회귀: 검증 실패 주문이 없으면 대기 주문을 재사용해 결제 진행을 안내한다 (기존 동작)" do
+    sign_in_as @user
+    pending_order = create_legal_order
+
+    assert_no_difference -> { @user.orders.legal_docs.count } do
+      post app_legal_documents_path, params: { invoice_id: @invoice.id }
+    end
+
+    assert_response :redirect
+    assert_redirected_to app_legal_document_path(pending_order)
+    assert_match "주문이 생성되었습니다", flash[:notice]
   end
 
   test "W-3: 청구가 마감(paid)된 뒤에도 결제 완료 주문의 재다운로드는 허용된다" do
@@ -194,7 +237,10 @@ class App::LegalDocumentsControllerTest < ActionDispatch::IntegrationTest
   end
 
   def confirm_paid!(order)
-    fake = FakePortOneClient.new(get_payment: { id: order.pg_order_id, status: "PAID" })
+    fake = FakePortOneClient.new(
+      get_payment: FakePortOneClient.paid_payment(id: order.pg_order_id,
+                                                  amount: Order::LEGAL_DOC_PRICE)
+    )
     with_portone_client(fake) do
       post "/webhooks/portone",
            params: { type: "Transaction.Paid", data: { paymentId: order.pg_order_id } }.to_json,
@@ -214,5 +260,132 @@ class App::LegalDocumentsControllerTest < ActionDispatch::IntegrationTest
                                        reason: "이중 결제 정정", client: fake).call
     assert result.success?, "전제: 환불 실행이 성공해야 한다"
     order.reload
+  end
+
+  # ── PLAN-5 채널 키 선택기·검증 실패 주문 안내(R2-2)·R2-1 워터마크 — Tester 단계 ──
+  # 채널 키는 선택기를 테스트 값으로 고정해 실제 credentials(로컬/CI 차이)에 의존하지 않는다.
+
+  test "검증 실패 주문은 뒤늦은 Transaction.Paid로도 확정되지 않고 미리보기(워터마크) PDF만 준다 (R2-1·LEGAL-2)" do
+    sign_in_as @user
+    order = create_legal_order
+    order.mark_verification_failed!(reason: "amount_mismatch", detail: "paid=100 expected=5000")
+    assert_predicate order.reload, :failed?
+
+    fake = FakePortOneClient.new(
+      get_payment: FakePortOneClient.paid_payment(id: order.pg_order_id,
+                                                  amount: Order::LEGAL_DOC_PRICE)
+    )
+    with_portone_client(fake) do
+      post "/webhooks/portone",
+           params: { type: "Transaction.Paid", data: { paymentId: order.pg_order_id } }.to_json,
+           headers: { "Content-Type" => "application/json" }
+    end
+
+    assert_response :ok
+    order.reload
+    assert_predicate order, :failed?
+    assert_nil order.paid_at
+    assert_equal @invoice.id, order.metadata["invoice_id"]     # 검증 실패 기록 병합 후에도 보존(B-1)
+    assert_empty users(:gamma).payment_passes
+
+    get download_app_legal_document_path(order)
+    assert_response :ok
+    assert_equal "application/pdf", response.media_type
+    assert_not_equal LegalDocuments::ContentProofPdfService.call(invoice: @invoice), response.body,
+                     "미결제 취급 — 워터마크 미리보기만 제공한다(정식 PDF 유출 차단)"
+  end
+
+  test "검증 실패 주문 상세는 문의 안내를 보여주고 재주문 유도가 없다 (R2-2)" do
+    sign_in_as @user
+    order = create_legal_order
+    order.mark_verification_failed!(reason: "amount_mismatch", detail: "paid=100 expected=5000")
+
+    get app_legal_document_path(order)
+
+    assert_response :success
+    assert_match "결제 확인에 실패했습니다. 다시 결제하지 말고 고객지원(문의)으로 연락해 주세요.", response.body
+    assert_match "고객지원에 문의", response.body               # 문의 링크(티켓)
+    assert_no_match "새 양식 발급", response.body               # 재주문 버튼 없음
+    assert_no_match "새로 주문해 주세요", response.body
+    assert_no_match "확인하고 있으니", response.body            # F-2 — 자동 확인 중 함축 문구 없음
+  end
+
+  test "검증 실패 안내는 payment_failed 파라미터보다 우선이다 (R2-2)" do
+    sign_in_as @user
+    order = create_legal_order
+    order.mark_verification_failed!(reason: "channel_mismatch", detail: "type=LIVE expected=TEST")
+
+    get app_legal_document_path(order, params: { payment_failed: "1" })
+
+    assert_response :success
+    assert_match "결제 확인에 실패했습니다. 다시 결제하지 말고 고객지원(문의)으로 연락해 주세요.", response.body
+    assert_no_match "결제가 승인되지 않았습니다", response.body # 위젯 실패 문구로 덮어쓰지 않는다
+  end
+
+  test "일반 결제 실패 주문 상세는 기존 재주문 안내를 유지한다 (R2-2 회귀)" do
+    sign_in_as @user
+    order = create_legal_order
+    order.update!(status: :failed, metadata: { invoice_id: @invoice.id,
+                                               code: "PG_PROVIDER_ERROR", message: "카드 한도 초과" })
+
+    get app_legal_document_path(order)
+
+    assert_response :success
+    assert_match "새로 주문해 주세요", response.body
+    assert_match "새 양식 발급", response.body                  # 재주문 버튼 유지
+    assert_no_match "다시 결제하지 말고 고객지원", response.body
+  end
+
+  test "F-3: pending 회복 대기 주문의 payment_failed 착지는 재시도 안내 대신 회복 안내를 보여준다" do
+    sign_in_as @user
+    order = create_legal_order
+    order.update!(metadata: order.metadata.merge("pending_recovery" => true))
+
+    get app_legal_document_path(order, params: { payment_failed: "1" })
+
+    assert_response :success
+    assert_match "결제 확인이 지연되고 있습니다. 승인 결과는 잠시 후 자동으로 반영됩니다.", response.body
+    assert_no_match "결제가 승인되지 않았습니다", response.body  # "다시 시도"로 덮어쓰지 않는다
+  end
+
+  test "채널 키가 없는 환경의 결제 대기 상세는 결제 버튼 대신 안내를 보여준다 (PLAN-5·W-1)" do
+    sign_in_as @user
+    order = create_legal_order
+
+    with_portone_channel_keys(normal: nil) do
+      get app_legal_document_path(order)
+    end
+
+    assert_response :success
+    assert_match "결제 채널이 설정되지 않았습니다", response.body
+    assert_select "button", text: "결제하기", count: 0
+    assert_select "[data-controller=portone-payment]", count: 1  # 위젯 블록 유지 — W-1 결정 범위
+  end
+
+  test "채널 키가 있고 연락처가 없으면 연락처 등록 안내를 보여준다 (PLAN-5)" do
+    sign_in_as @user
+    order = create_legal_order
+    @user.update!(phone: nil)
+
+    with_portone_channel_keys(normal: "test-channel-normal-sentinel") do
+      get app_legal_document_path(order)
+    end
+
+    assert_response :success
+    assert_match "결제에는 연락처가 필요합니다", response.body
+    assert_select "button", text: "결제하기", count: 0
+  end
+
+  test "채널 키·연락처가 모두 있으면 결제 버튼과 선택기 키 값을 심는다 (PLAN-5)" do
+    sign_in_as @user
+    order = create_legal_order
+
+    with_portone_channel_keys(normal: "test-channel-normal-sentinel") do
+      get app_legal_document_path(order)
+    end
+
+    assert_response :success
+    assert_select "button", text: "결제하기", count: 1
+    assert_select "[data-portone-payment-channel-key-value=test-channel-normal-sentinel]", count: 1
   end
 end

@@ -1,8 +1,25 @@
 # 포트원 ClientService 테스트 대역 — 서비스(주입)·컨트롤러(PortOne::ClientService.new 스텁)
 # 테스트가 공유한다. 실외부 호출이 절대 일어나지 않는다(PLAN-5 — 포트원 API 실호출 금지).
-# 성공 응답·예외를 메서드별로 주입하고, 호출 인자를 기록해 서버 원값(paymentId·amount·채널 키)
-# 전달을 검증한다.
+# 성공 응답·예외를 메서드별로 주입하고, 호출 인자를 기록해 서버 원값(paymentId·amount·채널 키·
+# 검증 파라미터) 전달을 검증한다.
+#
+# 승인(confirm_payment) 응답은 실제 스펙(공식 OpenAPI v2 — ConfirmedPaymentSummary)대로
+# pgTxId·paidAt만 돌려준다 — 금액·채널은 승인 응답에 없다. 콜백 경로(paymentToken) 테스트는
+# 결제 확정 검증(PurchaseService가 승인 뒤 재조회 → FulfillPassService의 PaymentVerifier)이
+# 쓰는 전체 결제 건을 `get_payment:`에 `paid_payment`로 지정해야 한다(2026-11-25 콜백 경로
+# 정정 — 이전 대역이 승인 응답에 금액·채널을 자동 보강해 이 결함을 가렸다).
 class FakePortOneClient
+  # 결제 조회(get_payment) 응답 조립 헬퍼 — 재조회 경로(승인 뒤 재조회·즉시 승인 채널·모호
+  # 실패 회복·웹훅)의 결제 확정 검증(FulfillPassService의 PortOne::PaymentVerifier)에 필요한
+  # 최소 필드(PAID 상태·실제 결제금액·채널 종류·통화)를 만든다. 조회 호출 인자에는 금액이 없어
+  # 자동 조립이 불가능하므로 테스트가 직접 조립할 때 쓴다. live: true면 LIVE 채널(운영 기대값
+  # 시나리오), 기본은 TEST(비운영 기대값 — test 환경의 live_channel?는 false다). currency는
+  # 기본 KRW(공식 PaidPayment required — 검증기 R2-4 기대값).
+  def self.paid_payment(id:, amount:, live: false, currency: "KRW")
+    { id:, status: "PAID", amount: { paid: amount },
+      channel: { type: live ? "LIVE" : "TEST" }, currency: currency }
+  end
+
   attr_reader :calls
 
   # 메서드별 기본 성공 응답(Hash)과 raise_on 예외(Exception 인스턴스)를 주입한다.
@@ -19,8 +36,10 @@ class FakePortOneClient
     @calls = Hash.new { |hash, key| hash[key] = [] }
   end
 
-  def confirm_payment(payment_id:, payment_token:, store_id: nil)
-    record(:confirm_payment, payment_id:, payment_token:, store_id:)
+  def confirm_payment(payment_id:, payment_token:, store_id: nil, total_amount: nil, is_test: nil,
+                      currency: nil)
+    record(:confirm_payment, payment_id:, payment_token:, store_id:,
+                             total_amount:, is_test:, currency:)
   end
 
   def issue_billing_key(issue_token:, channel_key:, customer_id:, store_id: nil)
@@ -30,7 +49,7 @@ class FakePortOneClient
   def charge_billing_key(payment_id:, billing_key:, channel_key:, amount:, customer_id:,
                          order_name:, store_id: nil)
     record(:charge_billing_key, payment_id:, billing_key:, channel_key:, amount:,
-                                customer_id:, order_name:, store_id:)
+                                 customer_id:, order_name:, store_id:)
   end
 
   def get_payment(payment_id:, store_id: nil)

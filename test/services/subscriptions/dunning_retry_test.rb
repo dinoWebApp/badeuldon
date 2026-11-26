@@ -227,6 +227,45 @@ class Subscriptions::DunningRetryTest < ActiveSupport::TestCase
     assert @sub.current_period_end > Time.zone.parse("2026-11-02 06:05")
   end
 
+  # ── PLAN-5 채널 키 미등록(리뷰 W-2) — 카드 거절과 구분: 단계·예약·주문 무변경 ──
+
+  test "채널 키 미등록 재차감은 dunning 단계·재시도 예약·주문 수를 무변경으로 두고 잡은 실패하지 않는다 (PLAN-5)" do
+    @sub.update!(dunning_stage: 1, next_retry_at: Time.zone.parse("2026-11-02 06:05"),
+                 last_payment_failed_at: Time.zone.parse("2026-11-01 06:05"))
+
+    with_portone_channel_keys(billing: nil) do
+      travel_to(Time.zone.parse("2026-11-02 06:05")) do
+        assert_nothing_raised do
+          Subscriptions::DunningRetryJob.perform_now(@sub.id)
+        end
+      end
+    end
+
+    @sub.reload
+    assert_predicate @sub, :active?
+    assert_equal 1, @sub.dunning_stage                       # 카드 거절이 아니므로 단계 진행 없음
+    assert_equal Time.zone.parse("2026-11-02 06:05"), @sub.next_retry_at
+    assert_predicate @sub, :dunning_active?
+    assert_empty @user.orders, "설정 오류는 실패 주문으로 남지 않는다(롤백)"
+  end
+
+  test "전용 예외가 아닌 코드 오류는 재시도 잡도 삼키지 않는다 (범용 rescue 금지 — W-2)" do
+    @sub.update!(dunning_stage: 1, next_retry_at: Time.zone.parse("2026-11-02 06:05"))
+    raising = FakePortOneClient.new(raise_on: { charge_billing_key: ArgumentError.new("코드 오류") })
+
+    with_portone_channel_keys(billing: "test-channel-billing-sentinel") do
+      with_portone_client(raising) do
+        travel_to(Time.zone.parse("2026-11-02 06:05")) do
+          assert_raises(ArgumentError) do
+            Subscriptions::DunningRetryJob.perform_now(@sub.id)
+          end
+        end
+      end
+    end
+
+    assert_empty @user.reload.orders                         # 롤백 — 오염 없음
+  end
+
   # ── ⑥ ADMIN-4 표기 — 통합 계층(라우트·뷰 렌더 필요)은 별도 클래스로 ──
 end
 

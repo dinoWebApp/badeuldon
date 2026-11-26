@@ -95,6 +95,11 @@ Rails.application.configure do
   # Only use :id for inspections in production.
   config.active_record.attributes_for_inspect = [ :id ]
 
+  # PLAN-5 — 운영만 포트원 라이브 채널 키를 쓴다(규약 §9.4 — 환경 분기는 config 플래그로).
+  # 다른 환경 설정 파일에는 정의하지 않는다 — 미정의 환경은 테스트 채널(fail-closed,
+  # 판정은 PortOne::ChannelKey.live_channel? 단일).
+  config.x.portone_live_channel = true
+
   # Enable DNS rebinding protection and other `Host` header attacks.
   # config.hosts = [
   #   "example.com",     # Allow requests from example.com

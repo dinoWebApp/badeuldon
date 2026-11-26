@@ -42,7 +42,7 @@ class FPlanReviewFixTest < ActiveSupport::TestCase
     fake = FakePortOneClient.new(
       raise_on: { confirm_payment: PortOne::ApiError.new(status: nil, code: "TIMEOUT",
                                                          message: "execution expired") },
-      get_payment: { id: "order-fix1-recheck", status: "PAID" }
+      get_payment: FakePortOneClient.paid_payment(id: "order-fix1-recheck", amount: 4_000)
     )
 
     result = Orders::PurchaseService.new(order: order, payment_token: "tok_fix1_done",

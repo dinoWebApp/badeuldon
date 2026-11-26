@@ -16,6 +16,36 @@ module PortOneStubbing
   # 시뮬레이션(ClientServiceTest 전용). HTTP가 이미 교체되므로 솔라피·이메일·포트원 perform
   # 가드 플래그도 함께 켠다(2026-11-20 실호출 사고 대응·2026-11-24 포트원 가드 추가 —
   # HTTP stub은 실호출이 아님을 보증).
+  # PLAN-5 — 채널 키 선택기(PortOne::ChannelKey)를 테스트 값으로 고정한다. 로컬은 마스터 키가
+  # 있어 실제 테스트 채널 키가, CI는 마스터 키가 없어 nil이 읽히는 환경 차이를 credentials와
+  # 무관하게 제거하기 위함이다(with_portone_client와 같은 계약 — 블록 종료 시 원본 복원).
+  # normal·billing·live는 각각 생략하면 원본을 유지하고, 값을 넘기면 그 값으로 교체한다
+  # (nil 전달 = "키 없음" 상태 고정).
+  def with_portone_channel_keys(normal: :keep, billing: :keep, live: :keep)
+    originals = {}
+    begin
+      unless normal == :keep
+        originals[:normal] = PortOne::ChannelKey.method(:normal)
+        PortOne::ChannelKey.define_singleton_method(:normal) { normal }
+      end
+      unless billing == :keep
+        originals[:billing] = PortOne::ChannelKey.method(:billing)
+        PortOne::ChannelKey.define_singleton_method(:billing) { billing }
+      end
+      unless live == :keep
+        originals[:live] = PortOne::ChannelKey.method(:live_channel?)
+        PortOne::ChannelKey.define_singleton_method(:live_channel?) { live == true }
+      end
+      yield
+    ensure
+      PortOne::ChannelKey.define_singleton_method(:normal, originals[:normal]) if originals[:normal]
+      PortOne::ChannelKey.define_singleton_method(:billing, originals[:billing]) if originals[:billing]
+      if originals[:live]
+        PortOne::ChannelKey.define_singleton_method(:live_channel?, originals[:live])
+      end
+    end
+  end
+
   def with_http_transport(transport)
     original = Net::HTTP.method(:start)
     Net::HTTP.define_singleton_method(:start) do |*args, **kwargs, &block|

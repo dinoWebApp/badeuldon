@@ -24,7 +24,10 @@ class Webhooks::TaxInvoiceSettleTest < ActionDispatch::IntegrationTest
   end
 
   def post_paid_event
-    fake = FakePortOneClient.new(get_payment: { id: @order.pg_order_id, status: "PAID" })
+    fake = FakePortOneClient.new(
+      get_payment: FakePortOneClient.paid_payment(id: @order.pg_order_id,
+                                                  amount: TaxInvoice::ISSUE_FEE)
+    )
     with_portone_client(fake) do
       post "/webhooks/portone",
            params: { type: "Transaction.Paid", data: { paymentId: @order.pg_order_id } }.to_json,

@@ -40,13 +40,14 @@ module PortOne
 
     # ── confirm_payment (단건 승인 — 수동 승인 채널) ──
 
-    test "confirm 성공은 승인 요청(paymentId 경로·멱등 키·토큰 본문)을 보내고 응답을 돌려준다" do
+    test "confirm 성공은 승인 요청(paymentId 경로·멱등 키·토큰·검증값 본문)을 보내고 응답을 돌려준다" do
       transport = FakePortOneTransport.new(
         response: http_ok({ id: "payment-1", status: "PAID" }.to_json)
       )
 
       result = with_http_transport(transport) do
-        @client.confirm_payment(payment_id: "payment-1", payment_token: "tok_widget_1")
+        @client.confirm_payment(payment_id: "payment-1", payment_token: "tok_widget_1",
+                                total_amount: 4_000, is_test: true, currency: "KRW")
       end
 
       assert_equal({ id: "payment-1", status: "PAID" }, result)
@@ -58,7 +59,10 @@ module PortOne
       # 멱등 키 — POST 전용·RFC 8941 문자열 따옴표 포함 UUID
       assert_match(/\A"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"\z/,
                    request["Idempotency-Key"])
-      assert_equal({ "storeId" => "store-test", "paymentToken" => "tok_widget_1" },
+      # 검증 파라미터(재리뷰 R-1·R-2·R2-4) — totalAmount(주문 금액)·isTest(환경 기대값)·
+      # currency(KRW)를 함께 보낸다
+      assert_equal({ "storeId" => "store-test", "paymentToken" => "tok_widget_1",
+                     "totalAmount" => 4_000, "isTest" => true, "currency" => "KRW" },
                    JSON.parse(request.body))
     end
 
@@ -70,7 +74,9 @@ module PortOne
 
       error = with_http_transport(transport) do
         assert_raises(ApiError) { @client.confirm_payment(payment_id: "payment-x",
-                                                          payment_token: "tok_1") }
+                                                          payment_token: "tok_1",
+                                                          total_amount: 4_000, is_test: true,
+                                                          currency: "KRW") }
       end
 
       assert_equal 404, error.status
@@ -245,7 +251,9 @@ module PortOne
 
       error = with_http_transport(transport) do
         assert_raises(ApiError) { @client.confirm_payment(payment_id: "payment-1",
-                                                          payment_token: "tok_1") }
+                                                          payment_token: "tok_1",
+                                                          total_amount: 4_000, is_test: true,
+                                                          currency: "KRW") }
       end
 
       assert_nil error.status
@@ -288,6 +296,50 @@ module PortOne
 
       assert_equal "TEST_GUARD", error.code
       assert_empty started, "가드는 실제 연결 전에 예외를 던져야 한다"
+    end
+
+    # ── PLAN-5 채널 키 미등록 가드(MissingChannelKey — 리뷰 W-2·Tester §6-2) ──
+    # 키 부재는 설정 오류다 — 코드 오류(ArgumentError)와 전용 예외로 구분하고, API 요청이
+    # 포트원으로 나가기 전에 차단한다(fail-closed). HTTP 요청 0건을 transport 기록으로 검증한다.
+
+    test "빌링키 발급은 채널 키가 blank면 MissingChannelKey로 실패하고 HTTP 요청은 0건이다" do
+      [ nil, "", "   " ].each do |channel_key|
+        transport = FakePortOneTransport.new(
+          response: http_ok({ billingKey: "bk_must_not_be_issued" }.to_json)
+        )
+
+        error = with_http_transport(transport) do
+          assert_raises(ClientService::MissingChannelKey) do
+            @client.issue_billing_key(issue_token: "issue_1", channel_key: channel_key,
+                                      customer_id: "cust_1")
+          end
+        end
+
+        assert_match(/채널 키가 등록되지 않았습니다/, error.message)
+        assert_empty transport.requests, "키가 없는 요청은 포트원으로 나가지 않는다"
+        refute_kind_of ArgumentError, error                     # 설정 오류 ≠ 코드 오류(W-2)
+      end
+    end
+
+    test "빌링키 차감도 채널 키가 blank면 MissingChannelKey로 실패하고 HTTP 요청은 0건이다" do
+      [ nil, "", "   " ].each do |channel_key|
+        transport = FakePortOneTransport.new(
+          response: http_ok({ payment: { id: "payment-must-not-be-charged",
+                                         status: "PAID" } }.to_json)
+        )
+
+        error = with_http_transport(transport) do
+          assert_raises(ClientService::MissingChannelKey) do
+            @client.charge_billing_key(payment_id: "payment-chg-guard-1", billing_key: "bk_1",
+                                       channel_key: channel_key, amount: 9_900,
+                                       customer_id: "cust_1", order_name: "받을돈 Plus 월 구독")
+          end
+        end
+
+        assert_match(/채널 키가 등록되지 않았습니다/, error.message)
+        assert_empty transport.requests, "키가 없는 차감은 포트원으로 나가지 않는다"
+        refute_kind_of ArgumentError, error
+      end
     end
 
     private

@@ -1,9 +1,12 @@
 require "test_helper"
+require_relative "../../test_helpers/portone_stubbing"
 
 # 요금제 페이지(F-PLAN 표면 ② — /app/billing) — 플랜 배지·상태 문구·플랜 비교·수금 패스 목록·
 # 체크아웃 전환·PLAN-6 환불 불가 고지. AUTH-1 비인증 가드.
 # 시나리오 기준: PRD §6.10 PLAN-1·2·4·6, _workspace/03_implementation.md §1(신규 뷰). 외부 API 호출 없음.
 class App::BillingsControllerTest < ActionDispatch::IntegrationTest
+  include PortOneStubbing
+
   test "비인증 요금제 페이지 접근은 302로 로그인 화면에 리다이렉트된다 (AUTH-1)" do
     get app_billing_path
 
@@ -115,5 +118,51 @@ class App::BillingsControllerTest < ActionDispatch::IntegrationTest
     get app_billing_path(checkout: orders(:delta_pass_order).pg_order_id)  # 이미 paid
     assert_response :success
     assert_select "[data-controller=portone-payment]", count: 0
+  end
+
+  # ── PLAN-5 채널 키 선택기 — 위젯 데이터 속성 주입·미설정 fail-closed(리뷰 W-1·Tester §6-3) ──
+  # 실제 credentials(로컬=키 有, CI=키 無)에 의존하지 않도록 선택기를 테스트 값으로 고정한다.
+
+  test "채널 키 선택기 값이 결제·카드 등록 위젯 데이터 속성에 그대로 심긴다 (PLAN-5)" do
+    order = users(:delta).orders.create!(product: :collection_pass, amount: 4_000,
+                                         pg_order_id: "order-channel-key-1")
+    sign_in_as users(:delta)
+
+    with_portone_channel_keys(normal: "test-channel-normal-sentinel",
+                              billing: "test-channel-billing-sentinel") do
+      get app_billing_path(checkout: order.pg_order_id)
+    end
+
+    assert_response :success
+    assert_select "[data-portone-payment-channel-key-value=test-channel-normal-sentinel]", count: 1
+    assert_select "[data-portone-billing-channel-key-value=test-channel-billing-sentinel]", count: 1
+    assert_select "button", text: "결제하기", count: 1
+  end
+
+  test "채널 키가 없는 환경의 체크아웃은 결제 버튼 대신 안내를 보여주고 위젯 블록은 유지된다 (PLAN-5·W-1)" do
+    order = users(:delta).orders.create!(product: :collection_pass, amount: 4_000,
+                                         pg_order_id: "order-channel-nil-1")
+    sign_in_as users(:delta)
+
+    with_portone_channel_keys(normal: nil) do
+      get app_billing_path(checkout: order.pg_order_id)
+    end
+
+    assert_response :success
+    assert_match "결제 채널이 설정되지 않았습니다", response.body
+    assert_select "button", text: "결제하기", count: 0
+    assert_select "[data-controller=portone-payment]", count: 1   # 위젯 블록 유지 — W-1 결정 범위
+  end
+
+  test "카드 등록 채널 키가 없으면 카드 등록 버튼 대신 안내를 보여준다 (PLAN-5·W-1)" do
+    sign_in_as users(:delta)
+
+    with_portone_channel_keys(billing: nil) do
+      get app_billing_path
+    end
+
+    assert_response :success
+    assert_match "결제 채널이 설정되지 않았습니다", response.body
+    assert_select "[data-portone-billing-channel-key-value]", count: 0
   end
 end

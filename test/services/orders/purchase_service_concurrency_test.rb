@@ -46,7 +46,11 @@ class Orders::PurchaseServiceConcurrencyTest < ActiveSupport::TestCase
         begin
           order = Order.find(@order.id)
           results << Orders::PurchaseService.new(
-            order: order, payment_token: "tok_race_1", client: FakePortOneClient.new
+            order: order, payment_token: "tok_race_1",
+            # 승인 응답은 실제 스펙대로 pgTxId·paidAt만 — 확정은 승인 뒤 재조회한 결제 건으로
+            client: FakePortOneClient.new(
+              get_payment: FakePortOneClient.paid_payment(id: @order.pg_order_id, amount: 4_000)
+            )
           ).call
         rescue Orders::PurchaseService::PurchaseError => e
           results << e

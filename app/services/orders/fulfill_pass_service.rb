@@ -1,7 +1,9 @@
 # 수금 패스 발급 확정(F-PLAN — PLAN-4) — 주문(paid 전환)과 패스 발급을 한 트랜잭션으로 묶고
 # with_lock + pending 재판정으로 직렬화한다. 콜백(PurchaseService)·웹훅(PortOneController) 어느
 # 경로가 먼저 도착해도 발급은 정확히 1회다(SEC-5와 같은 멱등 원칙 — 이슈 #1·#4 회복 경로가
-# 공유하는 확정점).
+# 공유하는 확정점). 단건 결제의 paid 확정은 이 서비스 한 곳에서만 일어나며, 상태 변경 전에
+# PortOne::PaymentVerifier로 실제 결제금액·채널 종류를 주문과 대조한다(재리뷰 R-1·R-2 —
+# fail-closed. 이미 확정된 주문의 멱등 no-op 경로는 검증하지 않는다).
 module Orders
   class FulfillPassService
     def initialize(order:, payment_id:, response: {})
@@ -15,6 +17,12 @@ module Orders
       @order.with_lock do
         next unless @order.reload.pending? # 이미 확정된 주문 — 무변경(멱등)
 
+        # PLAN-5 결제 확정 검증 — 재조회한 결제 건(승인 응답은 pgTxId·paidAt만이라 검증 대상
+        # 아니다)의 실제 결제금액(amount.paid)·채널 종류(channel.type)·통화(currency)가 주문과
+        # 일치할 때만 paid로 바꾼다. 실패 시 아무것도 바꾸지 않고 VerificationError를 올린다
+        # (트랜잭션 롤백 — 발급·발행 없음).
+        PortOne::PaymentVerifier.verify!(@response, order_amount: @order.amount)
+
         newly_paid = true
         ActiveRecord::Base.transaction do
           @order.update!(status: :paid, paid_at: Time.current,
@@ -27,6 +35,8 @@ module Orders
         end
       end
       # TAX-1 — 발행(바로빌 SOAP)은 결제 확정 트랜잭션 밖에서 수행한다(웹훅 경로와 동일).
+      # newly_paid는 검증 통과 후의 pending→paid 전환에만 true이므로 검증 실패 시 발행은
+      # 호출되지 않는다.
       fulfill_tax_invoice if newly_paid && @order.tax_invoice?
       @order
     end

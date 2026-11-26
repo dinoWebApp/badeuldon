@@ -1,5 +1,6 @@
 require "test_helper"
 require_relative "../../test_helpers/baro_bill_stubbing"
+require_relative "../../test_helpers/portone_stubbing"
 require_relative "../../test_helpers/fake_baro_bill_client"
 
 # 전자세금계산서 발행 컨트롤러(/app/tax_invoices — TAX-1/2·Q21·C-1·C-2) HTTP 통합 테스트.
@@ -9,6 +10,7 @@ require_relative "../../test_helpers/fake_baro_bill_client"
 # tax_invoice_gate_test.rb가 with_tax_invoice_feature(false)로 격리해 검증한다).
 class App::TaxInvoicesControllerTest < ActionDispatch::IntegrationTest
   include BaroBillStubbing
+  include PortOneStubbing
 
   setup do
     @user = users(:delta)
@@ -284,5 +286,114 @@ class App::TaxInvoicesControllerTest < ActionDispatch::IntegrationTest
     assert_match "이 발행 주문은 환불되었습니다.", response.body
     assert_match "고객지원(문의)으로 연락해 주세요", response.body, "재발행은 고객지원 경로로 안내한다"
     assert_no_match "다시 발행 요청", response.body, "발행 이력 가드에 막혀 막다른 글이 되는 링크는 노출하지 않는다"
+  end
+
+  # ── PLAN-5 채널 키 선택기·검증 실패 주문 안내(R2-2) — Tester 단계 ──
+  # pending 상세의 위젯 분기는 TAX-4 차단 안내가 없는(설정 완료) 사용자 기준이다 — make_ready!.
+
+  test "채널 키가 없는 환경의 pending 상세는 결제 버튼 대신 안내를 보여준다 (PLAN-5·W-1)" do
+    sign_in_as @user
+    make_ready!
+    order = create_tax_order
+
+    with_portone_channel_keys(normal: nil) do
+      get app_tax_invoice_path(order)
+    end
+
+    assert_response :success
+    assert_match "결제 채널이 설정되지 않았습니다", response.body
+    assert_select "button", text: "결제하기", count: 0
+    assert_select "[data-controller=portone-payment]", count: 1   # 위젯 블록 유지 — W-1 결정 범위
+  end
+
+  test "채널 키·연락처가 있으면 결제 버튼과 선택기 키 값을 심고, 연락처가 없으면 등록 안내를 보여준다 (PLAN-5)" do
+    sign_in_as @user
+    make_ready!
+    order = create_tax_order
+
+    with_portone_channel_keys(normal: "test-channel-normal-sentinel") do
+      get app_tax_invoice_path(order)
+    end
+
+    assert_response :success
+    assert_select "button", text: "결제하기", count: 1
+    assert_select "[data-portone-payment-channel-key-value=test-channel-normal-sentinel]", count: 1
+
+    @user.update!(phone: nil)
+    with_portone_channel_keys(normal: "test-channel-normal-sentinel") do
+      get app_tax_invoice_path(order)
+    end
+
+    assert_response :success
+    assert_match "결제에는 연락처가 필요합니다", response.body
+    assert_select "button", text: "결제하기", count: 0
+  end
+
+  test "검증 실패 세금계산서 주문 상세는 문의 안내를 보여주고 재발행 버튼이 없다 (R2-2)" do
+    sign_in_as @user
+    order = create_tax_order
+    order.mark_verification_failed!(reason: "amount_mismatch", detail: "paid=100 expected=300")
+
+    get app_tax_invoice_path(order)
+
+    assert_response :success
+    assert_match "결제 확인에 실패했습니다. 다시 결제하지 말고 고객지원(문의)으로 연락해 주세요.", response.body
+    assert_match "고객지원에 문의", response.body                # 문의 링크(티켓)
+    assert_no_match "다시 발행 요청", response.body              # 재발행 버튼 없음
+    assert_no_match "결제가 취소되었거나 실패했습니다", response.body
+    assert_no_match "확인하고 있으니", response.body             # F-2 — 자동 확인 중 함축 문구 없음
+  end
+
+  test "검증 실패 안내는 payment_failed 파라미터보다 우선이다 (R2-2)" do
+    sign_in_as @user
+    order = create_tax_order
+    order.mark_verification_failed!(reason: "currency_mismatch", detail: "currency=USD expected=KRW")
+
+    get app_tax_invoice_path(order, params: { payment_failed: "1" })
+
+    assert_response :success
+    assert_match "결제 확인에 실패했습니다. 다시 결제하지 말고 고객지원(문의)으로 연락해 주세요.", response.body
+    assert_no_match "결제가 승인되지 않았습니다", response.body  # 위젯 실패 문구로 덮어쓰지 않는다
+  end
+
+  test "일반 결제 실패 세금계산서 주문은 기존 재발행 안내를 유지한다 (R2-2 회귀)" do
+    sign_in_as @user
+    order = create_tax_order(status: :failed)
+
+    get app_tax_invoice_path(order)
+
+    assert_response :success
+    assert_match "결제가 취소되었거나 실패했습니다", response.body
+    assert_match "다시 발행 요청", response.body
+    assert_no_match "다시 결제하지 말고 고객지원", response.body
+  end
+
+  test "F-1: 검증 실패 주문이 있는 청구의 create는 새 주문을 만들지 않고 그 주문으로 되돌린다" do
+    sign_in_as @user
+    make_ready!
+    failed_order = create_tax_order
+    failed_order.mark_verification_failed!(reason: "amount_mismatch", detail: "paid=100 expected=300")
+    create_tax_order  # 대기 주문이 함께 있어도 검증 실패 주문이 우선이다(paid 가드보다 앞)
+
+    assert_no_difference -> { @user.orders.count } do
+      post app_tax_invoices_path, params: { invoice_id: @invoice.id }
+    end
+
+    assert_response :redirect
+    assert_redirected_to app_tax_invoice_path(failed_order)
+    assert_equal Order::VERIFICATION_FAILED_REORDER_NOTICE, flash[:alert]
+  end
+
+  test "F-3: pending 회복 대기 주문의 payment_failed 착지는 재시도 안내 대신 회복 안내를 보여준다" do
+    sign_in_as @user
+    make_ready!
+    order = create_tax_order
+    order.update!(metadata: order.metadata.merge("pending_recovery" => true))
+
+    get app_tax_invoice_path(order, params: { payment_failed: "1" })
+
+    assert_response :success
+    assert_match "결제 확인이 지연되고 있습니다. 승인 결과는 잠시 후 자동으로 반영됩니다.", response.body
+    assert_no_match "결제가 승인되지 않았습니다", response.body  # "다시 시도"로 덮어쓰지 않는다
   end
 end

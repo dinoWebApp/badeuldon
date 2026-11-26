@@ -11,8 +11,9 @@ class App::BillingsController < App::BaseController
     @checkout_order = Current.user.orders.pending.collection_pass
                                 .find_by(pg_order_id: params[:checkout]) if params[:checkout].present?
     @portone_store_id = Rails.application.credentials.dig(:portone, :store_id)
-    @portone_channel_key_normal = Rails.application.credentials.dig(:portone, :channel_key_normal)
-    @portone_channel_key_billing = Rails.application.credentials.dig(:portone, :channel_key_billing)
+    # 채널 키는 환경 선택기로만 고른다(PLAN-5 — 운영 라이브 키·그 외 테스트 키).
+    @portone_channel_key_normal = PortOne::ChannelKey.normal
+    @portone_channel_key_billing = PortOne::ChannelKey.billing
     # B1(KG이니시스 필수 파라미터) — 위젯 customer 정보·빌링키 발급 건 ID. 표시명은 프로필
     # 완료 가드로(AUTH-1.3), 이메일은 가입 가드로(AUTH-1.4) 항상 존재하고 연락처는 선택
     # 입력이라 빈 값은 위젯 JS가 파라미터에서 뺀다. issueId는 발급 건 고유 번호(ASCII UUID).

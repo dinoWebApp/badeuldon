@@ -12,6 +12,11 @@ module PortOne
     BASE_URL = "https://api.portone.io"
     TIMEOUT_SECONDS = 60
 
+    # 채널 키 미등록 전용 예외(PLAN-5 — 리뷰 W-2) — 설정 오류를 코드 오류(ArgumentError)와
+    # 구분한다. 갱신·재시도 잡이 이 예외만 잡아 해당 구독을 건너뛰게 하고, 그 외 예외는
+    # 기존대로 잡 밖으로 나가게 둔다.
+    class MissingChannelKey < StandardError; end
+
     # api_secret·전송 계층을 주입 가능하게 둔다 — 테스트 stub과(기본값) 실측(주입)을 분리.
     def initialize(api_secret: Rails.application.credentials.dig(:portone, :api_secret),
                    store_id: Rails.application.credentials.dig(:portone, :store_id))
@@ -20,16 +25,23 @@ module PortOne
     end
 
     # 인증 결제 수동 승인 — 수금 패스 위젯(결제창) 완료 응답의 paymentToken을 최종 승인으로
-    # 교환한다. 포트원이 결제 요청 당시 금액과 일치함을 검증하므로 amount는 위젯 호출에 쓴
-    # 주문 레코드 원값 기준이다.
-    def confirm_payment(payment_id:, payment_token:, store_id: default_store_id)
+    # 교환한다. totalAmount·isTest·currency는 포트원 검증용 파라미터(공식 OpenAPI v2
+    # ConfirmPaymentBody — 결제 건 총 금액·테스트 여부·통화와 일치하지 않으면 포트원이 오류를
+    # 반환하므로 값 전달 권장)로, 주문 레코드 원값·환경 기대값(운영 false·그 외 true)·KRW 단건
+    # 고정을 그대로 보낸다. 승인 응답(ConfirmedPaymentSummary — pgTxId·paidAt만)에는 검증에 쓸
+    # 필드가 없으므로 서버 쪽 2차 검증(금액·채널·통화)은 승인 뒤 재조회한 결제 건으로
+    # PortOne::PaymentVerifier(확정점 FulfillPassService)가 담당한다(재리뷰 R-1·R-2·R2-4).
+    def confirm_payment(payment_id:, payment_token:, total_amount:, is_test:, currency:,
+                        store_id: default_store_id)
       request(method: :post, path: "/payments/#{escape(payment_id)}/confirm",
-              body: { storeId: store_id, paymentToken: payment_token })
+              body: { storeId: store_id, paymentToken: payment_token,
+                      totalAmount: total_amount, isTest: is_test, currency: currency })
     end
 
     # 빌링키 발급 — 카드 인증 위젯이 발급한 토큰(billingIssueToken)을 빌링키로 교환한다.
     # 채널은 정기결제용(channel_key_billing), 고객 식별자는 구독의 pg_customer_key다.
     def issue_billing_key(issue_token:, channel_key:, customer_id:, store_id: default_store_id)
+      ensure_channel_key!(channel_key)
       request(method: :post, path: "/billing-keys/confirm",
               body: { storeId: store_id, billingIssueToken: issue_token,
                       channelKey: channel_key, customer: { id: customer_id } })
@@ -40,6 +52,7 @@ module PortOne
     # 응답은 결제 결과 스냅샷({ payment: {...} } — Order.metadata 보관).
     def charge_billing_key(payment_id:, billing_key:, channel_key:, amount:, customer_id:,
                            order_name:, store_id: default_store_id)
+      ensure_channel_key!(channel_key)
       request(method: :post, path: "/payments/#{escape(payment_id)}/billing-key",
               body: { storeId: store_id, billingKey: billing_key, channelKey: channel_key,
                       orderName: order_name, amount: { total: amount }, currency: "KRW",
@@ -63,6 +76,15 @@ module PortOne
 
     def default_store_id
       @store_id
+    end
+
+    # 채널 키 미등록 가드(PLAN-5 — fail-closed) — 환경의 채널 키가 credentials에 없으면
+    # (PortOne::ChannelKey가 nil) 결제 요청을 포트원으로 보내지 않고 여기서 실패한다.
+    # 라이브 키로 대체하지 않으므로 키 부재는 즉시 가시적 오류가 된다.
+    def ensure_channel_key!(channel_key)
+      return if channel_key.present?
+
+      raise MissingChannelKey, "포트원 채널 키가 등록되지 않았습니다 — credentials(:portone)에 환경에 맞는 채널 키를 등록해 주세요"
     end
 
     def request(method:, path:, body: nil)

@@ -25,7 +25,11 @@ class App::TaxInvoiceCallbackTest < ActionDispatch::IntegrationTest
   end
 
   def confirm_via_callback(order)
-    fake = FakePortOneClient.new(confirm_payment: { id: order.pg_order_id, status: "PAID" })
+    # paymentToken 없는 콜백(즉시 승인 채널) — 결제 조회로 확정한다. 재조회 응답은 결제 확정
+    # 검증(FulfillPassService)을 통과하는 형태로 조립한다(재리뷰 R-1·R-2 — 금액·채널 포함).
+    fake = FakePortOneClient.new(
+      get_payment: FakePortOneClient.paid_payment(id: order.pg_order_id, amount: order.amount)
+    )
     with_portone_client(fake) do
       get callback_app_orders_path, params: { paymentId: order.pg_order_id }
     end

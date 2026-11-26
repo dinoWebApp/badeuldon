@@ -1,4 +1,5 @@
 require "test_helper"
+require_relative "../test_helpers/fake_portone_client"
 
 class OrderItemTypeTest < ActiveSupport::TestCase
   fixtures :orders, :users
@@ -34,7 +35,8 @@ class OrderItemTypeTest < ActiveSupport::TestCase
   end
 
   # 결제 완료 전환 시나리오 — FulfillPassService가 legal_doc 주문은 발급물 없이 paid만 확정한다
-  # (콜백·웹훅 어느 경로가 먼저 와도 동일 — SEC-5 멱등).
+  # (콜백·웹훅 어느 경로가 먼저 와도 동일 — SEC-5 멱등). 결제 응답은 검증 통과 형태로 조립한다
+  # (재리뷰 R-1·R-2 — paid_payment 헬퍼: 금액·채널 포함, test 환경 기대값 TEST).
   test "FulfillPassService — legal_doc 주문은 paid 전환만 하고 수금 패스를 발급하지 않는다" do
     user = users(:delta)
     order = user.orders.create!(product: :collection_pass, item_type: :legal_doc,
@@ -42,7 +44,9 @@ class OrderItemTypeTest < ActiveSupport::TestCase
 
     assert_no_changes -> { PaymentPass.count } do
       Orders::FulfillPassService.new(order: order, payment_id: order.pg_order_id,
-                                     response: { id: order.pg_order_id, status: "PAID" }).call
+                                     response: FakePortOneClient.paid_payment(
+                                       id: order.pg_order_id, amount: Order::LEGAL_DOC_PRICE
+                                     )).call
     end
     assert order.reload.paid?
   end
@@ -54,7 +58,9 @@ class OrderItemTypeTest < ActiveSupport::TestCase
 
     assert_difference -> { PaymentPass.count }, 1 do
       Orders::FulfillPassService.new(order: order, payment_id: order.pg_order_id,
-                                     response: { id: order.pg_order_id, status: "PAID" }).call
+                                     response: FakePortOneClient.paid_payment(
+                                       id: order.pg_order_id, amount: 4_000
+                                     )).call
     end
     assert order.reload.paid?
   end
@@ -65,7 +71,9 @@ class OrderItemTypeTest < ActiveSupport::TestCase
                                 amount: Order::LEGAL_DOC_PRICE, pg_order_id: SecureRandom.uuid)
     service = -> {
       Orders::FulfillPassService.new(order: order, payment_id: order.pg_order_id,
-                                     response: { status: "PAID" }).call
+                                     response: FakePortOneClient.paid_payment(
+                                       id: order.pg_order_id, amount: Order::LEGAL_DOC_PRICE
+                                     )).call
     }
 
     service.call

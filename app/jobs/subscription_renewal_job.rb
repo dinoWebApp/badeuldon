@@ -13,6 +13,10 @@ class SubscriptionRenewalJob < ApplicationJob
     rescue Subscriptions::UpgradeService::UpgradeError => e
       # 갱신 실패는 이미 주문(failed)·강등으로 기록됐다 — 나머지 대상 처리를 계속한다.
       Rails.logger.warn("[SubscriptionRenewalJob] user=#{subscription.user_id} #{e.message}")
+    rescue PortOne::ClientService::MissingChannelKey => e
+      # 채널 키 미등록(설정 오류 — PLAN-5)은 이 구독만 건너뛰고 나머지 대상(해지 후 만료
+      # 강등 포함) 처리를 계속한다. 전용 예외만 잡는다 — 코드 오류는 잡 밖으로 나간다.
+      Rails.logger.error("[SubscriptionRenewalJob] user=#{subscription.user_id} #{e.message}")
     end
   end
 

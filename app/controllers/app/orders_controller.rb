@@ -3,9 +3,14 @@
 # 승인 확정. 결제 금액·주문 id는 서버가 생성한 값을 기준으로 한다(콜백 파라미터 금액은 신뢰
 # 하지 않음).
 class App::OrdersController < App::BaseController
-  # PLAN-4 — 수금 패스 10건 4,000원 단건 결제. 대기 주문이 이미 있으면 재사용해 버튼 연타에도
-  # 주문이 누적되지 않는다(멱등).
+  # PLAN-4 — 수금 패스 10건 4,000원 단건 결제. 해결되지 않은 검증 실패 주문이 있는 회원의
+  # 재구매는 막는다(F-1 — 마감 리뷰 2026-11-25: 상세 화면 밖의 결제창 진입 차단 — 잘못 걸러진
+  # 정상 결제라면 이중 결제). 대기 주문이 이미 있으면 재사용해 버튼 연타에도 주문이 누적되지
+  # 않는다(멱등).
   def create
+    blocked_order = Order.verification_failed_for(Current.user, item_type: :pass)
+    return redirect_pass_verification_failed if blocked_order
+
     @order = Current.user.orders.pending.collection_pass.first ||
              Current.user.orders.create!(product: :collection_pass,
                                          amount: Order.amount_for(:collection_pass),
@@ -30,6 +35,14 @@ class App::OrdersController < App::BaseController
   end
 
   private
+
+  # F-1 — 해결되지 않은 검증 실패 주문이 있는 회원의 수금 패스 재구매 차단. 요금제 화면으로
+  # 되돌려 안내한다. 해제 조건(운영): 주문 상태를 runner로 cancelled 등으로 바꾸면 다시
+  # 구매할 수 있다(Order.verification_failed_for 주석 참조).
+  def redirect_pass_verification_failed
+    redirect_to app_billing_path, status: :see_other,
+                alert: Order::VERIFICATION_FAILED_REORDER_NOTICE
+  end
 
   # LEGAL-2 — 주문 품목별 결과 착지점. 수금 패스·구독 주문은 기존대로 요금제 화면,
   # 내용증명 주문은 해당 주문 상세(결제 상태·다운로드 버튼), 세금계산서 주문은 발행 주문 상세

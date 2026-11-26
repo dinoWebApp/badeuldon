@@ -23,9 +23,14 @@ class App::TaxInvoicesController < App::BaseController
   # 만든다(발행 자체는 결제 완료 후 웹훅·콜백 확정점에서만 수행 — 이중 발행 차단 1차 가드).
   # Phase 6 C-2 — paid 주문 가드로 이중 결제 차단(SOAP 실패로 발행 레코드가 미생성된 청구의
   # 재결제 방지 — LEGAL find_paid_legal_order 선례). W-2 — 생성 책임은 CreateOrderService로.
-  # TAX-3 — 대상 로드·자격 가드는 before_action이 담당하고, IneligibleUser 서비스 예외는
-  # 이중 방어로 유지한다(결제 전 차단).
+  # F-1(마감 리뷰 2026-11-25) — 같은 청구에 검증 실패 주문이 있으면 그 주문 상세로 되돌린다
+  # (paid 가드보다 앞 — pending 재사용으로 결제창을 다시 열게 두지 않는다). TAX-3 — 대상
+  # 로드·자격 가드는 before_action이 담당하고, IneligibleUser 서비스 예외는 이중 방어로
+  # 유지한다(결제 전 차단).
   def create
+    blocked_order = Order.verification_failed_for(Current.user, item_type: :tax_invoice, invoice_id: @invoice.id)
+    return redirect_verification_failed_order(blocked_order) if blocked_order
+
     paid_order = Order.tax_invoice_order_for(@invoice, paid: true)
     return redirect_existing_paid_order(paid_order) if paid_order
 
@@ -43,7 +48,7 @@ class App::TaxInvoicesController < App::BaseController
     # TAX-3/4(리뷰 C-2) — pending 주문의 상세는 결제 화면이기도 하다. 꺼짐·부적격이면 결제
     # 진입을 막고 안내를 넘긴다(뷰가 체크아웃 대신 안내 카드 — 조회는 200 유지, paid는 ④ 허용).
     @tax_invoice_blocked_notice = tax_invoice_payment_block_notice if @order.pending?
-    flash.now[:alert] = "결제가 승인되지 않았습니다. 다시 시도해 주세요." if params[:payment_failed].present?
+    set_payment_failure_alert
   end
 
   # 발급 취소(TAX-1 — 취소도 과금 전제). 국세청 전송 전에만 가능하며 실패 사유를 안내한다.
@@ -63,6 +68,22 @@ class App::TaxInvoicesController < App::BaseController
   end
 
   private
+
+  # 결제 실패 착지(?payment_failed=1) 안내. 우선순위(R2-2 + F-2·F-3 — 마감 리뷰 2026-11-25):
+  # ① 검증 실패 주문(PLAN-5 결제 확정 검증 거절 — Order#verification_failed?)은 다시 결제하게
+  # 두면 안 된다(잘못 걸러진 정상 결제라면 이중 결제) — 문의 안내. ② pending 회복 대기 주문
+  # (승인 됐거나 될 수 있으나 재조회 실패 — Order#pending_recovery_waiting?)은 "다시 시도"
+  # 대신 회복 안내. ③ 그 외 결제 실패 착지는 기존 재시도 안내. 뷰도 ① 판정으로 재발행 버튼을
+  # 숨긴다(app/views/app/tax_invoices/show.html.erb).
+  def set_payment_failure_alert
+    if @order.verification_failed?
+      flash.now[:alert] = Order::VERIFICATION_FAILED_USER_NOTICE
+    elsif @order.pending_recovery_waiting?
+      flash.now[:alert] = Order::PENDING_RECOVERY_NOTICE
+    elsif params[:payment_failed].present?
+      flash.now[:alert] = "결제가 승인되지 않았습니다. 다시 시도해 주세요."
+    end
+  end
 
   def set_order
     @order = Current.user.orders.tax_invoices.find(params[:id])  # 소유권 격리
@@ -112,6 +133,13 @@ class App::TaxInvoicesController < App::BaseController
                 notice: "이 청구는 이미 결제가 완료되었습니다. 기존 주문에서 발행 상태를 확인해 주세요."
   end
 
+  # F-1 — 검증 실패 주문이 있는 청구의 재발행 create 차단. 그 주문 상세로 되돌린다
+  # (상세 화면이 검증 실패 안내를 보여 준다 — LegalDocumentsController 선례).
+  def redirect_verification_failed_order(order)
+    redirect_to app_tax_invoice_path(order), status: :see_other,
+                alert: Order::VERIFICATION_FAILED_REORDER_NOTICE
+  end
+
   # TAX-3 — 가드 안내 수렴점(리뷰 C-1 — 대상을 청구서 상세로 통일). new로 되돌리면 결제
   # 버튼이 남은 막다른 길이 되며, 무한 리다이렉트가 생긴다. create의 IneligibleUser
   # rescue도 같은 경로로 수렴한다(이중 방어 — 컨트롤러 가드가 먼저 걸린다).
@@ -127,7 +155,7 @@ class App::TaxInvoicesController < App::BaseController
   # 포트원 위젯 파라미터(B1 — KG이니시스 필수 고객 정보. LegalDocumentsController 선례).
   def set_portone_context
     @portone_store_id = Rails.application.credentials.dig(:portone, :store_id)
-    @portone_channel_key_normal = Rails.application.credentials.dig(:portone, :channel_key_normal)
+    @portone_channel_key_normal = PortOne::ChannelKey.normal  # 환경 선택기(PLAN-5)
     @portone_customer_name = Current.user.display_name
     @portone_customer_phone = Current.user.phone
     @portone_customer_email = Current.user.email

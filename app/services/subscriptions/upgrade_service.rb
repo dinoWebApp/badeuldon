@@ -244,10 +244,10 @@ module Subscriptions
       end
     end
 
-    # 정기결제 채널 키 — 빌링키 발급·차감을 INIBillTst(정기결제 테스트 채널)로 라우팅한다.
-    # 주입값 우선(테스트 밀봉), 없으면 credentials 기본값(운영).
+    # 정기결제 채널 키 — 빌링키 발급·차감에 쓴다. 주입값 우선(테스트 밀봉), 없으면 환경
+    # 선택기(PLAN-5 — 운영은 라이브 채널 키, 그 외 환경은 테스트 채널 키).
     def portone_channel_key_billing
-      @channel_key || Rails.application.credentials.dig(:portone, :channel_key_billing)
+      @channel_key || PortOne::ChannelKey.billing
     end
 
     def renewal_due?(subscription)

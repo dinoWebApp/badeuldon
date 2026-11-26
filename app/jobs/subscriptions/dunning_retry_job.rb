@@ -31,6 +31,10 @@ module Subscriptions
     rescue Subscriptions::UpgradeService::UpgradeError => e
       # 실패는 이미 주문(failed)·dunning 단계 진행(또는 cancelled)으로 기록됐다.
       Rails.logger.warn("[Subscriptions::DunningRetryJob] subscription=#{subscription_id} #{e.message}")
+    rescue PortOne::ClientService::MissingChannelKey => e
+      # 채널 키 미등록(설정 오류 — PLAN-5)은 카드 거절이 아니므로 실패 주문·dunning 단계
+      # 진행 없이 그대로 둔다(설정 복구 후 재실행 대상 — 상태 변경 없음).
+      Rails.logger.error("[Subscriptions::DunningRetryJob] subscription=#{subscription_id} #{e.message}")
     end
   end
 end

@@ -44,10 +44,45 @@ class App::OrdersControllerTest < ActionDispatch::IntegrationTest
     assert_equal first_uuid, users(:gamma).orders.sole.pg_order_id
   end
 
+  test "F-1: 해결되지 않은 검증 실패 주문이 있는 회원의 패스 구매는 주문 없이 요금제로 되돌려진다" do
+    user = users(:gamma)
+    sign_in_as user
+    blocked_order = user.orders.create!(product: :collection_pass, amount: 4_000,
+                                        pg_order_id: "order-pass-verify-failed")
+    blocked_order.mark_verification_failed!(reason: "amount_mismatch", detail: "paid=100 expected=4000")
+
+    assert_no_difference -> { user.orders.count } do
+      post app_orders_path
+    end
+
+    assert_response :redirect
+    assert_redirected_to app_billing_path
+    assert_equal Order::VERIFICATION_FAILED_REORDER_NOTICE, flash[:alert]
+  end
+
+  test "F-1 해제: 검증 실패 주문을 cancelled로 바꾸면(운영 해제 조건) 패스를 다시 구매할 수 있다" do
+    user = users(:gamma)
+    sign_in_as user
+    blocked_order = user.orders.create!(product: :collection_pass, amount: 4_000,
+                                        pg_order_id: "order-pass-verify-released")
+    blocked_order.mark_verification_failed!(reason: "amount_mismatch", detail: "paid=100 expected=4000")
+    blocked_order.update!(status: :cancelled)  # 운영자 콘솔 절차 — failed 해제 뒤 재구매 허용
+
+    assert_difference -> { user.orders.count }, 1 do
+      post app_orders_path
+    end
+
+    assert_response :redirect
+    assert_predicate user.orders.pending.collection_pass.sole, :collection_pass?
+  end
+
   test "포트원 승인 콜백(paymentToken)은 303으로 안내되고 주문 paid·패스 10건을 확정한다 (PLAN-4)" do
     order = users(:gamma).orders.create!(product: :collection_pass, amount: 4_000,
                                          pg_order_id: "order-callback-1")
-    fake = FakePortOneClient.new(confirm_payment: { id: "order-callback-1", status: "PAID" })
+    # 승인 응답은 실제 스펙대로 pgTxId·paidAt만(대역 기본값) — 확정은 승인 뒤 재조회한 결제 건으로
+    fake = FakePortOneClient.new(
+      get_payment: FakePortOneClient.paid_payment(id: "order-callback-1", amount: 4_000)
+    )
     sign_in_as users(:gamma)
 
     with_portone_client(fake) do
@@ -61,6 +96,7 @@ class App::OrdersControllerTest < ActionDispatch::IntegrationTest
     order.reload
     assert_predicate order, :paid?
     assert_equal "order-callback-1", order.pg_payment_id     # paymentId = 주문번호 스냅샷
+    assert_equal 1, fake.calls[:get_payment].size            # 승인 성공 뒤 재조회 1회
     pass = users(:gamma).payment_passes.sole
     assert_equal 10, pass.remaining_uses
     assert_not_nil pass.expires_at
@@ -69,7 +105,9 @@ class App::OrdersControllerTest < ActionDispatch::IntegrationTest
   test "paymentToken 없는 콜백(즉시 승인 채널)은 결제 조회로 승인을 확정한다" do
     order = users(:gamma).orders.create!(product: :collection_pass, amount: 4_000,
                                          pg_order_id: "order-callback-instant-1")
-    fake = FakePortOneClient.new(get_payment: { id: "order-callback-instant-1", status: "PAID" })
+    fake = FakePortOneClient.new(
+      get_payment: FakePortOneClient.paid_payment(id: "order-callback-instant-1", amount: 4_000)
+    )
     sign_in_as users(:gamma)
 
     with_portone_client(fake) do

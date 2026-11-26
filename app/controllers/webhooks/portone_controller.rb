@@ -58,6 +58,12 @@ class Webhooks::PortOneController < ActionController::Base
     # 이벤트가 아니라 재조회 응답을 기준으로 확정한다(무결성). 이미 같은 상태면 무변경(멱등).
     status = ORDER_STATUS_BY_PORTONE.fetch(payment[:status], order.status)
     apply_status(order, status, payment)
+  rescue PortOne::PaymentVerifier::VerificationError => e
+    # 결제 확정 검증 실패(재리뷰 R-1·R-2) — 금액·채널·통화가 주문과 일치하지 않는 결제다.
+    # 확정하지 않고 주문을 failed로 기록한다(Order#mark_verification_failed! — R2-5 단일 구현).
+    # 응답은 그대로 200(포트원 규격) — 재시도해도 같은 검증으로 거절되므로 재시도를 유발하지
+    # 않는다.
+    order.mark_verification_failed!(reason: e.reason, detail: e.detail)
   end
 
   # paymentId(pg_order_id)로 조회한다. 결제 ID 스냅샷(pg_payment_id)도 보조 경로로 둔다 —
@@ -66,11 +72,18 @@ class Webhooks::PortOneController < ActionController::Base
     Order.find_by(pg_order_id: payment_id) || Order.find_by(pg_payment_id: payment_id)
   end
 
-  # 주문 상태 반영 — pending→paid 전환은 상품별 확정을 동반한다. 그 밖의 전환
-  # (pending→실패·취소, paid→cancelled 환불)은 단순 동기화다.
+  # 주문 상태 반영 — pending→paid 전환은 상품별 확정(검증 포함 FulfillPassService)을 동반한다.
+  # 그 밖의 전환(pending→실패·취소, paid→cancelled 환불)은 단순 동기화다.
+  # 재리뷰 2회차 R2-1 — 검증 실패·실패로 확정된 주문이 뒤늦은 Transaction.Paid 이벤트로
+  # 검증 없이 paid로 되돌려지는 우회를 막는다: paid 전환은 pending 주문의 확정 경로
+  # (settle_paid)로만 일어난다. 검증 실패 주문의 결제는 포트원에서 실제 PAID일 수 있어(소액·
+  # 테스트 채널 결제) 재조회가 PAID라도 그대로는 상품(내용증명 정식 PDF 등)을 검증 없이 풀어준다.
   def apply_status(order, status, payment)
     return if order.status == status
     return settle_paid(order, payment) if order.pending? && status == "paid"
+
+    # failed·cancelled 주문은 검증·확정 없이 paid로 뒤집지 않는다(재리뷰 2회차 R2-1)
+    return if status == "paid"
 
     order.update!(status: status)
   end
@@ -79,7 +92,9 @@ class Webhooks::PortOneController < ActionController::Base
     # LEGAL-2/TAX-1 — item_type 기준으로 먼저 분기한다(내용증명·세금계산서 주문은 단건 결제
     # 채널 동작상 product=collection_pass 값을 갖는다 — Order 주석 참조). 확정 자체는
     # FulfillPassService가 item_type에 따라 발급물 유무·발행 수행을 판단한다(세금계산서는
-    # FulfillTaxInvoiceService로 위임 — metadata 병합 B-1 선례).
+    # FulfillTaxInvoiceService로 위임 — metadata 병합 B-1 선례). 단건 결제 확정은
+    # FulfillPassService가 검증한다(재리뷰 R-1·R-2). Plus 갱신(settle_renewal)은 서버가
+    # 금액·채널을 지정하는 빌링키 차감이라 검증 대상이 아니다.
     if order.collection_pass? || order.legal_doc? || order.tax_invoice?
       Orders::FulfillPassService.new(order: order, payment_id: order.pg_order_id,
                                      response: payment).call
